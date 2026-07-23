@@ -165,9 +165,6 @@ export default function ScorecardScreen() {
               <View style={styles.leftCol}>
                 <View>
                   <Text style={styles.userName}>{fullName}</Text>
-                  <Text style={styles.roundMeta}>
-                    ROUND {scorecard.roundNumber} · STARTED ON {scorecard.startHole}
-                  </Text>
                 </View>
 
                 <View style={styles.scoresRow}>
@@ -283,14 +280,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.3,
-  },
-  roundMeta: {
-    color: colors.muted,
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginTop: 4,
   },
   scoresRow: {
     flexDirection: 'row',
