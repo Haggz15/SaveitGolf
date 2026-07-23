@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
 import Header from '../components/Header';
@@ -48,14 +48,12 @@ function NineColumn({ title, holes, totalLabel }) {
       <Text style={styles.columnTitle}>{title}</Text>
 
       <View style={styles.columnHeaderRow}>
-        <Text style={[styles.columnHeaderCell, styles.holeColumn]}>Hole</Text>
         <Text style={styles.columnHeaderCell}>Par</Text>
         <Text style={styles.columnHeaderCell}>Score</Text>
       </View>
 
       {holes.map((h) => (
         <View key={h.hole} style={styles.columnRow}>
-          <Text style={[styles.columnCell, styles.holeColumn]}>{h.hole}</Text>
           <Text style={styles.columnCell}>{h.par}</Text>
           <View style={styles.columnCell}>
             <ScoreBadge score={h.score} par={h.par} />
@@ -64,19 +62,33 @@ function NineColumn({ title, holes, totalLabel }) {
       ))}
 
       <View style={[styles.columnRow, styles.columnTotalRow]}>
-        <Text style={[styles.columnCell, styles.holeColumn, styles.columnTotalText]}>
-          {totalLabel}
-        </Text>
         <Text style={[styles.columnCell, styles.columnTotalText]}>{totalPar}</Text>
         <Text style={[styles.columnCell, styles.columnTotalText]}>{totalScore}</Text>
       </View>
+      <Text style={styles.columnTotalLabel}>{totalLabel}</Text>
     </View>
+  );
+}
+
+function PhotoBox({ uri, onPress }) {
+  return (
+    <TouchableOpacity style={styles.photoBox} onPress={onPress} activeOpacity={0.85}>
+      {uri ? (
+        <Image source={{ uri }} style={styles.photoImage} resizeMode="cover" />
+      ) : (
+        <View style={styles.photoPlaceholder}>
+          <Ionicons name="camera-outline" size={26} color={colors.muted} />
+          <Text style={styles.photoPlaceholderText}>Add photo</Text>
+        </View>
+      )}
+    </TouchableOpacity>
   );
 }
 
 export default function ScorecardScreen() {
   const viewShotRef = useRef(null);
   const [isSharing, setIsSharing] = useState(false);
+  const [photoUri, setPhotoUri] = useState(null);
 
   const isNineHoleRound = !scorecard.back || scorecard.back.length === 0;
 
@@ -84,7 +96,39 @@ export default function ScorecardScreen() {
   const totalScore = sumScore(scorecard.front) + (isNineHoleRound ? 0 : sumScore(scorecard.back));
   const diff = totalScore - totalPar;
   const diffLabel = diff === 0 ? 'E' : diff > 0 ? `+${diff}` : `${diff}`;
-  const fullName = `${currentUser.firstName} ${currentUser.lastName}`;
+  const fullName = `${currentUser.firstName} ${currentUser.lastName}`.toUpperCase();
+
+  async function handlePickPhoto() {
+    if (Platform.OS === 'web') {
+      Alert.alert('Not available', 'Adding a photo is only available in the mobile app.');
+      return;
+    }
+
+    try {
+      // Required lazily: this native module isn't available on web and
+      // throws at import time if loaded statically there.
+      const ImagePicker = require('expo-image-picker');
+
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow photo library access to add a photo to your scorecard.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [3, 5],
+        quality: 0.9,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setPhotoUri(result.assets[0].uri);
+      }
+    } catch (err) {
+      Alert.alert('Something went wrong', 'Could not open your photo library. Please try again.');
+    }
+  }
 
   async function handleShare() {
     if (Platform.OS === 'web') {
@@ -134,11 +178,15 @@ export default function ScorecardScreen() {
               <Text style={styles.playedCourseName}>{scorecard.courseName}</Text>
             </View>
 
-            <View style={styles.columns}>
-              <NineColumn title="Front 9" holes={scorecard.front} totalLabel="OUT" />
-              {!isNineHoleRound && (
-                <NineColumn title="Back 9" holes={scorecard.back} totalLabel="IN" />
-              )}
+            <View style={styles.cardBody}>
+              <View style={styles.columns}>
+                <NineColumn title="Front 9" holes={scorecard.front} totalLabel="OUT" />
+                {!isNineHoleRound && (
+                  <NineColumn title="Back 9" holes={scorecard.back} totalLabel="IN" />
+                )}
+              </View>
+
+              <PhotoBox uri={photoUri} onPress={handlePickPhoto} />
             </View>
 
             <View style={styles.totalSection}>
@@ -249,9 +297,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  columns: {
+  cardBody: {
     flexDirection: 'row',
+    alignItems: 'stretch',
     gap: 10,
+  },
+  columns: {
+    flex: 2,
+    flexDirection: 'row',
+    gap: 8,
   },
   column: {
     flex: 1,
@@ -259,38 +313,35 @@ const styles = StyleSheet.create({
   columnTitle: {
     color: colors.white,
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: 11,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   columnHeaderRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: colors.navyBorder,
-    paddingBottom: 6,
-    marginBottom: 4,
+    paddingBottom: 4,
+    marginBottom: 2,
   },
   columnHeaderCell: {
     flex: 1,
     color: colors.muted,
-    fontSize: 11,
+    fontSize: 9,
     textAlign: 'center',
     fontWeight: '600',
   },
   columnRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 5,
+    paddingVertical: 3,
   },
   columnCell: {
     flex: 1,
     color: colors.offWhite,
-    fontSize: 13,
+    fontSize: 12,
     textAlign: 'center',
     alignItems: 'center',
-  },
-  holeColumn: {
-    color: colors.muted,
   },
   scoreBadge: {
     alignItems: 'center',
@@ -298,36 +349,68 @@ const styles = StyleSheet.create({
   },
   scoreNumber: {
     color: colors.white,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
-    minWidth: 16,
+    minWidth: 14,
     textAlign: 'center',
   },
   circleRing: {
-    borderWidth: 1.5,
+    borderWidth: 1.3,
     borderColor: colors.green,
     borderRadius: 999,
-    padding: 3,
+    padding: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   squareRing: {
-    borderWidth: 1.5,
+    borderWidth: 1.3,
     borderColor: colors.red,
     borderRadius: 3,
-    padding: 3,
+    padding: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   columnTotalRow: {
     borderTopWidth: 1,
     borderTopColor: colors.navyBorder,
-    marginTop: 6,
-    paddingTop: 8,
+    marginTop: 4,
+    paddingTop: 5,
   },
   columnTotalText: {
     color: colors.white,
     fontWeight: '700',
+  },
+  columnTotalLabel: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 2,
+    letterSpacing: 0.5,
+  },
+  photoBox: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: colors.navyLight,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    minHeight: 150,
+  },
+  photoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  photoPlaceholderText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '600',
   },
   totalSection: {
     alignItems: 'center',

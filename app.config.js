@@ -58,6 +58,12 @@ module.exports = {
         },
       ],
       'expo-sharing',
+      [
+        'expo-image-picker',
+        {
+          photosPermission: 'SaveitGolf uses your photo library so you can add a photo to your scorecard.',
+        },
+      ],
     ],
     extra: {
       golfCourseApiKey: process.env.GOLF_COURSE_API_KEY,
