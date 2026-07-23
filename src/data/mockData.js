@@ -76,6 +76,9 @@ export const coursePins = [
 export const scorecard = {
   courseName: 'Pebble Beach Golf Links',
   date: 'Jul 18, 2026',
+  roundNumber: 2,
+  startHole: 1,
+  tournamentScore: '-13',
   front: [
     { hole: 1, par: 4, score: 4 },
     { hole: 2, par: 5, score: 4 },
