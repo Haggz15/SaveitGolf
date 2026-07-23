@@ -1,3 +1,9 @@
+export const currentUser = {
+  firstName: 'Owen',
+  lastName: 'Haggerty',
+  username: 'owenhgolf',
+};
+
 export const filterPills = ['Following', 'Nearby', 'Top Rated'];
 
 export const feedPosts = [

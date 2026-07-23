@@ -50,6 +50,14 @@ module.exports = {
             'SaveitGolf uses your location to show nearby golf courses on the map.',
         },
       ],
+      [
+        'expo-media-library',
+        {
+          photosPermission: 'SaveitGolf saves your scorecard images to your photo library.',
+          savePhotosPermission: 'SaveitGolf saves your scorecard images to your photo library.',
+        },
+      ],
+      'expo-sharing',
     ],
     extra: {
       golfCourseApiKey: process.env.GOLF_COURSE_API_KEY,
