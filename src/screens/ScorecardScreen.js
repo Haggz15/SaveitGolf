@@ -6,7 +6,19 @@ import Header from '../components/Header';
 import colors from '../theme/colors';
 import { scorecard, currentUser } from '../data/mockData';
 
-const holes = [...scorecard.front, ...scorecard.back];
+const serifFont = Platform.select({
+  ios: 'Rockwell',
+  android: 'serif',
+  default: 'Georgia, "Times New Roman", serif',
+});
+
+function sumPar(holes) {
+  return holes.reduce((sum, h) => sum + h.par, 0);
+}
+
+function sumScore(holes) {
+  return holes.reduce((sum, h) => sum + h.score, 0);
+}
 
 function ScoreBadge({ score, par }) {
   const diff = score - par;
@@ -27,12 +39,37 @@ function ScoreBadge({ score, par }) {
   return <View style={styles.scoreBadge}>{node}</View>;
 }
 
-function HoleRow({ hole }) {
+function NineColumn({ title, holes, totalLabel }) {
+  const totalPar = sumPar(holes);
+  const totalScore = sumScore(holes);
+
   return (
-    <View style={styles.holeRow}>
-      <Text style={styles.holeNumber}>{hole.hole}</Text>
-      <Text style={styles.holePar}>Par {hole.par}</Text>
-      <ScoreBadge score={hole.score} par={hole.par} />
+    <View style={styles.column}>
+      <Text style={styles.columnTitle}>{title}</Text>
+
+      <View style={styles.columnHeaderRow}>
+        <Text style={[styles.columnHeaderCell, styles.holeColumn]}>Hole</Text>
+        <Text style={styles.columnHeaderCell}>Par</Text>
+        <Text style={styles.columnHeaderCell}>Score</Text>
+      </View>
+
+      {holes.map((h) => (
+        <View key={h.hole} style={styles.columnRow}>
+          <Text style={[styles.columnCell, styles.holeColumn]}>{h.hole}</Text>
+          <Text style={styles.columnCell}>{h.par}</Text>
+          <View style={styles.columnCell}>
+            <ScoreBadge score={h.score} par={h.par} />
+          </View>
+        </View>
+      ))}
+
+      <View style={[styles.columnRow, styles.columnTotalRow]}>
+        <Text style={[styles.columnCell, styles.holeColumn, styles.columnTotalText]}>
+          {totalLabel}
+        </Text>
+        <Text style={[styles.columnCell, styles.columnTotalText]}>{totalPar}</Text>
+        <Text style={[styles.columnCell, styles.columnTotalText]}>{totalScore}</Text>
+      </View>
     </View>
   );
 }
@@ -41,8 +78,10 @@ export default function ScorecardScreen() {
   const viewShotRef = useRef(null);
   const [isSharing, setIsSharing] = useState(false);
 
-  const totalPar = holes.reduce((sum, h) => sum + h.par, 0);
-  const totalScore = holes.reduce((sum, h) => sum + h.score, 0);
+  const isNineHoleRound = !scorecard.back || scorecard.back.length === 0;
+
+  const totalPar = sumPar(scorecard.front) + (isNineHoleRound ? 0 : sumPar(scorecard.back));
+  const totalScore = sumScore(scorecard.front) + (isNineHoleRound ? 0 : sumScore(scorecard.back));
   const diff = totalScore - totalPar;
   const diffLabel = diff === 0 ? 'E' : diff > 0 ? `+${diff}` : `${diff}`;
   const fullName = `${currentUser.firstName} ${currentUser.lastName}`;
@@ -95,10 +134,11 @@ export default function ScorecardScreen() {
               <Text style={styles.playedCourseName}>{scorecard.courseName}</Text>
             </View>
 
-            <View style={styles.holesList}>
-              {holes.map((h) => (
-                <HoleRow key={h.hole} hole={h} />
-              ))}
+            <View style={styles.columns}>
+              <NineColumn title="Front 9" holes={scorecard.front} totalLabel="OUT" />
+              {!isNineHoleRound && (
+                <NineColumn title="Back 9" holes={scorecard.back} totalLabel="IN" />
+              )}
             </View>
 
             <View style={styles.totalSection}>
@@ -176,18 +216,21 @@ const styles = StyleSheet.create({
   },
   cardHeader: {
     paddingRight: 90,
-    marginBottom: 14,
+    marginBottom: 16,
   },
   userName: {
     color: colors.white,
     fontSize: 20,
     fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   playedCourseName: {
     color: colors.white,
     fontSize: 14,
-    marginTop: 2,
-    opacity: 0.85,
+    marginTop: 3,
+    opacity: 0.9,
+    fontFamily: serifFont,
   },
   shareButton: {
     position: 'absolute',
@@ -206,28 +249,48 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  holesList: {
-    borderTopWidth: 1,
-    borderTopColor: colors.navyBorder,
-  },
-  holeRow: {
+  columns: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    paddingVertical: 9,
+    gap: 10,
+  },
+  column: {
+    flex: 1,
+  },
+  columnTitle: {
+    color: colors.white,
+    fontWeight: '700',
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  columnHeaderRow: {
+    flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: colors.navyBorder,
+    paddingBottom: 6,
+    marginBottom: 4,
   },
-  holeNumber: {
+  columnHeaderCell: {
+    flex: 1,
     color: colors.muted,
-    fontSize: 13,
-    fontWeight: '700',
-    width: 22,
+    fontSize: 11,
+    textAlign: 'center',
+    fontWeight: '600',
   },
-  holePar: {
+  columnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+  },
+  columnCell: {
+    flex: 1,
     color: colors.offWhite,
     fontSize: 13,
-    width: 48,
+    textAlign: 'center',
+    alignItems: 'center',
+  },
+  holeColumn: {
+    color: colors.muted,
   },
   scoreBadge: {
     alignItems: 'center',
@@ -235,14 +298,14 @@ const styles = StyleSheet.create({
   },
   scoreNumber: {
     color: colors.white,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     minWidth: 16,
     textAlign: 'center',
   },
   circleRing: {
     borderWidth: 1.5,
-    borderColor: colors.gold,
+    borderColor: colors.green,
     borderRadius: 999,
     padding: 3,
     alignItems: 'center',
@@ -255,6 +318,16 @@ const styles = StyleSheet.create({
     padding: 3,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  columnTotalRow: {
+    borderTopWidth: 1,
+    borderTopColor: colors.navyBorder,
+    marginTop: 6,
+    paddingTop: 8,
+  },
+  columnTotalText: {
+    color: colors.white,
+    fontWeight: '700',
   },
   totalSection: {
     alignItems: 'center',
@@ -283,7 +356,7 @@ const styles = StyleSheet.create({
     color: colors.red,
   },
   diffUnder: {
-    color: colors.gold,
+    color: colors.green,
   },
   diffEven: {
     color: colors.offWhite,
