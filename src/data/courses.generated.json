@@ -1,0 +1,282 @@
+[
+  {
+    "id": 6219,
+    "name": "Anchorage Golf Course",
+    "address": "3651 O'Malley Rd, Anchorage, AK 99507, USA",
+    "city": "Anchorage",
+    "state": "AK"
+  },
+  {
+    "id": 4911,
+    "name": "Country Club Of Birmingham",
+    "address": "3325 Country Club Rd #500, Mountain Brook, AL 35213, USA",
+    "city": "Birmingham",
+    "state": "AL"
+  },
+  {
+    "id": 18867,
+    "name": "Country Club Of Little Rock",
+    "address": "4200 Country Club Blvd, Little Rock, AR 72207, USA",
+    "city": "Little Rock",
+    "state": "AR"
+  },
+  {
+    "id": 6666,
+    "name": "Phoenix Country Club",
+    "address": "2901 N 7th St, Phoenix, AZ 85014, USA",
+    "city": "Phoenix",
+    "state": "AZ"
+  },
+  {
+    "id": 19317,
+    "name": "The Los Angeles Country Club",
+    "address": "10101 Wilshire Blvd, Los Angeles, CA 90024, USA",
+    "city": "Los Angeles",
+    "state": "CA"
+  },
+  {
+    "id": 18962,
+    "name": "Denver Country Club",
+    "address": "1700 E 1st Ave, Denver, CO 80218, USA",
+    "city": "Denver",
+    "state": "CO"
+  },
+  {
+    "id": 29346,
+    "name": "Hartford Golf Club",
+    "address": "134 Norwood Rd, West Hartford, CT 06117, USA",
+    "city": "Hartford",
+    "state": "CT"
+  },
+  {
+    "id": 20328,
+    "name": "Wilmington Country Club",
+    "address": "4825 Kennett Pike, Wilmington, DE 19807, USA",
+    "city": "Wilmington",
+    "state": "DE"
+  },
+  {
+    "id": 29837,
+    "name": "Miami Lakes Golf Club",
+    "address": "7601 Miami Lakes Dr, Hialeah, FL 33014, USA",
+    "city": "Miami Lakes",
+    "state": "FL"
+  },
+  {
+    "id": 28399,
+    "name": "Bear'S Best Atlanta",
+    "address": "5342 Aldeburgh Dr, Suwanee, GA 30024, USA",
+    "city": "Suwanee",
+    "state": "GA"
+  },
+  {
+    "id": 27985,
+    "name": "Honolulu Country Club",
+    "address": "1690 Ala Puumalu St, Honolulu, HI 96818, USA",
+    "city": "Honolulu",
+    "state": "HI"
+  },
+  {
+    "id": 15795,
+    "name": "Des Moines Golf And Country Club",
+    "address": "1600 Jordan Creek Pkwy, West Des Moines, IA 50266, USA",
+    "city": "West Des Moines",
+    "state": "IA"
+  },
+  {
+    "id": 22970,
+    "name": "Boise Ranch Golf Course",
+    "address": "6501 S Cloverdale Rd, Boise, ID 83709, USA",
+    "city": "Boise",
+    "state": "ID"
+  },
+  {
+    "id": 24396,
+    "name": "Chicago Golf Club",
+    "address": "25W253 Warrenville Rd, Wheaton, IL 60189, USA",
+    "city": "Wheaton",
+    "state": "IL"
+  },
+  {
+    "id": 23985,
+    "name": "Country Club Of Indianapolis",
+    "address": "2801 Country Club Rd, Indianapolis, IN 46234, USA",
+    "city": "Indianapolis",
+    "state": "IN"
+  },
+  {
+    "id": 18190,
+    "name": "Wichita Country Club",
+    "address": "8501 E 13th St N, Wichita, KS 67206, USA",
+    "city": "Wichita",
+    "state": "KS"
+  },
+  {
+    "id": 4697,
+    "name": "Louisville Country Club",
+    "address": "25 Mockingbird Valley Trail, Louisville, KY 40207, USA",
+    "city": "Louisville",
+    "state": "KY"
+  },
+  {
+    "id": 18809,
+    "name": "New Orleans Country Club",
+    "address": "5024 Pontchartrain Blvd, New Orleans, LA 70118, USA",
+    "city": "New Orleans",
+    "state": "LA"
+  },
+  {
+    "id": 10515,
+    "name": "Tpc Boston",
+    "address": "400 Arnold Palmer Blvd, Norton, MA 02766, USA",
+    "city": "Norton",
+    "state": "MA"
+  },
+  {
+    "id": 19993,
+    "name": "Baltimore Country Club",
+    "address": "11500 Mays Chapel Rd, Lutherville-Timonium, MD 21093, USA",
+    "city": "Timonium",
+    "state": "MD"
+  },
+  {
+    "id": 18,
+    "name": "Portland Country Club",
+    "address": "11 Foreside Rd, Falmouth, ME 04105, USA",
+    "city": "Falmouth Foreside",
+    "state": "ME"
+  },
+  {
+    "id": 28719,
+    "name": "Detroit Gc",
+    "address": "17911 Hamilton Rd, Detroit, MI 48203, USA",
+    "city": "Detroit",
+    "state": "MI"
+  },
+  {
+    "id": 17807,
+    "name": "Minneapolis Golf Club",
+    "address": "2001 Flag Ave S, Minneapolis, MN 55426, USA",
+    "city": "Minneapolis",
+    "state": "MN"
+  },
+  {
+    "id": 10447,
+    "name": "The National Golf Club Of Kansas City",
+    "address": "6700 N National Dr, Parkville, MO 64152, USA",
+    "city": "Parkville",
+    "state": "MO"
+  },
+  {
+    "id": 22196,
+    "name": "Country Club Of Jackson",
+    "address": "Old Canton Rd, Jackson, MS 39211, USA",
+    "city": "Jackson",
+    "state": "MS"
+  },
+  {
+    "id": 7713,
+    "name": "Fargo Cc",
+    "address": "509 26th Ave S, Fargo, ND 58103, USA",
+    "city": "Fargo",
+    "state": "ND"
+  },
+  {
+    "id": 21797,
+    "name": "Manchester Country Club",
+    "address": "180 S River Rd, Bedford, NH 03110, USA",
+    "city": "Bedford",
+    "state": "NH"
+  },
+  {
+    "id": 21684,
+    "name": "Albuquerque Cc",
+    "address": "601 Laguna Blvd SW, Albuquerque, NM 87104, USA",
+    "city": "Albuquerque",
+    "state": "NM"
+  },
+  {
+    "id": 18156,
+    "name": "Tpc Las Vegas",
+    "address": "9851 Canyon Run Dr, Las Vegas, NV 89144, USA",
+    "city": "Las Vegas",
+    "state": "NV"
+  },
+  {
+    "id": 23809,
+    "name": "New York Country Club",
+    "address": "103 Brick Church Rd, Spring Valley, NY 10977, USA",
+    "city": "New Hempstead",
+    "state": "NY"
+  },
+  {
+    "id": 24408,
+    "name": "Oklahoma City G. & C. C.",
+    "address": "7000 NW Grand Blvd, Nichols Hills, OK 73116, USA",
+    "city": "Oklahoma City",
+    "state": "OK"
+  },
+  {
+    "id": 22986,
+    "name": "Portland Golf Club",
+    "address": "5900 SW Scholls Ferry Rd, Portland, OR 97225, USA",
+    "city": "Portland",
+    "state": "OR"
+  },
+  {
+    "id": 19975,
+    "name": "Philadelphia Cricket Club",
+    "address": "6025 W Valley Green Rd, Flourtown, PA 19031, USA",
+    "city": "Flourtown",
+    "state": "PA"
+  },
+  {
+    "id": 24913,
+    "name": "Country Club Of Charleston",
+    "address": "1 Country Club Dr, Charleston, SC 29412, USA",
+    "city": "Charleston",
+    "state": "SC"
+  },
+  {
+    "id": 22763,
+    "name": "The Country Club Of Sioux Falls",
+    "address": "3400 W 22nd St, Sioux Falls, SD 57105, USA",
+    "city": "Sioux Falls",
+    "state": "SD"
+  },
+  {
+    "id": 21425,
+    "name": "Tour 18 Houston",
+    "address": "3102 Farm to Market 1960 E, Humble, TX 77338, United States",
+    "city": "Houston",
+    "state": "TX"
+  },
+  {
+    "id": 28108,
+    "name": "Virginia Beach National Golf Club",
+    "address": "2500 Tournament Dr, Virginia Beach, VA 23456, USA",
+    "city": "Virginia Beach",
+    "state": "VA"
+  },
+  {
+    "id": 18447,
+    "name": "Seattle Golf Club",
+    "address": "210 NW 145th St, Shoreline, WA 98177, USA",
+    "city": "Seattle",
+    "state": "WA"
+  },
+  {
+    "id": 13073,
+    "name": "Milwaukee Country Club",
+    "address": "8000 N Range Line Rd, River Hills, WI 53217, USA",
+    "city": "River Hills",
+    "state": "WI"
+  },
+  {
+    "id": 29351,
+    "name": "Cheyenne Country Club",
+    "address": "800 Stinner Rd, Cheyenne, WY 82001, USA",
+    "city": "Cheyenne",
+    "state": "WY"
+  }
+]
