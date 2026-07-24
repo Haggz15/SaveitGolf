@@ -126,3 +126,34 @@ export const uploads = [
   { id: 'u5', course: 'Pebble Beach', hole: 18 },
   { id: 'u6', course: 'Bandon Dunes', hole: 9 },
 ];
+
+export const postFilters = ['All', 'Pictures', 'Videos', 'Swings'];
+
+export const courseDetail = {
+  rating: 4.8,
+  isPublic: true,
+  postsCount: 128,
+  posts: [
+    { id: 'cp1', type: 'photo', likes: 214, bg: '#1c1c1e' },
+    { id: 'cp2', type: 'video', category: 'swing', likes: 89, bg: '#20242b' },
+    { id: 'cp3', type: 'photo', likes: 156, bg: '#171a20' },
+    { id: 'cp4', type: 'video', category: 'video', likes: 342, bg: '#1e2028' },
+    { id: 'cp5', type: 'photo', likes: 67, bg: '#191d24' },
+    { id: 'cp6', type: 'video', category: 'swing', likes: 128, bg: '#1c1f26' },
+    { id: 'cp7', type: 'photo', likes: 201, bg: '#15181e' },
+    { id: 'cp8', type: 'photo', likes: 45, bg: '#1a1d23' },
+    { id: 'cp9', type: 'video', category: 'video', likes: 98, bg: '#1d2027' },
+    { id: 'cp10', type: 'photo', likes: 176, bg: '#191c22' },
+    { id: 'cp11', type: 'video', category: 'swing', likes: 63, bg: '#1e2129' },
+    { id: 'cp12', type: 'photo', likes: 289, bg: '#171a1f' },
+  ],
+  holePostCounts: [12, 4, 8, 3, 6, 2, 24, 5, 9, 4, 3, 15, 2, 6, 7, 5, 3, 11],
+  scorecards: [
+    { id: 'cs1', name: 'Owen Haggerty', initials: 'OH', date: 'Jul 18, 2026', score: 71, par: 72 },
+    { id: 'cs2', name: 'Jake Miller', initials: 'JM', date: 'Jul 12, 2026', score: 79, par: 72 },
+    { id: 'cs3', name: 'Sara Driver', initials: 'SD', date: 'Jun 30, 2026', score: 68, par: 72 },
+    { id: 'cs4', name: 'Tom Brooks', initials: 'TB', date: 'Jun 21, 2026', score: 75, par: 72 },
+    { id: 'cs5', name: 'Lindsey Park', initials: 'LP', date: 'Jun 14, 2026', score: 72, par: 72 },
+    { id: 'cs6', name: 'Marcus Diaz', initials: 'MD', date: 'Jun 2, 2026', score: 74, par: 72 },
+  ],
+};
