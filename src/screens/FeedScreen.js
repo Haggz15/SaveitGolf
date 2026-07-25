@@ -1,20 +1,11 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ImageBackground, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
 import colors from '../theme/colors';
 import { feedPosts, filterPills } from '../data/mockData';
 import { HEADER_CONTENT_HEIGHT, PILL_ROW_HEIGHT, TAB_BAR_HEIGHT } from '../theme/layout';
-
-function scoreLabel(score, par) {
-  const diff = score - par;
-  if (diff <= -2) return 'Eagle';
-  if (diff === -1) return 'Birdie';
-  if (diff === 0) return 'Par';
-  if (diff === 1) return 'Bogey';
-  return `+${diff}`;
-}
 
 function FilterPill({ label, active, onPress }) {
   return (
@@ -37,14 +28,14 @@ function PostSlide({ post, height, onStatePress }) {
   };
 
   return (
-    <View style={[styles.slide, { height }]}>
+    <ImageBackground source={post.image} style={[styles.slide, { height }]} resizeMode="cover">
+      <View style={styles.dimOverlay} />
       <View style={styles.holeVisual}>
         <View style={styles.holeBadge}>
           <Text style={styles.holeBadgeNumber}>{post.hole}</Text>
           <Text style={styles.holeBadgeLabel}>HOLE</Text>
         </View>
         <Text style={styles.holeStatsText}>Par {post.par}</Text>
-        <Text style={styles.scoreLabel}>{scoreLabel(post.score, post.par)}</Text>
       </View>
 
       <View style={styles.actionRail}>
@@ -82,7 +73,7 @@ function PostSlide({ post, height, onStatePress }) {
       >
         <Text style={styles.stateBadgeText}>{post.state}</Text>
       </TouchableOpacity>
-    </View>
+    </ImageBackground>
   );
 }
 
@@ -186,6 +177,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+    overflow: 'hidden',
+  },
+  dimOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(6, 14, 26, 0.35)',
   },
   holeVisual: {
     alignItems: 'center',
@@ -196,6 +192,7 @@ const styles = StyleSheet.create({
     borderRadius: 48,
     borderWidth: 3,
     borderColor: colors.red,
+    backgroundColor: 'rgba(6, 14, 26, 0.55)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 14,
@@ -215,11 +212,6 @@ const styles = StyleSheet.create({
     color: colors.offWhite,
     fontSize: 15,
     marginBottom: 6,
-  },
-  scoreLabel: {
-    color: colors.gold,
-    fontWeight: '700',
-    fontSize: 22,
   },
   actionRail: {
     position: 'absolute',

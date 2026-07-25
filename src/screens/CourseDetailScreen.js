@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
 import { getCourseById } from '../services/golfCourseApi';
 import { courseDetail, postFilters } from '../data/mockData';
+import { getCoursePhoto, getCoursePhotos } from '../data/coursePhotos';
 
 const TABS = ['All Posts', 'Hole by Hole', 'Scorecards'];
 
@@ -29,6 +30,19 @@ function FilterPill({ label, active, onPress }) {
 
 function PostTile({ post }) {
   const isVideo = post.type === 'video';
+
+  if (post.image) {
+    return (
+      <View style={styles.postTile}>
+        <Image source={post.image} style={styles.postTileImage} resizeMode="cover" />
+        <View style={styles.tileLikeRow}>
+          <Ionicons name="heart" size={12} color={colors.white} />
+          <Text style={styles.tileLikeText}>{post.likes}</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.postTile, { backgroundColor: post.bg }]}>
       <Ionicons
@@ -49,13 +63,9 @@ function PostTile({ post }) {
   );
 }
 
-function HoleCard({ number, par, yardage, postCount, isMostPopular, onPress }) {
-  return (
-    <TouchableOpacity
-      style={[styles.holeCard, isMostPopular && styles.holeCardPopular]}
-      onPress={onPress}
-      activeOpacity={0.8}
-    >
+function HoleCard({ number, par, yardage, postCount, isMostPopular, image, onPress }) {
+  const content = (
+    <>
       <Text style={styles.holeCardNumber}>{number}</Text>
       <Text style={styles.holeCardMeta}>
         Par {par}{yardage ? ` · ${yardage} yds` : ''}
@@ -64,6 +74,30 @@ function HoleCard({ number, par, yardage, postCount, isMostPopular, onPress }) {
         <Ionicons name="image-outline" size={12} color={colors.red} />
         <Text style={styles.holeCardPosts}>{postCount}</Text>
       </View>
+    </>
+  );
+
+  if (image) {
+    return (
+      <TouchableOpacity
+        style={[styles.holeCard, isMostPopular && styles.holeCardPopular]}
+        onPress={onPress}
+        activeOpacity={0.8}
+      >
+        <Image source={image} style={styles.holeCardImage} resizeMode="cover" />
+        <View style={styles.holeCardImageOverlay} />
+        {content}
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <TouchableOpacity
+      style={[styles.holeCard, isMostPopular && styles.holeCardPopular]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      {content}
     </TouchableOpacity>
   );
 }
@@ -130,26 +164,40 @@ export default function CourseDetailScreen({ route, navigation }) {
   const holes = useMemo(() => {
     return Array.from({ length: holesCount }, (_, index) => {
       const liveHole = primaryTee?.holes?.[index];
+      const number = index + 1;
       return {
-        number: index + 1,
+        number,
         par: liveHole?.par ?? DEFAULT_HOLE_PATTERN[index % DEFAULT_HOLE_PATTERN.length],
         yardage: liveHole?.yardage ?? null,
         postCount: courseDetail.holePostCounts[index % courseDetail.holePostCounts.length],
+        image: getCoursePhoto(courseName, number),
       };
     });
-  }, [primaryTee, holesCount]);
+  }, [primaryTee, holesCount, courseName]);
 
   const mostPopularHole = useMemo(
     () => holes.reduce((max, hole) => (hole.postCount > max.postCount ? hole : max), holes[0]),
     [holes]
   );
 
+  const realPosts = useMemo(
+    () =>
+      getCoursePhotos(courseName).map((photo) => ({
+        id: photo.id,
+        type: 'photo',
+        likes: photo.likes,
+        image: photo.image,
+      })),
+    [courseName]
+  );
+
   const filteredPosts = useMemo(() => {
-    if (activeFilter === 'Pictures') return courseDetail.posts.filter((p) => p.type === 'photo');
-    if (activeFilter === 'Videos') return courseDetail.posts.filter((p) => p.type === 'video');
-    if (activeFilter === 'Swings') return courseDetail.posts.filter((p) => p.category === 'swing');
-    return courseDetail.posts;
-  }, [activeFilter]);
+    const allPosts = [...realPosts, ...courseDetail.posts];
+    if (activeFilter === 'Pictures') return allPosts.filter((p) => p.type === 'photo');
+    if (activeFilter === 'Videos') return allPosts.filter((p) => p.type === 'video');
+    if (activeFilter === 'Swings') return allPosts.filter((p) => p.category === 'swing');
+    return allPosts;
+  }, [activeFilter, realPosts]);
 
   const goToTab = (screen) => navigation.navigate('Tabs', { screen });
 
@@ -245,6 +293,7 @@ export default function CourseDetailScreen({ route, navigation }) {
                   yardage={hole.yardage}
                   postCount={hole.postCount}
                   isMostPopular={hole.number === mostPopularHole.number}
+                  image={hole.image}
                   onPress={() => setActiveTab('All Posts')}
                 />
               ))}
@@ -472,6 +521,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  postTileImage: {
+    ...StyleSheet.absoluteFillObject,
   },
   playButton: {
     position: 'absolute',
@@ -518,10 +571,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 6,
+    overflow: 'hidden',
   },
   holeCardPopular: {
     borderColor: colors.red,
     borderWidth: 1.5,
+  },
+  holeCardImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  holeCardImageOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(6, 14, 26, 0.4)',
   },
   holeCardNumber: {
     color: colors.white,
