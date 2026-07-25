@@ -41,29 +41,59 @@ async function persistCache(cache) {
   await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cache));
 }
 
-// Geocodes a course address via OpenStreetMap's Nominatim API, caching
-// results in AsyncStorage keyed by courseId so repeat app launches don't
-// re-spend the shared 1 req/sec budget.
-export async function geocodeCourse(courseId, address) {
-  const cache = await loadCache();
-  if (cache[courseId]) {
-    return cache[courseId];
-  }
-
-  const url = `${NOMINATIM_BASE}/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
+async function nominatimSearch(query) {
+  const url = `${NOMINATIM_BASE}/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=us`;
   const res = await throttledFetch(url);
   if (!res.ok) {
     throw new Error(`Geocoding request failed: HTTP ${res.status}`);
   }
   const data = await res.json();
-  if (!data.length) {
-    throw new Error(`Geocoding failed for "${address}": no results`);
+  if (!data.length) return null;
+  return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+}
+
+// Builds a fallback chain of queries to try, most-specific first. The full
+// street address is often unmatchable by Nominatim's free-text search —
+// suite numbers ("#500"), highway-grid street numbers ("25W253"), or a
+// slightly-off city component (the API's city field doesn't always match
+// what OSM has) all cause a clean address to return zero results. Dropping
+// down to "name, city, state", then just "name", then just "city, state"
+// recovers real matches for those cases; each is progressively less precise
+// but still lands the pin in the right place.
+function geocodeQueryChain(address, { name, city, state } = {}) {
+  const queries = [address];
+  if (name && city && state) queries.push(`${name}, ${city}, ${state}`);
+  if (name) queries.push(name);
+  if (city && state) queries.push(`${city}, ${state}`);
+  return [...new Set(queries.filter(Boolean))];
+}
+
+// Geocodes a course via OpenStreetMap's Nominatim API, caching results in
+// AsyncStorage keyed by courseId so repeat app launches don't re-spend the
+// shared 1 req/sec budget. Falls back through progressively less specific
+// queries (see geocodeQueryChain) when the exact address has no match.
+export async function geocodeCourse(courseId, address, { name, city, state } = {}) {
+  const cache = await loadCache();
+  if (cache[courseId]) {
+    return cache[courseId];
   }
 
-  const result = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-  cache[courseId] = result;
-  await persistCache(cache);
-  return result;
+  const attempts = geocodeQueryChain(address, { name, city, state });
+  for (const query of attempts) {
+    const result = await nominatimSearch(query);
+    if (result) {
+      if (query !== address) {
+        console.warn(`[geocoding] "${address}" had no match — used fallback query "${query}" instead`);
+      }
+      cache[courseId] = result;
+      await persistCache(cache);
+      return result;
+    }
+  }
+
+  throw new Error(
+    `Geocoding failed for "${address}": no results after ${attempts.length} attempt(s) (${attempts.join(' | ')})`
+  );
 }
 
 export async function getCachedGeocode(courseId) {

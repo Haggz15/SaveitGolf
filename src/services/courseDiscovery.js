@@ -64,27 +64,33 @@ export async function discoverCoursesNear(lat, lng) {
 
   if (areas[key]) {
     const existing = Object.values(allCourses).filter((c) => c.state === place.state);
+    console.log(`[courseDiscovery] "${key}" already fetched, ${existing.length} cached course(s)`);
     return { courses: existing, quotaExceeded: false };
   }
 
   const canProceed = await hasBackgroundQuota();
   if (!canProceed) {
+    console.warn(`[courseDiscovery] skipping "${key}" — background quota exhausted`);
     return { courses: [], quotaExceeded: true };
   }
 
   let results;
   try {
     results = await searchCourses(place.city);
+    console.log(`[courseDiscovery] search("${place.city}") -> ${results.length} result(s)`);
   } catch (err) {
     if (err instanceof RateLimitError) {
+      console.warn(`[courseDiscovery] rate limited searching "${place.city}"`);
       return { courses: [], quotaExceeded: true };
     }
+    console.error(`[courseDiscovery] search("${place.city}") failed:`, err.message);
     return { courses: [], quotaExceeded: false, error: err.message };
   }
 
   const matches = results
     .filter((c) => c.state?.toUpperCase() === place.state.toUpperCase())
     .slice(0, MAX_RESULTS_PER_AREA);
+  console.log(`[courseDiscovery] ${matches.length} of ${results.length} result(s) matched state ${place.state}`);
 
   const geocoded = [];
   for (const course of matches) {
@@ -94,12 +100,16 @@ export async function discoverCoursesNear(lat, lng) {
     }
     if (!course.address) continue;
     try {
-      const coord = await geocodeCourse(course.id, course.address);
+      const coord = await geocodeCourse(course.id, course.address, {
+        name: course.name,
+        city: course.city,
+        state: course.state,
+      });
       const withCoord = { ...course, lat: coord.lat, lng: coord.lng };
       allCourses[course.id] = withCoord;
       geocoded.push(withCoord);
     } catch (err) {
-      console.warn(`Could not geocode ${course.name}:`, err.message);
+      console.warn(`[courseDiscovery] could not geocode ${course.name}:`, err.message);
     }
   }
 

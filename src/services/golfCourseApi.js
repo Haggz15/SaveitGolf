@@ -59,19 +59,29 @@ export async function hasBackgroundQuota() {
 
 async function apiFetch(path) {
   if (!API_KEY) {
-    throw new Error('Missing GOLF_COURSE_API_KEY — add it to .env');
+    const err = new Error('Missing GOLF_COURSE_API_KEY — add it to .env');
+    console.error('[golfcourseapi]', err.message);
+    throw err;
   }
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const url = `${BASE_URL}${path}`;
+  console.log('[golfcourseapi] GET', url);
+  const res = await fetch(url, {
     headers: { Authorization: `Key ${API_KEY}` },
   });
   await recordRequest();
+
+  const body = await res.json().catch(() => null);
+  console.log('[golfcourseapi] response', res.status, JSON.stringify(body));
+
   if (res.status === 429) {
+    console.error('[golfcourseapi] rate limited:', body);
     throw new RateLimitError('golfcourseapi.com daily request limit reached');
   }
   if (!res.ok) {
+    console.error('[golfcourseapi] request failed:', res.status, body);
     throw new Error(`golfcourseapi.com request failed: HTTP ${res.status}`);
   }
-  return res.json();
+  return body;
 }
 
 export async function searchCourses(query) {

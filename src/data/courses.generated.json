@@ -175,11 +175,32 @@
     "state": "MS"
   },
   {
+    "id": 8152,
+    "name": "Missoula Country Club",
+    "address": "Missoula Country Club, Missoula, MT, USA",
+    "city": "Missoula",
+    "state": "MT"
+  },
+  {
+    "id": 7456,
+    "name": "Charlotte Cc",
+    "address": "2465 Mecklenburg Ave, Charlotte, NC 28205, USA",
+    "city": "Charlotte",
+    "state": "NC"
+  },
+  {
     "id": 7713,
     "name": "Fargo Cc",
     "address": "509 26th Ave S, Fargo, ND 58103, USA",
     "city": "Fargo",
     "state": "ND"
+  },
+  {
+    "id": 27644,
+    "name": "Omaha Country Club",
+    "address": "6900 Country Club Rd, Omaha, NE 68152, USA",
+    "city": "Omaha",
+    "state": "NE"
   },
   {
     "id": 21797,
@@ -208,6 +229,13 @@
     "address": "103 Brick Church Rd, Spring Valley, NY 10977, USA",
     "city": "New Hempstead",
     "state": "NY"
+  },
+  {
+    "id": 21737,
+    "name": "Columbus Country Club",
+    "address": "4831 E Broad St, Columbus, OH 43213, USA",
+    "city": "Columbus",
+    "state": "OH"
   },
   {
     "id": 24408,
@@ -245,6 +273,13 @@
     "state": "SD"
   },
   {
+    "id": 13027,
+    "name": "Nashville National Golf Links",
+    "address": "1725 New Hope Rd, Joelton, TN 37080, USA",
+    "city": "Joelton",
+    "state": "TN"
+  },
+  {
     "id": 21425,
     "name": "Tour 18 Houston",
     "address": "3102 Farm to Market 1960 E, Humble, TX 77338, United States",
@@ -257,6 +292,13 @@
     "address": "2500 Tournament Dr, Virginia Beach, VA 23456, USA",
     "city": "Virginia Beach",
     "state": "VA"
+  },
+  {
+    "id": 7125,
+    "name": "Burlington Country Club",
+    "address": "568 S Prospect St, Burlington, VT 05401, USA",
+    "city": "Burlington",
+    "state": "VT"
   },
   {
     "id": 18447,

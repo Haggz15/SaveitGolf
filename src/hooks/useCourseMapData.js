@@ -24,10 +24,6 @@ export const USER_LOCATION_FOCUS_DELTA = 2;
 const PAN_DISCOVERY_DEBOUNCE_MS = 900;
 // Skip re-discovery if the map center hasn't moved roughly this far (degrees).
 const MIN_REFETCH_DISTANCE = 0.4;
-// Only backfill the one-per-state seed courses once zoomed in reasonably far —
-// at full US zoom-out nearly all 50 states are "visible" at once, which would
-// otherwise queue up 50 geocode requests behind the rate-limited geocoder.
-const SEED_BACKFILL_MAX_DELTA = 6;
 
 export const MAP_FILTERS = { ALL: 'all', PLAYED: 'played' };
 
@@ -101,10 +97,14 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
   }, []);
 
   // Baseline: one real, API-verified course per state (see scripts/fetchCourseSeeds.mjs),
-  // geocoded lazily as its state comes into view — works even with no live search quota.
+  // geocoded up front — works even with no live search quota.
   const ensureSeedGeocoded = useCallback(async (abbr) => {
     const course = seedCoursesByState[abbr];
-    if (!course || courses[course.id] || geocodingStates[abbr]) return;
+    if (!course) {
+      console.warn(`[useCourseMapData] no seed course for state ${abbr} — pin will be missing`);
+      return;
+    }
+    if (courses[course.id] || geocodingStates[abbr]) return;
 
     const cached = await getCachedGeocode(course.id);
     if (cached) {
@@ -114,10 +114,15 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
 
     setGeocodingStates((prev) => ({ ...prev, [abbr]: true }));
     try {
-      const coord = await geocodeCourse(course.id, course.address);
+      const coord = await geocodeCourse(course.id, course.address, {
+        name: course.name,
+        city: course.city,
+        state: course.state,
+      });
+      console.log(`[useCourseMapData] geocoded seed for ${abbr}: ${course.name} ->`, coord);
       mergeCourses([{ ...course, lat: coord.lat, lng: coord.lng }]);
     } catch (err) {
-      console.warn(`Geocoding failed for ${abbr}:`, err.message);
+      console.error(`[useCourseMapData] geocoding failed for ${abbr} (${course.name}):`, err.message);
     } finally {
       setGeocodingStates((prev) => ({ ...prev, [abbr]: false }));
     }
@@ -128,10 +133,16 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
     getAllDiscoveredCourses().then(mergeCourses);
   }, [mergeCourses]);
 
+  // Backfill the one-per-state seed courses for every state up front, not
+  // just whichever states are currently in view — otherwise the initial
+  // full-US zoom-out shows nothing until discovery finds something nearby.
+  // geocodeCourse shares a single throttled (~1/sec) Nominatim queue and
+  // caches results in AsyncStorage, so this costs a few dozen seconds once
+  // and is instant on every later launch.
   useEffect(() => {
-    if (region.latitudeDelta > SEED_BACKFILL_MAX_DELTA) return;
-    visibleStates.forEach((abbr) => ensureSeedGeocoded(abbr));
-  }, [region.latitudeDelta, visibleStates, ensureSeedGeocoded]);
+    allStateAbbreviations.forEach((abbr) => ensureSeedGeocoded(abbr));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const runDiscovery = useCallback(async (lat, lng) => {
     setDiscovering(true);
