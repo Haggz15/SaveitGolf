@@ -4,7 +4,7 @@ import { seedCoursesByState, stateCenters, allStateAbbreviations } from '../data
 import { isCoursePlayed } from '../data/playedCourses';
 import { geocodeCourse, getCachedGeocode } from '../services/geocoding';
 import { discoverCoursesNear, getAllDiscoveredCourses } from '../services/courseDiscovery';
-import { getCourseById, RateLimitError } from '../services/golfCourseApi';
+import { getCourseById, searchCourses, RateLimitError } from '../services/golfCourseApi';
 
 // Northeast US (New England down through the NY/NJ/PA corridor) — where the
 // map view starts on load.
@@ -28,6 +28,10 @@ export const USER_LOCATION_FOCUS_DELTA = 2;
 const PAN_DISCOVERY_DEBOUNCE_MS = 900;
 // Skip re-discovery if the map center hasn't moved roughly this far (degrees).
 const MIN_REFETCH_DISTANCE = 0.4;
+
+// How tight the map zooms in when a search result is selected.
+export const SEARCH_FOCUS_DELTA = 0.02;
+const SEARCH_DEBOUNCE_MS = 400;
 
 export const MAP_FILTERS = { ALL: 'all', PLAYED: 'played' };
 
@@ -77,6 +81,11 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
   const [selectedDetail, setSelectedDetail] = useState(null); // { holes, loading, error }
   const [filter, setFilter] = useState(MAP_FILTERS.ALL);
   const [userLocation, setUserLocation] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const searchDebounceRef = useRef(null);
+  const searchRequestIdRef = useRef(0);
 
   const visibleStates = useMemo(() => statesInBounds(region), [region]);
   const courseList = useMemo(() => Object.values(courses), [courses]);
@@ -255,6 +264,57 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
     setSelectedDetail(null);
   }, []);
 
+  const handleSearchQueryChange = useCallback((text) => {
+    setSearchQuery(text);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+
+    const trimmed = text.trim();
+    if (!trimmed) {
+      setSearchResults([]);
+      setSearching(false);
+      return;
+    }
+
+    searchDebounceRef.current = setTimeout(async () => {
+      const requestId = ++searchRequestIdRef.current;
+      setSearching(true);
+      try {
+        const results = await searchCourses(trimmed);
+        if (requestId === searchRequestIdRef.current) setSearchResults(results);
+      } catch (err) {
+        console.error('[useCourseMapData] search failed:', err.message);
+        if (requestId === searchRequestIdRef.current) setSearchResults([]);
+      } finally {
+        if (requestId === searchRequestIdRef.current) setSearching(false);
+      }
+    }, SEARCH_DEBOUNCE_MS);
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchRequestIdRef.current += 1;
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearching(false);
+  }, []);
+
+  const handleSelectSearchResult = useCallback((course) => {
+    clearSearch();
+    if (course.lat != null && course.lng != null) {
+      mergeCourses([course]);
+      const nextRegion = {
+        latitude: course.lat,
+        longitude: course.lng,
+        latitudeDelta: SEARCH_FOCUS_DELTA,
+        longitudeDelta: SEARCH_FOCUS_DELTA,
+      };
+      setRegionState(nextRegion);
+      setFocusRegion({ ...nextRegion, key: `search-${course.id}-${Date.now()}` });
+      lastFetchedCenterRef.current = { latitude: course.lat, longitude: course.lng };
+    }
+    handleSelectCourse(course);
+  }, [clearSearch, mergeCourses, handleSelectCourse]);
+
   const goToCourseDetail = useCallback(() => {
     if (!selectedCourse || !navigation) return;
     const course = selectedCourse;
@@ -285,5 +345,11 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
     filter,
     setFilter,
     userLocation,
+    searchQuery,
+    searchResults,
+    searching,
+    handleSearchQueryChange,
+    clearSearch,
+    handleSelectSearchResult,
   };
 }

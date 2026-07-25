@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Marker, CircleMarker, useMapEvents } from 'rea
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import Header from '../components/Header';
+import CourseSearchBar from '../components/map/CourseSearchBar';
 import FilterPills from '../components/map/FilterPills';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
@@ -93,6 +94,12 @@ export default function MapScreen({ navigation, route }) {
     filter,
     setFilter,
     userLocation,
+    searchQuery,
+    searchResults,
+    searching,
+    handleSearchQueryChange,
+    clearSearch,
+    handleSelectSearchResult,
   } = useCourseMapData({
     navigation,
     routeState: route?.params?.state,
@@ -107,6 +114,14 @@ export default function MapScreen({ navigation, route }) {
   return (
     <View style={styles.screen}>
       <Header />
+      <CourseSearchBar
+        query={searchQuery}
+        onChangeQuery={handleSearchQueryChange}
+        onClear={clearSearch}
+        results={searchResults}
+        searching={searching}
+        onSelectResult={handleSelectSearchResult}
+      />
       <FilterPills value={filter} onChange={setFilter} />
 
       {locationDenied && (

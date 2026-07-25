@@ -3,6 +3,7 @@ import { View, StyleSheet, Platform } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
+import CourseSearchBar from '../components/map/CourseSearchBar';
 import FilterPills from '../components/map/FilterPills';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
@@ -45,6 +46,12 @@ export default function MapScreen({ navigation, route }) {
     goToCourseDetail,
     filter,
     setFilter,
+    searchQuery,
+    searchResults,
+    searching,
+    handleSearchQueryChange,
+    clearSearch,
+    handleSelectSearchResult,
   } = useCourseMapData({
     navigation,
     routeState: route?.params?.state,
@@ -81,6 +88,14 @@ export default function MapScreen({ navigation, route }) {
   return (
     <View style={styles.screen}>
       <Header />
+      <CourseSearchBar
+        query={searchQuery}
+        onChangeQuery={handleSearchQueryChange}
+        onClear={clearSearch}
+        results={searchResults}
+        searching={searching}
+        onSelectResult={handleSelectSearchResult}
+      />
       <FilterPills value={filter} onChange={setFilter} />
 
       {locationDenied && (
