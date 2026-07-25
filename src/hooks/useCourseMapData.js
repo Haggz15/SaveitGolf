@@ -3,7 +3,7 @@ import * as Location from 'expo-location';
 import { seedCoursesByState, stateCenters, allStateAbbreviations } from '../data/courses';
 import { isCoursePlayed } from '../data/playedCourses';
 import { geocodeCourse, getCachedGeocode } from '../services/geocoding';
-import { discoverCoursesNear, getAllDiscoveredCourses } from '../services/courseDiscovery';
+import { discoverCoursesNear, getAllDiscoveredCourses, sweepAllStates } from '../services/courseDiscovery';
 import { getCourseById, RateLimitError } from '../services/golfCourseApi';
 
 // Geographic center of the contiguous US — where the map view starts on load.
@@ -67,6 +67,7 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
   const [courses, setCourses] = useState({}); // id -> { id, name, city, state, lat, lng }
   const [geocodingStates, setGeocodingStates] = useState({});
   const [discovering, setDiscovering] = useState(false);
+  const [sweepingStates, setSweepingStates] = useState(false);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
   const [locationDenied, setLocationDenied] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
@@ -141,6 +142,24 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
   // and is instant on every later launch.
   useEffect(() => {
     allStateAbbreviations.forEach((abbr) => ensureSeedGeocoded(abbr));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sweep every state with a real "golf courses <state>" search so the map
+  // shows more than one course per state without waiting for the user to pan
+  // there. One request per state, 500ms apart; resumes across sessions from
+  // wherever it left off (see sweepAllStates), so this is safe to fire on
+  // every mount.
+  useEffect(() => {
+    const stateAbbrToName = Object.fromEntries(
+      allStateAbbreviations.map((abbr) => [abbr, stateCenters[abbr].name])
+    );
+    setSweepingStates(true);
+    sweepAllStates(stateAbbrToName, mergeCourses)
+      .then((result) => {
+        if (result.quotaExceeded) setQuotaExceeded(true);
+      })
+      .finally(() => setSweepingStates(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -271,6 +290,7 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
     visibleCourses,
     geocodingStates,
     discovering,
+    sweepingStates,
     quotaExceeded,
     locationDenied,
     selectedCourse,

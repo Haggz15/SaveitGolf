@@ -105,8 +105,10 @@ export async function getCourseById(id) {
   return course;
 }
 
-// The API has no public/private field and no coordinates — those are
-// deliberately absent here rather than guessed. See geocoding.js for lat/lng.
+// The API has no public/private field, so that's deliberately absent here
+// rather than guessed (see CoursePopupCard's name-based estimate instead).
+// It does return location.latitude/longitude directly, so those are used
+// as-is — no need to re-geocode API-sourced courses via geocoding.js.
 function normalizeCourse(course) {
   return {
     id: String(course.id),
@@ -115,6 +117,8 @@ function normalizeCourse(course) {
     city: course.location?.city ?? null,
     state: course.location?.state ?? null,
     country: course.location?.country ?? null,
+    lat: course.location?.latitude ?? null,
+    lng: course.location?.longitude ?? null,
     tees: course.tees ?? null,
   };
 }

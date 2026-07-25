@@ -83,6 +83,7 @@ export default function MapScreen({ navigation, route }) {
     visibleCourses,
     geocodingStates,
     discovering,
+    sweepingStates,
     quotaExceeded,
     locationDenied,
     selectedCourse,
@@ -163,7 +164,7 @@ export default function MapScreen({ navigation, route }) {
 
         <ZoomControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} />
 
-        {(discovering || visibleStates.some((abbr) => geocodingStates[abbr])) && (
+        {(discovering || sweepingStates || visibleStates.some((abbr) => geocodingStates[abbr])) && (
           <MapLoadingBanner>Finding courses…</MapLoadingBanner>
         )}
 

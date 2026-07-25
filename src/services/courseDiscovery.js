@@ -98,6 +98,11 @@ export async function discoverCoursesNear(lat, lng) {
       geocoded.push(allCourses[course.id]);
       continue;
     }
+    if (course.lat != null && course.lng != null) {
+      allCourses[course.id] = course;
+      geocoded.push(course);
+      continue;
+    }
     if (!course.address) continue;
     try {
       const coord = await geocodeCourse(course.id, course.address, {
@@ -119,4 +124,69 @@ export async function discoverCoursesNear(lat, lng) {
 
   const existingInState = Object.values(allCourses).filter((c) => c.state === place.state);
   return { courses: existingInState, quotaExceeded: false };
+}
+
+const STATE_SWEEP_KEY = 'saveitgolf.stateSweepDone.v1';
+const STATE_REQUEST_DELAY_MS = 500;
+
+let stateSweepPromise = null;
+
+async function loadStateSweep() {
+  if (!stateSweepPromise) {
+    stateSweepPromise = AsyncStorage.getItem(STATE_SWEEP_KEY).then((raw) => (raw ? JSON.parse(raw) : {}));
+  }
+  return stateSweepPromise;
+}
+
+async function persistStateSweep(done) {
+  await AsyncStorage.setItem(STATE_SWEEP_KEY, JSON.stringify(done));
+}
+
+// Sweeps every US state with a dedicated "golf courses <state name>" search
+// so the map has real courses everywhere up front, not just wherever the
+// user has panned or gotten a location fix. One request per state, spaced
+// 500ms apart to stay gentle on the API. Which states are already done is
+// persisted so relaunching the app doesn't re-spend the shared 50/day quota
+// re-sweeping states already covered — an interrupted sweep (quota exhausted
+// partway through) simply resumes with the remaining states next session.
+export async function sweepAllStates(stateAbbrToName, onStateCourses) {
+  const done = await loadStateSweep();
+  const allCourses = await loadCourses();
+  const pending = Object.keys(stateAbbrToName).filter((abbr) => !done[abbr]);
+
+  for (const abbr of pending) {
+    const canProceed = await hasBackgroundQuota();
+    if (!canProceed) {
+      console.warn('[courseDiscovery] state sweep paused — background quota exhausted');
+      return { quotaExceeded: true };
+    }
+
+    const stateName = stateAbbrToName[abbr];
+    try {
+      const results = await searchCourses(`golf courses ${stateName}`);
+      const matches = results.filter((c) => c.state?.toUpperCase() === abbr);
+      console.log(`[courseDiscovery] state sweep "${stateName}" -> ${matches.length} of ${results.length} matched ${abbr}`);
+
+      matches.forEach((c) => {
+        allCourses[c.id] = c;
+      });
+      if (matches.length) {
+        await persistCourses(allCourses);
+        onStateCourses?.(matches);
+      }
+      done[abbr] = true;
+      await persistStateSweep(done);
+    } catch (err) {
+      if (err instanceof RateLimitError) {
+        console.warn(`[courseDiscovery] state sweep rate limited on ${abbr}`);
+        return { quotaExceeded: true };
+      }
+      console.error(`[courseDiscovery] state sweep failed for ${abbr}:`, err.message);
+      // Not marked done — retried on the next sweep instead of skipped forever.
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, STATE_REQUEST_DELAY_MS));
+  }
+
+  return { quotaExceeded: false };
 }
