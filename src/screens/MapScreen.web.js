@@ -9,8 +9,7 @@ import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
 import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessageBanner';
 import colors from '../theme/colors';
-import { stateCenters, allStateAbbreviations } from '../data/courses';
-import { useCourseMapData, US_INITIAL_REGION, hasGoogleMapsKey } from '../hooks/useCourseMapData';
+import { useCourseMapData, US_INITIAL_REGION } from '../hooks/useCourseMapData';
 
 // react-native-maps has no web renderer, so web gets its own map surface here
 // (react-leaflet + dark CARTO tiles) driven by the same useCourseMapData hook
@@ -18,30 +17,23 @@ import { useCourseMapData, US_INITIAL_REGION, hasGoogleMapsKey } from '../hooks/
 // filter/popup/zoom behavior stay identical across platforms.
 
 const PIN_SIZE = 30;
-// Classic teardrop map-pin path, drawn as an SVG divIcon since Leaflet
-// markers render outside React's tree and can't host RN/Ionicons directly.
-const PIN_PATH =
-  'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z';
-
-function buildPinIcon(color) {
-  const svg = `<svg width="${PIN_SIZE}" height="${PIN_SIZE}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="${color}" stroke="#ffffff" stroke-width="1" d="${PIN_PATH}"/></svg>`;
+const FLAG_POLE_X = 8;
+// Golf flag-on-a-pole, drawn as an SVG divIcon since Leaflet markers render
+// outside React's tree and can't host RN/Ionicons directly.
+function buildFlagIcon(color) {
+  const svg = `<svg width="${PIN_SIZE}" height="${PIN_SIZE}" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+    <line x1="${FLAG_POLE_X}" y1="2" x2="${FLAG_POLE_X}" y2="28" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+    <path d="M${FLAG_POLE_X} 3 L25 9 L${FLAG_POLE_X} 15 Z" fill="${color}" stroke="#ffffff" stroke-width="1" stroke-linejoin="round"/>
+  </svg>`;
   return L.divIcon({
     html: svg,
     className: 'saveitgolf-course-pin',
     iconSize: [PIN_SIZE, PIN_SIZE],
-    iconAnchor: [PIN_SIZE / 2, PIN_SIZE],
+    iconAnchor: [FLAG_POLE_X, PIN_SIZE - 2],
   });
 }
 
-const STATE_ICON_SIZE = 30;
-const stateIcon = L.divIcon({
-  html: `<div style="width:${STATE_ICON_SIZE}px;height:${STATE_ICON_SIZE}px;border-radius:${STATE_ICON_SIZE / 2}px;background:${colors.red};border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:14px;">⛳</div>`,
-  className: 'saveitgolf-state-pin',
-  iconSize: [STATE_ICON_SIZE, STATE_ICON_SIZE],
-  iconAnchor: [STATE_ICON_SIZE / 2, STATE_ICON_SIZE / 2],
-});
-
-const courseIcon = buildPinIcon(colors.green);
+const courseIcon = buildFlagIcon(colors.red);
 
 function regionToZoom(latitudeDelta) {
   return Math.min(18, Math.max(2, Math.round(Math.log2(360 / latitudeDelta))));
@@ -87,7 +79,6 @@ export default function MapScreen({ navigation, route }) {
   const {
     setRegion,
     focusRegion,
-    isCourseTier,
     visibleStates,
     visibleCourses,
     geocodingStates,
@@ -118,14 +109,9 @@ export default function MapScreen({ navigation, route }) {
       <Header />
       <FilterPills value={filter} onChange={setFilter} />
 
-      {!hasGoogleMapsKey && (
-        <MapWarningBanner icon="warning-outline">
-          Add GOOGLE_MAPS_API_KEY to .env to discover and geocode course pins.
-        </MapWarningBanner>
-      )}
-      {hasGoogleMapsKey && locationDenied && (
+      {locationDenied && (
         <MapWarningBanner icon="location-outline">
-          Location permission denied — showing the national view instead of courses near you.
+          Location permission denied — showing courses near the center of the US instead.
         </MapWarningBanner>
       )}
       {quotaExceeded && (
@@ -150,21 +136,14 @@ export default function MapScreen({ navigation, route }) {
 
           <MapSync mapInstanceRef={mapInstanceRef} onRegionChange={setRegion} focusRegion={focusRegion} />
 
-          {!isCourseTier &&
-            allStateAbbreviations.map((abbr) => {
-              const center = stateCenters[abbr];
-              return <Marker key={abbr} position={[center.lat, center.lng]} icon={stateIcon} />;
-            })}
-
-          {isCourseTier &&
-            visibleCourses.map((course) => (
-              <Marker
-                key={course.id}
-                position={[course.lat, course.lng]}
-                icon={courseIcon}
-                eventHandlers={{ click: () => handleSelectCourse(course) }}
-              />
-            ))}
+          {visibleCourses.map((course) => (
+            <Marker
+              key={course.id}
+              position={[course.lat, course.lng]}
+              icon={courseIcon}
+              eventHandlers={{ click: () => handleSelectCourse(course) }}
+            />
+          ))}
 
           {userLocation && (
             <>
@@ -184,7 +163,7 @@ export default function MapScreen({ navigation, route }) {
 
         <ZoomControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} />
 
-        {(discovering || (isCourseTier && visibleStates.some((abbr) => geocodingStates[abbr]))) && (
+        {(discovering || visibleStates.some((abbr) => geocodingStates[abbr])) && (
           <MapLoadingBanner>Finding courses…</MapLoadingBanner>
         )}
 

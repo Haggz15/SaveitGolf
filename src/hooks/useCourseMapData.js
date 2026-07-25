@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Location from 'expo-location';
-import Constants from 'expo-constants';
 import { seedCoursesByState, stateCenters, allStateAbbreviations } from '../data/courses';
 import { isCoursePlayed } from '../data/playedCourses';
 import { geocodeCourse, getCachedGeocode } from '../services/geocoding';
 import { discoverCoursesNear, getAllDiscoveredCourses } from '../services/courseDiscovery';
 import { getCourseById, RateLimitError } from '../services/golfCourseApi';
 
+// Geographic center of the contiguous US — where the map view starts on load.
 export const US_INITIAL_REGION = {
   latitude: 39.5,
   longitude: -98.35,
@@ -14,15 +14,20 @@ export const US_INITIAL_REGION = {
   longitudeDelta: 45,
 };
 
-// Below this zoomed-in threshold we switch from one-ball-per-state to
-// individual course pins for states inside the visible bounds.
-export const COURSE_TIER_LATITUDE_DELTA = 6;
+// The literal geographic center falls in rural Mitchell County, KS, which
+// reverse-geocodes to a county with no indexed courses and no real text-search
+// hit. Wichita is the nearest major city, so initial discovery targets it
+// instead — still "near the center of the US", but guaranteed real results.
+const US_CENTER_DISCOVERY_POINT = { latitude: 37.6872, longitude: -97.3301 };
+
 export const USER_LOCATION_FOCUS_DELTA = 2;
 const PAN_DISCOVERY_DEBOUNCE_MS = 900;
 // Skip re-discovery if the map center hasn't moved roughly this far (degrees).
 const MIN_REFETCH_DISTANCE = 0.4;
-
-export const hasGoogleMapsKey = Boolean(Constants.expoConfig?.extra?.googleMapsApiKey);
+// Only backfill the one-per-state seed courses once zoomed in reasonably far —
+// at full US zoom-out nearly all 50 states are "visible" at once, which would
+// otherwise queue up 50 geocode requests behind the rate-limited geocoder.
+const SEED_BACKFILL_MAX_DELTA = 6;
 
 export const MAP_FILTERS = { ALL: 'all', PLAYED: 'played' };
 
@@ -73,7 +78,6 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
   const [filter, setFilter] = useState(MAP_FILTERS.ALL);
   const [userLocation, setUserLocation] = useState(null);
 
-  const isCourseTier = region.latitudeDelta <= COURSE_TIER_LATITUDE_DELTA;
   const visibleStates = useMemo(() => statesInBounds(region), [region]);
   const courseList = useMemo(() => Object.values(courses), [courses]);
   const filteredCourseList = useMemo(
@@ -81,8 +85,8 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
     [courseList, filter]
   );
   const visibleCourses = useMemo(
-    () => (isCourseTier ? coursesInBounds(filteredCourseList, region) : []),
-    [isCourseTier, filteredCourseList, region]
+    () => coursesInBounds(filteredCourseList, region),
+    [filteredCourseList, region]
   );
 
   const mergeCourses = useCallback((list) => {
@@ -107,7 +111,6 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
       mergeCourses([{ ...course, lat: cached.lat, lng: cached.lng }]);
       return;
     }
-    if (!hasGoogleMapsKey) return;
 
     setGeocodingStates((prev) => ({ ...prev, [abbr]: true }));
     try {
@@ -126,12 +129,11 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
   }, [mergeCourses]);
 
   useEffect(() => {
-    if (!isCourseTier) return;
+    if (region.latitudeDelta > SEED_BACKFILL_MAX_DELTA) return;
     visibleStates.forEach((abbr) => ensureSeedGeocoded(abbr));
-  }, [isCourseTier, visibleStates, ensureSeedGeocoded]);
+  }, [region.latitudeDelta, visibleStates, ensureSeedGeocoded]);
 
   const runDiscovery = useCallback(async (lat, lng) => {
-    if (!hasGoogleMapsKey) return;
     setDiscovering(true);
     try {
       const result = await discoverCoursesNear(lat, lng);
@@ -146,7 +148,19 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
     }
   }, [mergeCourses]);
 
-  // Fetch courses near the user on load, and recenter the map there.
+  // Fetch courses near the center of the US as soon as the map loads, so
+  // there's real data on screen before location permission (which may be
+  // denied) resolves.
+  useEffect(() => {
+    lastFetchedCenterRef.current = {
+      latitude: US_INITIAL_REGION.latitude,
+      longitude: US_INITIAL_REGION.longitude,
+    };
+    runDiscovery(US_CENTER_DISCOVERY_POINT.latitude, US_CENTER_DISCOVERY_POINT.longitude);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Then also fetch courses near the user and recenter the map there.
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -197,7 +211,6 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
   const setRegion = useCallback((nextRegion) => {
     setRegionState(nextRegion);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (nextRegion.latitudeDelta > COURSE_TIER_LATITUDE_DELTA) return;
 
     const last = lastFetchedCenterRef.current;
     if (last && distance(last, nextRegion) < MIN_REFETCH_DISTANCE) return;
@@ -243,7 +256,6 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
     region,
     setRegion,
     focusRegion,
-    isCourseTier,
     visibleStates,
     visibleCourses,
     geocodingStates,

@@ -2,6 +2,15 @@ import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 
+// golfcourseapi.com has no public/private field, so this is a best-effort
+// guess from the course name — "Country Club" is a strong private signal,
+// everything else defaults to public.
+function guessAccess(name = '') {
+  const lower = name.toLowerCase();
+  if (lower.includes('country club') || lower.includes('private')) return 'Private';
+  return 'Public';
+}
+
 export default function CoursePopupCard({ course, detail, onClose, onViewHoles }) {
   return (
     <View style={styles.popupCard}>
@@ -16,7 +25,7 @@ export default function CoursePopupCard({ course, detail, onClose, onViewHoles }
       <View style={styles.popupMetaRow}>
         <View style={styles.popupMetaItem}>
           <Text style={styles.popupMetaLabel}>Access</Text>
-          <Text style={styles.popupMetaValue}>Not provided by data source</Text>
+          <Text style={styles.popupMetaValue}>{guessAccess(course.name)}</Text>
         </View>
         <View style={styles.popupMetaItem}>
           <Text style={styles.popupMetaLabel}>Holes</Text>
@@ -27,6 +36,7 @@ export default function CoursePopupCard({ course, detail, onClose, onViewHoles }
           )}
         </View>
       </View>
+      <Text style={styles.popupNote}>Access is estimated from the course name, not confirmed data.</Text>
 
       <TouchableOpacity style={styles.popupButton} onPress={onViewHoles}>
         <Text style={styles.popupButtonText}>View holes & shots</Text>
@@ -70,7 +80,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 20,
     marginTop: 14,
-    marginBottom: 14,
+    marginBottom: 6,
   },
   popupMetaItem: {
     flex: 1,
@@ -86,6 +96,12 @@ const styles = StyleSheet.create({
     color: colors.offWhite,
     fontSize: 13,
     fontWeight: '600',
+  },
+  popupNote: {
+    color: colors.muted,
+    fontSize: 10,
+    fontStyle: 'italic',
+    marginBottom: 12,
   },
   popupButton: {
     flexDirection: 'row',

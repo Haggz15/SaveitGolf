@@ -9,22 +9,10 @@ import CoursePopupCard from '../components/map/CoursePopupCard';
 import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessageBanner';
 import colors from '../theme/colors';
 import { darkSlateMapStyle } from '../theme/mapStyle';
-import { stateCenters, allStateAbbreviations } from '../data/courses';
-import { useCourseMapData, US_INITIAL_REGION, hasGoogleMapsKey } from '../hooks/useCourseMapData';
+import { useCourseMapData, US_INITIAL_REGION } from '../hooks/useCourseMapData';
 
 const ZOOM_MIN_DELTA = 0.01;
 const ZOOM_MAX_DELTA = US_INITIAL_REGION.latitudeDelta;
-
-function StateMarker({ abbr }) {
-  const center = stateCenters[abbr];
-  return (
-    <Marker coordinate={{ latitude: center.lat, longitude: center.lng }} tracksViewChanges={false}>
-      <View style={styles.stateMarker}>
-        <Ionicons name="golf" size={16} color={colors.white} />
-      </View>
-    </Marker>
-  );
-}
 
 function CourseMarker({ course, onPress }) {
   return (
@@ -33,7 +21,7 @@ function CourseMarker({ course, onPress }) {
       onPress={() => onPress(course)}
       tracksViewChanges={false}
     >
-      <Ionicons name="location" size={32} color={colors.green} />
+      <Ionicons name="flag" size={28} color={colors.red} />
     </Marker>
   );
 }
@@ -44,7 +32,6 @@ export default function MapScreen({ navigation, route }) {
     region,
     setRegion,
     focusRegion,
-    isCourseTier,
     visibleStates,
     visibleCourses,
     geocodingStates,
@@ -96,16 +83,9 @@ export default function MapScreen({ navigation, route }) {
       <Header />
       <FilterPills value={filter} onChange={setFilter} />
 
-      {!hasGoogleMapsKey && (
-        <MapWarningBanner icon="warning-outline">
-          {Platform.OS === 'android'
-            ? 'Add GOOGLE_MAPS_API_KEY to .env for map tiles and course discovery on Android.'
-            : 'Add GOOGLE_MAPS_API_KEY to .env to discover and geocode course pins.'}
-        </MapWarningBanner>
-      )}
-      {hasGoogleMapsKey && locationDenied && (
+      {locationDenied && (
         <MapWarningBanner icon="location-outline">
-          Location permission denied — showing the national view instead of courses near you.
+          Location permission denied — showing courses near the center of the US instead.
         </MapWarningBanner>
       )}
       {quotaExceeded && (
@@ -125,18 +105,14 @@ export default function MapScreen({ navigation, route }) {
           showsUserLocation={!locationDenied}
           onRegionChangeComplete={setRegion}
         >
-          {!isCourseTier &&
-            allStateAbbreviations.map((abbr) => <StateMarker key={abbr} abbr={abbr} />)}
-
-          {isCourseTier &&
-            visibleCourses.map((course) => (
-              <CourseMarker key={course.id} course={course} onPress={handleSelectCourse} />
-            ))}
+          {visibleCourses.map((course) => (
+            <CourseMarker key={course.id} course={course} onPress={handleSelectCourse} />
+          ))}
         </MapView>
 
         <ZoomControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} />
 
-        {(discovering || (isCourseTier && visibleStates.some((abbr) => geocodingStates[abbr]))) && (
+        {(discovering || visibleStates.some((abbr) => geocodingStates[abbr])) && (
           <MapLoadingBanner>Finding courses…</MapLoadingBanner>
         )}
 
@@ -163,15 +139,5 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
-  },
-  stateMarker: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.red,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: colors.white,
   },
 });
