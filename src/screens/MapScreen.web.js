@@ -9,7 +9,7 @@ import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
 import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessageBanner';
 import colors from '../theme/colors';
-import { useCourseMapData, US_INITIAL_REGION } from '../hooks/useCourseMapData';
+import { useCourseMapData, NORTHEAST_US_INITIAL_REGION } from '../hooks/useCourseMapData';
 
 // react-native-maps has no web renderer, so web gets its own map surface here
 // (react-leaflet + dark CARTO tiles) driven by the same useCourseMapData hook
@@ -99,7 +99,7 @@ export default function MapScreen({ navigation, route }) {
     routeTimestamp: route?.params?.timestamp,
   });
 
-  const initialZoom = useMemo(() => regionToZoom(US_INITIAL_REGION.latitudeDelta), []);
+  const initialZoom = useMemo(() => regionToZoom(NORTHEAST_US_INITIAL_REGION.latitudeDelta), []);
 
   const handleZoomIn = () => mapInstanceRef.current?.zoomIn();
   const handleZoomOut = () => mapInstanceRef.current?.zoomOut();
@@ -111,7 +111,7 @@ export default function MapScreen({ navigation, route }) {
 
       {locationDenied && (
         <MapWarningBanner icon="location-outline">
-          Location permission denied — showing courses near the center of the US instead.
+          Location permission denied — showing courses near the Northeast US instead.
         </MapWarningBanner>
       )}
       {quotaExceeded && (
@@ -122,7 +122,7 @@ export default function MapScreen({ navigation, route }) {
 
       <View style={styles.mapContainer}>
         <MapContainer
-          center={[US_INITIAL_REGION.latitude, US_INITIAL_REGION.longitude]}
+          center={[NORTHEAST_US_INITIAL_REGION.latitude, NORTHEAST_US_INITIAL_REGION.longitude]}
           zoom={initialZoom}
           zoomControl={false}
           style={styles.map}

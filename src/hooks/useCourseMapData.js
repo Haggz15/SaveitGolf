@@ -6,19 +6,23 @@ import { geocodeCourse, getCachedGeocode } from '../services/geocoding';
 import { discoverCoursesNear, getAllDiscoveredCourses } from '../services/courseDiscovery';
 import { getCourseById, RateLimitError } from '../services/golfCourseApi';
 
-// Geographic center of the contiguous US — where the map view starts on load.
-export const US_INITIAL_REGION = {
-  latitude: 39.5,
-  longitude: -98.35,
-  latitudeDelta: 45,
-  longitudeDelta: 45,
+// Northeast US (New England down through the NY/NJ/PA corridor) — where the
+// map view starts on load.
+export const NORTHEAST_US_INITIAL_REGION = {
+  latitude: 41.6,
+  longitude: -73.5,
+  latitudeDelta: 6,
+  longitudeDelta: 6,
 };
 
-// The literal geographic center falls in rural Mitchell County, KS, which
-// reverse-geocodes to a county with no indexed courses and no real text-search
-// hit. Wichita is the nearest major city, so initial discovery targets it
-// instead — still "near the center of the US", but guaranteed real results.
-const US_CENTER_DISCOVERY_POINT = { latitude: 37.6872, longitude: -97.3301 };
+// How far out the map is allowed to zoom via the in-app zoom-out control —
+// independent of the (much tighter) initial Northeast viewport, so users can
+// still zoom out to see the whole country.
+export const MAX_MAP_DELTA = 45;
+
+// New York City — dense course coverage and a reliable reverse-geocode hit,
+// used to seed the very first discovery call before the map has moved.
+const NORTHEAST_DISCOVERY_POINT = { latitude: 40.7128, longitude: -74.006 };
 
 export const USER_LOCATION_FOCUS_DELTA = 2;
 const PAN_DISCOVERY_DEBOUNCE_MS = 900;
@@ -59,7 +63,7 @@ function distance(a, b) {
 export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}) {
   const debounceRef = useRef(null);
   const lastFetchedCenterRef = useRef(null);
-  const [region, setRegionState] = useState(US_INITIAL_REGION);
+  const [region, setRegionState] = useState(NORTHEAST_US_INITIAL_REGION);
   // Set when the hook wants the map to jump somewhere outside of user
   // panning (initial location fix, or a state focus request). Each platform
   // watches this and drives its own map's recenter API off of it.
@@ -159,15 +163,15 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
     }
   }, [mergeCourses]);
 
-  // Fetch courses near the center of the US as soon as the map loads, so
-  // there's real data on screen before location permission (which may be
-  // denied) resolves.
+  // Fetch courses for the initial Northeast viewport as soon as the map
+  // loads, so there's real data on screen before location permission (which
+  // may be denied) resolves.
   useEffect(() => {
     lastFetchedCenterRef.current = {
-      latitude: US_INITIAL_REGION.latitude,
-      longitude: US_INITIAL_REGION.longitude,
+      latitude: NORTHEAST_US_INITIAL_REGION.latitude,
+      longitude: NORTHEAST_US_INITIAL_REGION.longitude,
     };
-    runDiscovery(US_CENTER_DISCOVERY_POINT.latitude, US_CENTER_DISCOVERY_POINT.longitude);
+    runDiscovery(NORTHEAST_DISCOVERY_POINT.latitude, NORTHEAST_DISCOVERY_POINT.longitude);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

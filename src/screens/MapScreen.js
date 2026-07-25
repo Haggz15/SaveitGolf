@@ -9,10 +9,10 @@ import CoursePopupCard from '../components/map/CoursePopupCard';
 import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessageBanner';
 import colors from '../theme/colors';
 import { darkSlateMapStyle } from '../theme/mapStyle';
-import { useCourseMapData, US_INITIAL_REGION } from '../hooks/useCourseMapData';
+import { useCourseMapData, NORTHEAST_US_INITIAL_REGION, MAX_MAP_DELTA } from '../hooks/useCourseMapData';
 
 const ZOOM_MIN_DELTA = 0.01;
-const ZOOM_MAX_DELTA = US_INITIAL_REGION.latitudeDelta;
+const ZOOM_MAX_DELTA = MAX_MAP_DELTA;
 
 function CourseMarker({ course, onPress }) {
   return (
@@ -85,7 +85,7 @@ export default function MapScreen({ navigation, route }) {
 
       {locationDenied && (
         <MapWarningBanner icon="location-outline">
-          Location permission denied — showing courses near the center of the US instead.
+          Location permission denied — showing courses near the Northeast US instead.
         </MapWarningBanner>
       )}
       {quotaExceeded && (
@@ -101,7 +101,7 @@ export default function MapScreen({ navigation, route }) {
           provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
           userInterfaceStyle="dark"
           customMapStyle={Platform.OS === 'android' ? darkSlateMapStyle : undefined}
-          initialRegion={US_INITIAL_REGION}
+          initialRegion={NORTHEAST_US_INITIAL_REGION}
           showsUserLocation={!locationDenied}
           onRegionChangeComplete={setRegion}
         >

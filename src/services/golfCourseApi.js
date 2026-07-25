@@ -4,13 +4,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const API_KEY = Constants.expoConfig?.extra?.golfCourseApiKey;
 const BASE_URL = 'https://api.golfcourseapi.com/v1';
 
-// Free tier is capped at 50 requests/day, shared across every install of this
-// app using the same key. The API exposes no remaining-quota header, so this
-// is a best-effort local counter — a real HTTP 429 is still the authority.
-export const DAILY_REQUEST_LIMIT = 50;
+// This key's plan is capped at 10,000 requests/day, shared across every
+// install of this app using the same key. The API exposes no remaining-quota
+// header, so this is a best-effort local counter — a real HTTP 429 is still
+// the authority.
+export const DAILY_REQUEST_LIMIT = 10000;
 // Leave headroom for user-initiated lookups (course detail taps) even if
 // background area-discovery has been busy.
-const BACKGROUND_SAFETY_MARGIN = 5;
+const BACKGROUND_SAFETY_MARGIN = 200;
 const QUOTA_KEY = 'saveitgolf.golfApiQuota.v1';
 
 export class RateLimitError extends Error {
