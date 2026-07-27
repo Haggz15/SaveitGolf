@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts, DancingScript_700Bold } from '@expo-google-fonts/dancing-script';
+import { BarlowCondensed_700Bold, BarlowCondensed_800ExtraBold } from '@expo-google-fonts/barlow-condensed';
 
 import RootNavigator from './src/navigation/RootNavigator';
 import colors from './src/theme/colors';
@@ -13,6 +14,8 @@ SplashScreen.preventAutoHideAsync();
 export default function App() {
   const [fontsLoaded] = useFonts({
     DancingScript_700Bold,
+    BarlowCondensed_700Bold,
+    BarlowCondensed_800ExtraBold,
   });
 
   const onLayoutRootView = useCallback(async () => {
