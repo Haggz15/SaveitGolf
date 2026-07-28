@@ -73,6 +73,10 @@ function PostSlide({ post, height, onStatePress }) {
         </TouchableOpacity>
       </View>
 
+      <Text style={styles.courseName} numberOfLines={1} ellipsizeMode="tail">
+        {post.course}
+      </Text>
+
       <View style={styles.leftInfo}>
         <View style={styles.avatarRow}>
           <View style={styles.avatar} />
@@ -84,19 +88,13 @@ function PostSlide({ post, height, onStatePress }) {
         </Text>
       </View>
 
-      <View style={styles.courseRow}>
-        <TouchableOpacity
-          style={styles.stateBadge}
-          onPress={() => onStatePress(post)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.stateBadgeText}>{post.state}</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.courseName} numberOfLines={1} ellipsizeMode="tail">
-          {post.course}
-        </Text>
-      </View>
+      <TouchableOpacity
+        style={styles.stateBadge}
+        onPress={() => onStatePress(post)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.stateBadgeText}>{post.state}</Text>
+      </TouchableOpacity>
     </ImageBackground>
   );
 }
@@ -267,11 +265,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 4,
   },
+  courseName: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 80,
+    color: '#ffffff',
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 15,
+    letterSpacing: 0.6,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
   leftInfo: {
     position: 'absolute',
     left: 16,
-    right: 90,
-    bottom: 68,
+    right: 60,
+    bottom: 14,
   },
   avatarRow: {
     flexDirection: 'row',
@@ -279,9 +291,9 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: colors.navyBorder,
     marginRight: 8,
     borderWidth: 1,
@@ -290,53 +302,31 @@ const styles = StyleSheet.create({
   username: {
     color: colors.white,
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 12,
     marginRight: 8,
   },
   timeAgo: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 10,
   },
   caption: {
-    color: colors.offWhite,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  courseRow: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    color: colors.white,
+    fontSize: 11,
+    lineHeight: 15,
   },
   stateBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: 'rgba(13, 31, 60, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(232, 236, 244, 0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
+    position: 'absolute',
+    right: 14,
+    bottom: 14,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: 'rgba(6, 14, 26, 0.65)',
   },
   stateBadgeText: {
     color: colors.white,
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  courseName: {
-    flexShrink: 1,
-    color: '#ffffff',
-    fontFamily: 'Cinzel_700Bold',
-    fontSize: 16,
-    letterSpacing: 0.8,
-    textAlign: 'center',
-    textShadowColor: 'rgba(0, 0, 0, 0.6)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
 });
