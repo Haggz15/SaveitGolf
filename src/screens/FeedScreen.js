@@ -329,8 +329,8 @@ const styles = StyleSheet.create({
   courseName: {
     flexShrink: 1,
     color: '#F5E6C8',
-    fontFamily: 'DancingScript_700Bold',
-    fontSize: 21,
+    fontFamily: 'Courgette_400Regular',
+    fontSize: 20,
     textAlign: 'center',
     textShadowColor: 'rgba(0, 0, 0, 0.6)',
     textShadowOffset: { width: 0, height: 1 },
