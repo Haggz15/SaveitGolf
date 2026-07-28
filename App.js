@@ -6,6 +6,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useFonts, DancingScript_700Bold } from '@expo-google-fonts/dancing-script';
 import { BarlowCondensed_700Bold, BarlowCondensed_800ExtraBold } from '@expo-google-fonts/barlow-condensed';
 import { Courgette_400Regular } from '@expo-google-fonts/courgette';
+import { Cinzel_700Bold } from '@expo-google-fonts/cinzel';
 
 import RootNavigator from './src/navigation/RootNavigator';
 import colors from './src/theme/colors';
@@ -18,6 +19,7 @@ export default function App() {
     BarlowCondensed_700Bold,
     BarlowCondensed_800ExtraBold,
     Courgette_400Regular,
+    Cinzel_700Bold,
   });
 
   const onLayoutRootView = useCallback(async () => {

@@ -79,7 +79,9 @@ function PostSlide({ post, height, onStatePress }) {
           <Text style={styles.username}>{post.user}</Text>
           <Text style={styles.timeAgo}>{post.timeAgo}</Text>
         </View>
-        <Text style={styles.caption}>{post.caption}</Text>
+        <Text style={styles.caption} numberOfLines={2} ellipsizeMode="tail">
+          {post.caption}
+        </Text>
       </View>
 
       <View style={styles.courseRow}>
@@ -269,7 +271,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 90,
-    bottom: 112,
+    bottom: 68,
   },
   avatarRow: {
     flexDirection: 'row',
@@ -328,9 +330,10 @@ const styles = StyleSheet.create({
   },
   courseName: {
     flexShrink: 1,
-    color: '#F5E6C8',
-    fontFamily: 'Courgette_400Regular',
-    fontSize: 20,
+    color: '#ffffff',
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 16,
+    letterSpacing: 0.8,
     textAlign: 'center',
     textShadowColor: 'rgba(0, 0, 0, 0.6)',
     textShadowOffset: { width: 0, height: 1 },
