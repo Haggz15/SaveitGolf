@@ -82,17 +82,19 @@ function PostSlide({ post, height, onStatePress }) {
         <Text style={styles.caption}>{post.caption}</Text>
       </View>
 
-      <TouchableOpacity
-        style={styles.stateBadge}
-        onPress={() => onStatePress(post)}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.stateBadgeText}>{post.state}</Text>
-      </TouchableOpacity>
+      <View style={styles.courseRow}>
+        <TouchableOpacity
+          style={styles.stateBadge}
+          onPress={() => onStatePress(post)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.stateBadgeText}>{post.state}</Text>
+        </TouchableOpacity>
 
-      <Text style={styles.courseName} numberOfLines={1} ellipsizeMode="tail">
-        {post.course}
-      </Text>
+        <Text style={styles.courseName} numberOfLines={1} ellipsizeMode="tail">
+          {post.course}
+        </Text>
+      </View>
     </ImageBackground>
   );
 }
@@ -298,10 +300,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  stateBadge: {
+  courseRow: {
     position: 'absolute',
     left: 16,
-    bottom: 60,
+    right: 16,
+    bottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stateBadge: {
     width: 44,
     height: 44,
     borderRadius: 10,
@@ -310,6 +318,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(232, 236, 244, 0.4)',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 10,
   },
   stateBadgeText: {
     color: colors.white,
@@ -318,14 +327,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   courseName: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 14,
-    color: colors.white,
-    fontFamily: 'BarlowCondensed_800ExtraBold',
-    fontSize: 32,
-    letterSpacing: 0.5,
+    flexShrink: 1,
+    color: '#F5E6C8',
+    fontFamily: 'DancingScript_700Bold',
+    fontSize: 21,
     textAlign: 'center',
     textShadowColor: 'rgba(0, 0, 0, 0.6)',
     textShadowOffset: { width: 0, height: 1 },
