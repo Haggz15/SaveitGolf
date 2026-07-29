@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ImageBackground, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,7 +34,7 @@ function VideoBackground({ source, muted }) {
   return (
     <VideoView
       player={player}
-      style={StyleSheet.absoluteFill}
+      style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]}
       contentFit="cover"
       nativeControls={false}
       fullscreenOptions={{ enable: false }}
@@ -60,7 +60,11 @@ function PostSlide({ post, height, onStatePress }) {
       {isVideo ? (
         <VideoBackground source={post.video} muted={muted} />
       ) : (
-        <ImageBackground source={post.image} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        <Image
+          source={post.image}
+          style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]}
+          resizeMode="cover"
+        />
       )}
 
       <View style={styles.dimOverlay} />
