@@ -3,7 +3,7 @@
   var video = document.getElementById('heroVideo');
   if (!video) return;
 
-  var sources = ['../assets/video1.mov', '../assets/video2.mov'];
+  var sources = ['../assets/video1.mp4', '../assets/video2.mp4'];
   var current = 0;
 
   video.loop = false; // we handle looping/switching manually
