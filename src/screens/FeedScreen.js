@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ImageBackground, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import Header from '../components/Header';
 import colors from '../theme/colors';
 import { feedPosts, filterPills } from '../data/mockData';
@@ -19,10 +20,35 @@ function FilterPill({ label, active, onPress }) {
   );
 }
 
+function VideoBackground({ source, muted }) {
+  const player = useVideoPlayer(source, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
+
+  useEffect(() => {
+    player.muted = muted;
+  }, [muted, player]);
+
+  return (
+    <VideoView
+      player={player}
+      style={StyleSheet.absoluteFill}
+      contentFit="cover"
+      nativeControls={false}
+      fullscreenOptions={{ enable: false }}
+      playsInline
+    />
+  );
+}
+
 function PostSlide({ post, height, onStatePress }) {
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(post.likes);
   const [saved, setSaved] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const isVideo = !!post.video;
 
   const toggleLike = () => {
     setLiked((prev) => !prev);
@@ -30,7 +56,13 @@ function PostSlide({ post, height, onStatePress }) {
   };
 
   return (
-    <ImageBackground source={post.image} style={[styles.slide, { height }]} resizeMode="cover">
+    <View style={[styles.slide, { height }]}>
+      {isVideo ? (
+        <VideoBackground source={post.video} muted={muted} />
+      ) : (
+        <ImageBackground source={post.image} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      )}
+
       <View style={styles.dimOverlay} />
 
       <LinearGradient
@@ -39,6 +71,16 @@ function PostSlide({ post, height, onStatePress }) {
         style={styles.bottomGradient}
         pointerEvents="none"
       />
+
+      {isVideo && (
+        <TouchableOpacity
+          style={styles.soundToggle}
+          onPress={() => setMuted((prev) => !prev)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={18} color={colors.white} />
+        </TouchableOpacity>
+      )}
 
       <View style={styles.holeVisual}>
         <View style={styles.holeBadge}>
@@ -95,7 +137,7 @@ function PostSlide({ post, height, onStatePress }) {
       >
         <Text style={styles.stateBadgeText}>{post.state}</Text>
       </TouchableOpacity>
-    </ImageBackground>
+    </View>
   );
 }
 
@@ -209,6 +251,18 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     height: '55%',
+  },
+  soundToggle: {
+    position: 'absolute',
+    top: 12,
+    left: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(6, 14, 26, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 3,
   },
   holeVisual: {
     position: 'absolute',

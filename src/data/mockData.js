@@ -19,7 +19,7 @@ export const feedPosts = [
     likes: 214,
     comments: 18,
     timeAgo: '2h',
-    image: require('../../assets/post.1.jpg'),
+    video: require('../../assets/video1.mp4'),
   },
   {
     id: '2',
@@ -33,7 +33,7 @@ export const feedPosts = [
     likes: 342,
     comments: 41,
     timeAgo: '4h',
-    image: require('../../assets/post.2.jpg'),
+    video: require('../../assets/video2.mp4'),
   },
   {
     id: '3',
