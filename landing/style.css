@@ -38,6 +38,10 @@ html, body {
   object-fit: cover;
 }
 
+.hero-video--error {
+  display: none;
+}
+
 .hero-overlay {
   position: absolute;
   inset: 0;

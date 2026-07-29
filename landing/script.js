@@ -17,6 +17,12 @@
     });
   });
 
+  // If the video can't load/play, hide it and fall back to the navy
+  // background so the logo and tagline stay visible.
+  video.addEventListener('error', function () {
+    video.classList.add('hero-video--error');
+  });
+
   video.play().catch(function () {});
 })();
 
