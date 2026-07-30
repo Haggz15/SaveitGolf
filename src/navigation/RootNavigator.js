@@ -1,19 +1,24 @@
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 
 import colors from '../theme/colors';
+import { useAuth } from '../context/AuthContext';
 import FeedScreen from '../screens/FeedScreen';
 import MapScreen from '../screens/MapScreen';
 import PostScreen from '../screens/PostScreen';
 import ScorecardScreen from '../screens/ScorecardScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import CourseDetailScreen from '../screens/CourseDetailScreen';
+import SignUpScreen from '../screens/auth/SignUpScreen';
+import LogInScreen from '../screens/auth/LogInScreen';
+import ProfileSetupScreen from '../screens/auth/ProfileSetupScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+const AuthStack = createNativeStackNavigator();
 
 const navigationTheme = {
   ...DarkTheme,
@@ -94,21 +99,46 @@ function Tabs() {
 }
 
 export default function RootNavigator() {
+  const { session, needsOnboarding, initializing } = useAuth();
+
+  if (initializing) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator color={colors.red} size="large" />
+      </View>
+    );
+  }
+
   return (
     <NavigationContainer theme={navigationTheme}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Tabs" component={Tabs} />
-        <Stack.Screen
-          name="CourseDetail"
-          component={CourseDetailScreen}
-          options={{ presentation: 'modal' }}
-        />
-      </Stack.Navigator>
+      {!session ? (
+        <AuthStack.Navigator screenOptions={{ headerShown: false }}>
+          <AuthStack.Screen name="SignUp" component={SignUpScreen} />
+          <AuthStack.Screen name="LogIn" component={LogInScreen} />
+        </AuthStack.Navigator>
+      ) : needsOnboarding ? (
+        <ProfileSetupScreen />
+      ) : (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Tabs" component={Tabs} />
+          <Stack.Screen
+            name="CourseDetail"
+            component={CourseDetailScreen}
+            options={{ presentation: 'modal' }}
+          />
+        </Stack.Navigator>
+      )}
     </NavigationContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  loadingScreen: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.navy,
+  },
   centerButtonWrapper: {
     top: -22,
     alignItems: 'center',

@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
 import colors from '../theme/colors';
 import { courseRankings, wantToPlay, uploads } from '../data/mockData';
+import { signOut } from '../services/auth';
 
 const TABS = ['Course Rankings', 'Want to Play', 'Uploads'];
 
@@ -59,12 +60,25 @@ function UploadsGrid() {
   );
 }
 
+function handleLogOut() {
+  Alert.alert('Log out', 'Are you sure you want to log out?', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Log out', style: 'destructive', onPress: () => signOut() },
+  ]);
+}
+
 export default function ProfileScreen() {
   const [activeTab, setActiveTab] = useState(TABS[0]);
 
   return (
     <View style={styles.screen}>
-      <Header />
+      <Header
+        right={
+          <TouchableOpacity onPress={handleLogOut} hitSlop={10}>
+            <Ionicons name="log-out-outline" size={22} color={colors.muted} />
+          </TouchableOpacity>
+        }
+      />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.profileHeader}>
           <View style={styles.avatarRing}>

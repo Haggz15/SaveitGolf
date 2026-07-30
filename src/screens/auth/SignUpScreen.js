@@ -1,0 +1,226 @@
+import { useState } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+} from 'react-native';
+
+import colors from '../../theme/colors';
+import AuthLogo from '../../components/auth/AuthLogo';
+import SocialButton from '../../components/auth/SocialButton';
+import Divider from '../../components/auth/Divider';
+import AuthTextField from '../../components/auth/AuthTextField';
+import { signUpWithEmail, signInWithApple, signInWithGoogle } from '../../services/auth';
+import { friendlyAuthError } from '../../services/authErrors';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export default function SignUpScreen({ navigation }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [socialLoading, setSocialLoading] = useState(null);
+
+  const validate = () => {
+    const next = {};
+    if (!EMAIL_RE.test(email.trim())) next.email = 'Enter a valid email address.';
+    if (password.length < 6) next.password = 'Password must be at least 6 characters.';
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const handleCreateAccount = async () => {
+    if (!validate()) return;
+    setLoading(true);
+    setErrors({});
+    try {
+      const data = await signUpWithEmail(email.trim(), password);
+      if (!data.session) {
+        Alert.alert(
+          'Check your email',
+          'We sent you a confirmation link. Confirm your email, then log in to continue.'
+        );
+        navigation.navigate('LogIn');
+      }
+      // If a session came back immediately, AuthContext picks it up and
+      // RootNavigator routes to Profile Setup automatically.
+    } catch (err) {
+      setErrors({ form: friendlyAuthError(err) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApple = async () => {
+    setSocialLoading('apple');
+    setErrors({});
+    try {
+      await signInWithApple();
+    } catch (err) {
+      setErrors({ form: friendlyAuthError(err) });
+    } finally {
+      setSocialLoading(null);
+    }
+  };
+
+  const handleGoogle = async () => {
+    setSocialLoading('google');
+    setErrors({});
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      setErrors({ form: friendlyAuthError(err) });
+    } finally {
+      setSocialLoading(null);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <AuthLogo />
+
+        <Text style={styles.headline}>Join SaveitGolf</Text>
+        <Text style={styles.subtext}>The social app for golfers</Text>
+
+        <View style={styles.section}>
+          <SocialButton variant="apple" onPress={handleApple} loading={socialLoading === 'apple'} disabled={!!socialLoading} />
+          <SocialButton variant="google" onPress={handleGoogle} loading={socialLoading === 'google'} disabled={!!socialLoading} />
+
+          <Divider />
+
+          <AuthTextField
+            placeholder="Email address"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            textContentType="emailAddress"
+            error={errors.email}
+          />
+          <AuthTextField
+            placeholder="Password"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            textContentType="newPassword"
+            error={errors.password}
+          />
+
+          {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}
+
+          <TouchableOpacity
+            style={[styles.primaryButton, loading && styles.disabled]}
+            onPress={handleCreateAccount}
+            activeOpacity={0.85}
+            disabled={loading}
+          >
+            <Text style={styles.primaryButtonText}>{loading ? 'Creating account…' : 'Create Account'}</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.legal}>
+            By continuing, you agree to our{' '}
+            <Text style={styles.legalLink} onPress={() => Alert.alert('Terms of Service', 'Coming soon.')}>
+              Terms of Service
+            </Text>{' '}
+            and{' '}
+            <Text style={styles.legalLink} onPress={() => Alert.alert('Privacy Policy', 'Coming soon.')}>
+              Privacy Policy
+            </Text>
+            .
+          </Text>
+        </View>
+
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>Already have an account? </Text>
+          <TouchableOpacity onPress={() => navigation.navigate('LogIn')}>
+            <Text style={styles.footerLink}>Log in</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: colors.navy,
+  },
+  content: {
+    flexGrow: 1,
+    alignItems: 'center',
+    paddingTop: 72,
+    paddingHorizontal: 24,
+    paddingBottom: 32,
+  },
+  headline: {
+    color: colors.white,
+    fontSize: 24,
+    fontWeight: '800',
+    marginTop: 28,
+  },
+  subtext: {
+    color: colors.muted,
+    fontSize: 14,
+    marginTop: 4,
+    marginBottom: 28,
+  },
+  section: {
+    width: '100%',
+  },
+  formError: {
+    color: colors.red,
+    fontSize: 13,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  primaryButton: {
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: colors.red,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  disabled: {
+    opacity: 0.6,
+  },
+  primaryButtonText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  legal: {
+    color: colors.muted,
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 14,
+    lineHeight: 16,
+  },
+  legalLink: {
+    color: colors.red,
+    fontWeight: '600',
+  },
+  footer: {
+    flexDirection: 'row',
+    marginTop: 32,
+  },
+  footerText: {
+    color: colors.muted,
+    fontSize: 13,
+  },
+  footerLink: {
+    color: colors.red,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+});

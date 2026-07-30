@@ -10,8 +10,10 @@ module.exports = {
     icon: './assets/icon.png',
     userInterfaceStyle: 'dark',
     backgroundColor: '#0d1f3c',
+    scheme: 'saveitgolf',
     ios: {
       supportsTablet: true,
+      usesAppleSignIn: true,
       config: {
         googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
       },
@@ -65,10 +67,14 @@ module.exports = {
         },
       ],
       'expo-video',
+      'expo-apple-authentication',
+      'expo-web-browser',
     ],
     extra: {
       golfCourseApiKey: process.env.GOLF_COURSE_API_KEY,
       googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
+      supabaseUrl: process.env.SUPABASE_URL,
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
       eas: {
         projectId: '48ad35b3-294a-4970-b8fe-612a50cd94fb',
       },

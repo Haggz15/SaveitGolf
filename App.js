@@ -9,6 +9,7 @@ import { Courgette_400Regular } from '@expo-google-fonts/courgette';
 import { Cinzel_700Bold } from '@expo-google-fonts/cinzel';
 
 import RootNavigator from './src/navigation/RootNavigator';
+import { AuthProvider } from './src/context/AuthContext';
 import colors from './src/theme/colors';
 
 SplashScreen.preventAutoHideAsync();
@@ -36,7 +37,9 @@ export default function App() {
     <SafeAreaProvider>
       <View style={styles.container} onLayout={onLayoutRootView}>
         <StatusBar style="light" />
-        <RootNavigator />
+        <AuthProvider>
+          <RootNavigator />
+        </AuthProvider>
       </View>
     </SafeAreaProvider>
   );
