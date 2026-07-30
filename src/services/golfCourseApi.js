@@ -4,6 +4,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const API_KEY = Constants.expoConfig?.extra?.golfCourseApiKey;
 const BASE_URL = 'https://api.golfcourseapi.com/v1';
 
+console.log(
+  API_KEY
+    ? `[golfcourseapi] GOLF_COURSE_API_KEY found (${API_KEY.length} chars)`
+    : '[golfcourseapi] GOLF_COURSE_API_KEY is undefined — check .env and app.config.js'
+);
+
 // This key's plan is capped at 10,000 requests/day, shared across every
 // install of this app using the same key. The API exposes no remaining-quota
 // header, so this is a best-effort local counter — a real HTTP 429 is still
