@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,16 +20,31 @@ function FilterPill({ label, active, onPress }) {
   );
 }
 
-function VideoBackground({ source, muted }) {
+function VideoBackground({ source, isActive }) {
   const player = useVideoPlayer(source, (p) => {
     p.loop = true;
     p.muted = true;
-    p.play();
   });
 
   useEffect(() => {
-    player.muted = muted;
-  }, [muted, player]);
+    const statusSubscription = player.addListener('statusChange', ({ status, error }) => {
+      if (status === 'error') {
+        console.error('Video failed to load:', source, error);
+      }
+    });
+
+    return () => statusSubscription.remove();
+  }, [player, source]);
+
+  // Only the currently visible post should play. This keeps every other
+  // mounted video paused so it isn't buffering or decoding in the background.
+  useEffect(() => {
+    if (isActive) {
+      player.play();
+    } else {
+      player.pause();
+    }
+  }, [isActive, player]);
 
   return (
     <VideoView
@@ -43,11 +58,10 @@ function VideoBackground({ source, muted }) {
   );
 }
 
-function PostSlide({ post, height, onStatePress }) {
+function PostSlide({ post, height, isActive, onStatePress }) {
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(post.likes);
   const [saved, setSaved] = useState(false);
-  const [muted, setMuted] = useState(true);
   const isVideo = !!post.video;
 
   const toggleLike = () => {
@@ -58,7 +72,7 @@ function PostSlide({ post, height, onStatePress }) {
   return (
     <View style={[styles.slide, { height }]}>
       {isVideo ? (
-        <VideoBackground source={post.video} muted={muted} />
+        <VideoBackground source={post.video} isActive={isActive} />
       ) : (
         <Image
           source={post.image}
@@ -75,16 +89,6 @@ function PostSlide({ post, height, onStatePress }) {
         style={styles.bottomGradient}
         pointerEvents="none"
       />
-
-      {isVideo && (
-        <TouchableOpacity
-          style={styles.soundToggle}
-          onPress={() => setMuted((prev) => !prev)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={18} color={colors.white} />
-        </TouchableOpacity>
-      )}
 
       <View style={styles.holeVisual}>
         <View style={styles.holeBadge}>
@@ -147,6 +151,7 @@ function PostSlide({ post, height, onStatePress }) {
 
 export default function FeedScreen({ navigation }) {
   const [activeFilter, setActiveFilter] = useState('Following');
+  const [activePostId, setActivePostId] = useState(feedPosts[0]?.id ?? null);
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const containerHeight =
@@ -158,6 +163,16 @@ export default function FeedScreen({ navigation }) {
       timestamp: Date.now(),
     });
   };
+
+  // Equivalent of an Intersection Observer for React Native: fires whenever
+  // the set of on-screen list items changes so we can play only the post
+  // that's actually visible and pause everything else.
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    if (viewableItems.length > 0) {
+      setActivePostId(viewableItems[0].item.id);
+    }
+  }).current;
 
   return (
     <View style={styles.screen}>
@@ -185,7 +200,12 @@ export default function FeedScreen({ navigation }) {
             data={feedPosts}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
-              <PostSlide post={item} height={containerHeight} onStatePress={handleStatePress} />
+              <PostSlide
+                post={item}
+                height={containerHeight}
+                isActive={item.id === activePostId}
+                onStatePress={handleStatePress}
+              />
             )}
             pagingEnabled
             showsVerticalScrollIndicator={false}
@@ -197,6 +217,12 @@ export default function FeedScreen({ navigation }) {
               offset: containerHeight * index,
               index,
             })}
+            viewabilityConfig={viewabilityConfig}
+            onViewableItemsChanged={onViewableItemsChanged}
+            initialNumToRender={2}
+            maxToRenderPerBatch={2}
+            windowSize={3}
+            removeClippedSubviews
           />
         )}
       </View>
@@ -255,18 +281,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     height: '55%',
-  },
-  soundToggle: {
-    position: 'absolute',
-    top: 12,
-    left: 14,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(6, 14, 26, 0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 3,
   },
   holeVisual: {
     position: 'absolute',
