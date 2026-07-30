@@ -1,10 +1,12 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
 import Header from '../components/Header';
+import NewScorecardModal from '../components/scorecard/NewScorecardModal';
 import colors from '../theme/colors';
-import { scorecard, currentUser } from '../data/mockData';
+import { scorecard as mockScorecard, currentUser } from '../data/mockData';
+import { getLatestScorecard, saveScorecard } from '../data/scorecards';
 
 function sumPar(holes) {
   return holes.reduce((sum, h) => sum + h.par, 0);
@@ -58,33 +60,34 @@ function NineColumn({ holes, label }) {
   );
 }
 
-function PhotoBox({ uri, onPress }) {
-  return (
-    <TouchableOpacity style={styles.photoBox} onPress={onPress} activeOpacity={0.85}>
-      {uri ? (
-        <Image source={{ uri }} style={styles.photoImage} resizeMode="cover" />
-      ) : (
-        <View style={styles.photoPlaceholder}>
-          <Ionicons name="camera-outline" size={30} color={colors.muted} />
-          <Text style={styles.photoPlaceholderText}>Add your photo</Text>
-        </View>
-      )}
-    </TouchableOpacity>
-  );
-}
-
 export default function ScorecardScreen() {
   const viewShotRef = useRef(null);
   const [isSharing, setIsSharing] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
+  const [activeScorecard, setActiveScorecard] = useState(mockScorecard);
+  const [modalVisible, setModalVisible] = useState(false);
 
-  const isNineHoleRound = !scorecard.back || scorecard.back.length === 0;
+  useEffect(() => {
+    (async () => {
+      const latest = await getLatestScorecard();
+      if (latest) setActiveScorecard(latest);
+    })();
+  }, []);
 
-  const totalPar = sumPar(scorecard.front) + (isNineHoleRound ? 0 : sumPar(scorecard.back));
-  const totalScore = sumScore(scorecard.front) + (isNineHoleRound ? 0 : sumScore(scorecard.back));
+  const isNineHoleRound = !activeScorecard.back || activeScorecard.back.length === 0;
+
+  const totalPar = sumPar(activeScorecard.front) + (isNineHoleRound ? 0 : sumPar(activeScorecard.back));
+  const totalScore = sumScore(activeScorecard.front) + (isNineHoleRound ? 0 : sumScore(activeScorecard.back));
   const diff = totalScore - totalPar;
   const diffLabel = diff === 0 ? 'E' : diff > 0 ? `+${diff}` : `${diff}`;
   const fullName = `${currentUser.firstName} ${currentUser.lastName}`.toUpperCase();
+
+  async function handleScorecardSaved(newScorecard) {
+    await saveScorecard(newScorecard);
+    setActiveScorecard(newScorecard);
+    setPhotoUri(null);
+    setModalVisible(false);
+  }
 
   async function handlePickPhoto() {
     if (Platform.OS === 'web') {
@@ -106,7 +109,7 @@ export default function ScorecardScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
-        aspect: [9, 32],
+        aspect: [9, 16],
         quality: 0.9,
       });
 
@@ -155,6 +158,15 @@ export default function ScorecardScreen() {
     <View style={styles.screen}>
       <Header />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <TouchableOpacity
+          style={styles.newScorecardButton}
+          onPress={() => setModalVisible(true)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="add-circle" size={20} color={colors.white} />
+          <Text style={styles.newScorecardButtonText}>New Scorecard</Text>
+        </TouchableOpacity>
+
         <View style={styles.cardWrapper}>
           <ViewShot
             ref={viewShotRef}
@@ -163,52 +175,56 @@ export default function ScorecardScreen() {
           >
             <View style={styles.cardRow}>
               <View style={styles.leftCol}>
-                <View>
-                  <Text style={styles.userName}>{fullName}</Text>
-                </View>
+                <Text style={styles.userName}>{fullName}</Text>
+                <Text style={styles.courseNameText} numberOfLines={2}>
+                  {activeScorecard.courseName}
+                </Text>
 
                 <View style={styles.scoresRow}>
-                  <NineColumn holes={scorecard.front} label="FRONT" />
-                  {!isNineHoleRound && <NineColumn holes={scorecard.back} label="BACK" />}
+                  <NineColumn holes={activeScorecard.front} label="FRONT" />
+                  {!isNineHoleRound && <NineColumn holes={activeScorecard.back} label="BACK" />}
                 </View>
 
                 <View style={styles.bottomSpacer} />
 
-                <View style={styles.bottomBlock}>
+                <View style={styles.totalBlock}>
                   <View style={styles.totalRow}>
                     <Text style={styles.totalScore}>{totalScore}</Text>
                     <Text style={[styles.totalDiff, { color: diffColor(diff) }]}>
                       ({diffLabel})
                     </Text>
                   </View>
-
-                  <Text style={styles.tournamentLabel}>TOURNAMENT</Text>
-                  <Text
-                    style={[
-                      styles.tournamentScore,
-                      { color: diffColor(scorecard.tournamentScore.startsWith('-') ? -1 : scorecard.tournamentScore.startsWith('+') ? 1 : 0) },
-                    ]}
-                  >
-                    {scorecard.tournamentScore}
-                  </Text>
-
-                  <Text style={styles.watermarkText}>SaveitGolf</Text>
                 </View>
               </View>
 
-              <PhotoBox uri={photoUri} onPress={handlePickPhoto} />
+              {photoUri && (
+                <View style={styles.photoBox}>
+                  <Image source={{ uri: photoUri }} style={styles.photoImage} resizeMode="cover" />
+                </View>
+              )}
+            </View>
+
+            <View style={styles.watermarkWrap}>
+              <Text style={styles.watermarkText}>SaveitGolf</Text>
             </View>
           </ViewShot>
 
-          <TouchableOpacity
-            style={styles.shareButton}
-            onPress={handleShare}
-            disabled={isSharing}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="share-outline" size={16} color={colors.white} />
-            <Text style={styles.shareButtonText}>{isSharing ? 'Saving…' : 'Share'}</Text>
-          </TouchableOpacity>
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={styles.photoActionButton} onPress={handlePickPhoto} activeOpacity={0.8}>
+              <Ionicons name={photoUri ? 'image' : 'camera-outline'} size={16} color={colors.white} />
+              <Text style={styles.photoActionText}>{photoUri ? 'Change Photo' : 'Add Photo'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.shareButton}
+              onPress={handleShare}
+              disabled={isSharing}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="share-outline" size={16} color={colors.white} />
+              <Text style={styles.shareButtonText}>{isSharing ? 'Saving…' : 'Share'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.legend}>
@@ -242,6 +258,13 @@ export default function ScorecardScreen() {
           </View>
         </View>
       </ScrollView>
+
+      <NewScorecardModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        onSaved={handleScorecardSaved}
+        fullName={fullName}
+      />
     </View>
   );
 }
@@ -255,6 +278,26 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
+  newScorecardButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.red,
+    borderRadius: 12,
+    paddingVertical: 15,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  newScorecardButtonText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '800',
+  },
   cardWrapper: {
     position: 'relative',
   },
@@ -263,6 +306,7 @@ const styles = StyleSheet.create({
     aspectRatio: 9 / 16,
     width: '100%',
     overflow: 'hidden',
+    position: 'relative',
   },
   cardRow: {
     flex: 1,
@@ -280,6 +324,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.3,
+  },
+  courseNameText: {
+    fontFamily: 'Cinzel_700Bold',
+    color: colors.white,
+    fontSize: 13,
+    marginTop: 6,
   },
   scoresRow: {
     flexDirection: 'row',
@@ -341,8 +391,9 @@ const styles = StyleSheet.create({
   bottomSpacer: {
     flex: 1,
   },
-  bottomBlock: {
-    alignItems: 'flex-start',
+  totalBlock: {
+    alignItems: 'center',
+    width: '100%',
   },
   totalRow: {
     flexDirection: 'row',
@@ -360,24 +411,19 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginBottom: 8,
   },
-  tournamentLabel: {
-    color: colors.muted,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1,
-    marginTop: 10,
-  },
-  tournamentScore: {
-    fontSize: 20,
-    fontWeight: '800',
-    marginTop: 2,
+  watermarkWrap: {
+    position: 'absolute',
+    bottom: 10,
+    right: 14,
   },
   watermarkText: {
     fontFamily: 'DancingScript_700Bold',
-    fontSize: 13,
-    color: colors.muted,
-    opacity: 0.85,
-    marginTop: 14,
+    fontSize: 14,
+    color: colors.white,
+    opacity: 0.9,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   photoBox: {
     flex: 1,
@@ -388,21 +434,29 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  photoPlaceholder: {
-    flex: 1,
-    alignItems: 'center',
+  actionRow: {
+    flexDirection: 'row',
     justifyContent: 'center',
-    gap: 6,
+    gap: 10,
+    marginTop: 14,
   },
-  photoPlaceholderText: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: '600',
+  photoActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    borderRadius: 24,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+  },
+  photoActionText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '700',
   },
   shareButton: {
-    position: 'absolute',
-    bottom: 16,
-    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
