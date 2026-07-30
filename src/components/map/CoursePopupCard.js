@@ -1,42 +1,44 @@
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
+import { courseDetail as mockCourseDetail } from '../../data/mockData';
 
-// golfcourseapi.com has no public/private field, so this is a best-effort
-// guess from the course name — "Country Club" is a strong private signal,
-// everything else defaults to public.
-function guessAccess(name = '') {
-  const lower = name.toLowerCase();
-  if (lower.includes('country club') || lower.includes('private')) return 'Private';
-  return 'Public';
+// golfcourseapi.com has no rating/post-count field, so — same as the Course
+// Detail screen — these come from the shared mock fixture until real
+// per-course SaveitGolf activity data exists.
+function buildMetaLine(course, detail) {
+  const location = [course.city, course.state].filter(Boolean).join(', ');
+  const segments = [];
+  if (location) segments.push(location);
+  if (detail?.holes != null) segments.push(`${detail.holes} Holes`);
+  if (detail?.par != null) segments.push(`Par ${detail.par}`);
+  if (!detail?.loading && detail?.error && detail?.holes == null) segments.push(detail.error);
+  return segments.join(' · ');
 }
 
 export default function CoursePopupCard({ course, detail, onClose, onViewHoles }) {
+  const metaLine = buildMetaLine(course, detail);
+
   return (
     <View style={styles.popupCard}>
       <TouchableOpacity style={styles.popupClose} onPress={onClose}>
         <Ionicons name="close" size={18} color={colors.muted} />
       </TouchableOpacity>
       <Text style={styles.popupName}>{course.name}</Text>
-      <Text style={styles.popupLocation}>
-        {course.city}, {course.state}
-      </Text>
 
-      <View style={styles.popupMetaRow}>
-        <View style={styles.popupMetaItem}>
-          <Text style={styles.popupMetaLabel}>Access</Text>
-          <Text style={styles.popupMetaValue}>{guessAccess(course.name)}</Text>
-        </View>
-        <View style={styles.popupMetaItem}>
-          <Text style={styles.popupMetaLabel}>Holes</Text>
-          {detail?.loading ? (
-            <ActivityIndicator size="small" color={colors.muted} />
-          ) : (
-            <Text style={styles.popupMetaValue}>{detail?.holes ?? detail?.error ?? '—'}</Text>
-          )}
-        </View>
+      <View style={styles.metaRow}>
+        {!!metaLine && <Text style={styles.popupMeta}>{metaLine}</Text>}
+        {detail?.loading && (
+          <ActivityIndicator size="small" color={colors.muted} style={styles.metaSpinner} />
+        )}
       </View>
-      <Text style={styles.popupNote}>Access is estimated from the course name, not confirmed data.</Text>
+
+      <View style={styles.ratingRow}>
+        <Ionicons name="star" size={14} color={colors.gold} />
+        <Text style={styles.ratingValue}>{mockCourseDetail.rating}</Text>
+        <Text style={styles.ratingDivider}>·</Text>
+        <Text style={styles.ratingPosts}>{mockCourseDetail.postsCount} posts</Text>
+      </View>
 
       <TouchableOpacity style={styles.popupButton} onPress={onViewHoles}>
         <Text style={styles.popupButtonText}>View holes & shots</Text>
@@ -67,41 +69,41 @@ const styles = StyleSheet.create({
   },
   popupName: {
     color: colors.white,
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     marginRight: 24,
   },
-  popupLocation: {
-    color: colors.muted,
-    fontSize: 13,
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 4,
   },
-  popupMetaRow: {
-    flexDirection: 'row',
-    gap: 20,
-    marginTop: 14,
-    marginBottom: 6,
-  },
-  popupMetaItem: {
-    flex: 1,
-  },
-  popupMetaLabel: {
+  popupMeta: {
     color: colors.muted,
-    fontSize: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 3,
-  },
-  popupMetaValue: {
-    color: colors.offWhite,
     fontSize: 13,
-    fontWeight: '600',
   },
-  popupNote: {
+  metaSpinner: {
+    marginLeft: 8,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+    marginBottom: 14,
+  },
+  ratingValue: {
+    color: colors.offWhite,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  ratingDivider: {
     color: colors.muted,
-    fontSize: 10,
-    fontStyle: 'italic',
-    marginBottom: 12,
+    fontSize: 13,
+  },
+  ratingPosts: {
+    color: colors.muted,
+    fontSize: 13,
   },
   popupButton: {
     flexDirection: 'row',

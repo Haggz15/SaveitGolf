@@ -251,7 +251,11 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
     getCourseById(course.id)
       .then((detail) => {
         const primaryTee = detail.tees?.male?.[0] ?? detail.tees?.female?.[0] ?? null;
-        setSelectedDetail({ loading: false, holes: primaryTee?.number_of_holes ?? null });
+        setSelectedDetail({
+          loading: false,
+          holes: primaryTee?.number_of_holes ?? null,
+          par: primaryTee?.par_total ?? null,
+        });
       })
       .catch((err) => {
         const message = err instanceof RateLimitError ? 'Daily limit reached' : 'Unavailable';

@@ -18,23 +18,31 @@ import { useCourseMapData, NORTHEAST_US_INITIAL_REGION } from '../hooks/useCours
 // filter/popup/zoom behavior stay identical across platforms.
 
 const PIN_SIZE = 30;
+const HIGHLIGHTED_PIN_SIZE = 42;
 const FLAG_POLE_X = 8;
 // Golf flag-on-a-pole, drawn as an SVG divIcon since Leaflet markers render
-// outside React's tree and can't host RN/Ionicons directly.
-function buildFlagIcon(color) {
-  const svg = `<svg width="${PIN_SIZE}" height="${PIN_SIZE}" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+// outside React's tree and can't host RN/Ionicons directly. `highlighted`
+// draws a larger flag with a glow ring behind it, used for the pin dropped
+// when a search result is selected so it stands out from the rest.
+function buildFlagIcon(color, size = PIN_SIZE, highlighted = false) {
+  const halo = highlighted
+    ? `<circle cx="15" cy="15" r="14" fill="${color}" fill-opacity="0.2" stroke="${color}" stroke-width="1.5"/>`
+    : '';
+  const svg = `<svg width="${size}" height="${size}" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+    ${halo}
     <line x1="${FLAG_POLE_X}" y1="2" x2="${FLAG_POLE_X}" y2="28" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
     <path d="M${FLAG_POLE_X} 3 L25 9 L${FLAG_POLE_X} 15 Z" fill="${color}" stroke="#ffffff" stroke-width="1" stroke-linejoin="round"/>
   </svg>`;
   return L.divIcon({
     html: svg,
     className: 'saveitgolf-course-pin',
-    iconSize: [PIN_SIZE, PIN_SIZE],
-    iconAnchor: [FLAG_POLE_X, PIN_SIZE - 2],
+    iconSize: [size, size],
+    iconAnchor: [(FLAG_POLE_X * size) / PIN_SIZE, ((PIN_SIZE - 2) * size) / PIN_SIZE],
   });
 }
 
 const courseIcon = buildFlagIcon(colors.red);
+const highlightedCourseIcon = buildFlagIcon(colors.red, HIGHLIGHTED_PIN_SIZE, true);
 
 function regionToZoom(latitudeDelta) {
   return Math.min(18, Math.max(2, Math.round(Math.log2(360 / latitudeDelta))));
@@ -155,7 +163,8 @@ export default function MapScreen({ navigation, route }) {
             <Marker
               key={course.id}
               position={[course.lat, course.lng]}
-              icon={courseIcon}
+              icon={selectedCourse?.id === course.id ? highlightedCourseIcon : courseIcon}
+              zIndexOffset={selectedCourse?.id === course.id ? 1000 : 0}
               eventHandlers={{ click: () => handleSelectCourse(course) }}
             />
           ))}

@@ -15,14 +15,21 @@ import { useCourseMapData, NORTHEAST_US_INITIAL_REGION, MAX_MAP_DELTA } from '..
 const ZOOM_MIN_DELTA = 0.01;
 const ZOOM_MAX_DELTA = MAX_MAP_DELTA;
 
-function CourseMarker({ course, onPress }) {
+function CourseMarker({ course, highlighted, onPress }) {
   return (
     <Marker
       coordinate={{ latitude: course.lat, longitude: course.lng }}
       onPress={() => onPress(course)}
-      tracksViewChanges={false}
+      tracksViewChanges={highlighted}
+      zIndex={highlighted ? 10 : 1}
     >
-      <Ionicons name="flag" size={28} color={colors.red} />
+      {highlighted ? (
+        <View style={styles.highlightedMarker}>
+          <Ionicons name="flag" size={36} color={colors.red} />
+        </View>
+      ) : (
+        <Ionicons name="flag" size={28} color={colors.red} />
+      )}
     </Marker>
   );
 }
@@ -121,7 +128,12 @@ export default function MapScreen({ navigation, route }) {
           onRegionChangeComplete={setRegion}
         >
           {visibleCourses.map((course) => (
-            <CourseMarker key={course.id} course={course} onPress={handleSelectCourse} />
+            <CourseMarker
+              key={course.id}
+              course={course}
+              highlighted={selectedCourse?.id === course.id}
+              onPress={handleSelectCourse}
+            />
           ))}
         </MapView>
 
@@ -154,5 +166,15 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  highlightedMarker: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(192, 0, 26, 0.18)',
+    borderWidth: 2,
+    borderColor: colors.red,
   },
 });
