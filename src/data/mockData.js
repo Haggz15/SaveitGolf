@@ -104,6 +104,7 @@ export const feedPosts = [
     comments: 22,
     timeAgo: '1d',
     video: require('../../assets/video1.mp4'),
+    videoMobile: require('../../assets/video1-mobile.mp4'),
   },
   {
     id: '8',
@@ -118,6 +119,7 @@ export const feedPosts = [
     comments: 34,
     timeAgo: '2d',
     video: require('../../assets/video2.mp4'),
+    videoMobile: require('../../assets/video2-mobile.mp4'),
   },
 ];
 

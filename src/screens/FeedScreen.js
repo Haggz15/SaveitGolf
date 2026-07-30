@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useVideoPlayer, VideoView } from 'expo-video';
 import Header from '../components/Header';
+import VideoPost from '../components/VideoPost';
 import colors from '../theme/colors';
 import { feedPosts, filterPills } from '../data/mockData';
 import { HEADER_CONTENT_HEIGHT, PILL_ROW_HEIGHT, TAB_BAR_HEIGHT } from '../theme/layout';
@@ -17,44 +17,6 @@ function FilterPill({ label, active, onPress }) {
     >
       <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
     </TouchableOpacity>
-  );
-}
-
-function VideoBackground({ source, isActive }) {
-  const player = useVideoPlayer(source, (p) => {
-    p.loop = true;
-    p.muted = true;
-  });
-
-  useEffect(() => {
-    const statusSubscription = player.addListener('statusChange', ({ status, error }) => {
-      if (status === 'error') {
-        console.error('Video failed to load:', source, error);
-      }
-    });
-
-    return () => statusSubscription.remove();
-  }, [player, source]);
-
-  // Only the currently visible post should play. This keeps every other
-  // mounted video paused so it isn't buffering or decoding in the background.
-  useEffect(() => {
-    if (isActive) {
-      player.play();
-    } else {
-      player.pause();
-    }
-  }, [isActive, player]);
-
-  return (
-    <VideoView
-      player={player}
-      style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]}
-      contentFit="cover"
-      nativeControls={false}
-      fullscreenOptions={{ enable: false }}
-      playsInline
-    />
   );
 }
 
@@ -72,7 +34,7 @@ function PostSlide({ post, height, isActive, onStatePress }) {
   return (
     <View style={[styles.slide, { height }]}>
       {isVideo ? (
-        <VideoBackground source={post.video} isActive={isActive} />
+        <VideoPost source={post.video} mobileSource={post.videoMobile} isActive={isActive} />
       ) : (
         <Image
           source={post.image}
