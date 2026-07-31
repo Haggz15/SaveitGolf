@@ -15,6 +15,7 @@ import colors from '../theme/colors';
 import { courseRankings, wantToPlay, uploads } from '../data/mockData';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
+import HandicapInputModal from '../components/profile/HandicapInputModal';
 
 const TABS = ['Course Rankings', 'Want to Play', 'Uploads'];
 
@@ -106,13 +107,13 @@ async function handleLogout() {
 }
 
 export default function ProfileScreen() {
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
   const [activeTab, setActiveTab] = useState(TABS[0]);
   const [profileData, setProfileData] = useState(null);
-  const [email, setEmail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState(null);
+  const [handicapModalVisible, setHandicapModalVisible] = useState(false);
 
   const loadProfileData = useCallback(async () => {
     if (!user?.id) return;
@@ -120,10 +121,11 @@ export default function ProfileScreen() {
     setError(null);
     setNotFound(false);
     try {
-      const [{ data: profileRow, error: profileError }, { data: authData, error: authError }] = await Promise.all([
-        supabase.from('profiles').select('*').eq('user_id', user.id).single(),
-        supabase.auth.getUser(),
-      ]);
+      const { data: profileRow, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
 
       if (profileError) {
         if (profileError.code === 'PGRST116') {
@@ -135,9 +137,6 @@ export default function ProfileScreen() {
       } else {
         setProfileData(profileRow);
       }
-
-      if (authError) throw authError;
-      setEmail(authData?.user?.email ?? null);
     } catch (err) {
       console.error('Failed to load profile:', err);
       setError("We couldn't load your profile.");
@@ -149,6 +148,14 @@ export default function ProfileScreen() {
   useEffect(() => {
     loadProfileData();
   }, [loadProfileData]);
+
+  const handleSaveHandicap = useCallback(
+    async (value) => {
+      const updated = await updateProfile({ handicapIndex: value });
+      setProfileData((prev) => (prev ? { ...prev, handicap_index: updated.handicap_index } : updated));
+    },
+    [updateProfile]
+  );
 
   return (
     <View style={styles.screen}>
@@ -188,7 +195,7 @@ export default function ProfileScreen() {
             </View>
           ) : notFound ? (
             <View style={styles.stateSpacing}>
-              <Text style={styles.name}>{email || 'Golfer'}</Text>
+              <Text style={styles.name}>Golfer</Text>
               <Text style={styles.emptyText}>
                 Finish setting up your profile to see your info here.
               </Text>
@@ -199,7 +206,6 @@ export default function ProfileScreen() {
               <Text style={styles.handle}>
                 {profileData?.username ? `@${profileData.username}` : ''}
               </Text>
-              {email && <Text style={styles.email}>{email}</Text>}
               {profileData?.home_state && (
                 <View style={styles.locationRow}>
                   <Ionicons name="location-outline" size={14} color={colors.muted} />
@@ -224,13 +230,26 @@ export default function ProfileScreen() {
 
               <View style={styles.handicapBox}>
                 <Ionicons name="golf-outline" size={20} color={colors.red} />
-                <View style={{ marginLeft: 10 }}>
+                <View style={{ marginLeft: 10, flex: 1 }}>
                   <Text style={styles.handicapValue}>
-                    {profileData?.handicap != null ? profileData.handicap : '—'}
+                    {profileData?.handicap_index != null ? profileData.handicap_index : 'Not set'}
                   </Text>
                   <Text style={styles.handicapLabel}>Handicap Index</Text>
                 </View>
+                <TouchableOpacity
+                  onPress={() => setHandicapModalVisible(true)}
+                  hitSlop={10}
+                  style={styles.editHandicapButton}
+                >
+                  <Ionicons name="pencil-outline" size={16} color={colors.muted} />
+                </TouchableOpacity>
               </View>
+
+              <HandicapInputModal
+                visible={handicapModalVisible}
+                onClose={() => setHandicapModalVisible(false)}
+                onSubmit={handleSaveHandicap}
+              />
             </>
           )}
         </View>
@@ -313,11 +332,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
-  email: {
-    color: colors.muted,
-    fontSize: 12,
-    marginTop: 4,
-  },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -397,6 +411,10 @@ const styles = StyleSheet.create({
   handicapLabel: {
     color: colors.muted,
     fontSize: 11,
+  },
+  editHandicapButton: {
+    padding: 6,
+    marginLeft: 8,
   },
   tabRow: {
     flexDirection: 'row',

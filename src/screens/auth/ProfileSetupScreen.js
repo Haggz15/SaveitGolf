@@ -9,12 +9,14 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 
 import colors from '../../theme/colors';
 import ProgressSteps from '../../components/auth/ProgressSteps';
 import AvatarPicker from '../../components/auth/AvatarPicker';
 import AuthTextField from '../../components/auth/AuthTextField';
 import StateSelect from '../../components/auth/StateSelect';
+import HandicapInputModal from '../../components/profile/HandicapInputModal';
 import { useAuth } from '../../context/AuthContext';
 import { friendlyAuthError } from '../../services/authErrors';
 
@@ -27,6 +29,7 @@ export default function ProfileSetupScreen() {
   const [username, setUsername] = useState('');
   const [homeState, setHomeState] = useState('');
   const [handicap, setHandicap] = useState('');
+  const [handicapModalVisible, setHandicapModalVisible] = useState(false);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
@@ -50,7 +53,7 @@ export default function ProfileSetupScreen() {
         fullName: fullName.trim(),
         username: username.trim().toLowerCase(),
         homeState: homeState || undefined,
-        handicap: handicap.trim() ? Number(handicap.trim()) : undefined,
+        handicapIndex: handicap.trim() ? Number(handicap.trim()) : undefined,
       });
       // RootNavigator switches to the Feed automatically once the profile row exists.
     } catch (err) {
@@ -104,13 +107,25 @@ export default function ProfileSetupScreen() {
             error={errors.username}
           />
           <StateSelect value={homeState} onChange={setHomeState} />
-          <AuthTextField
-            placeholder="Handicap index"
-            value={handicap}
-            onChangeText={setHandicap}
-            keyboardType="decimal-pad"
-          />
+          <TouchableOpacity
+            style={styles.handicapField}
+            onPress={() => setHandicapModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={handicap ? styles.handicapFieldValue : styles.handicapFieldPlaceholder}>
+              {handicap ? `Handicap index: ${handicap}` : 'Add your handicap'}
+            </Text>
+            <Ionicons name="pencil-outline" size={16} color={colors.muted} />
+          </TouchableOpacity>
           <Text style={styles.helperText}>Don't know yours? You can add this later.</Text>
+
+          <HandicapInputModal
+            visible={handicapModalVisible}
+            onClose={() => setHandicapModalVisible(false)}
+            onSubmit={(value) => {
+              setHandicap(String(value));
+            }}
+          />
 
           {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}
 
@@ -160,6 +175,26 @@ const styles = StyleSheet.create({
   section: {
     width: '100%',
     marginTop: 20,
+  },
+  handicapField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    height: 50,
+    marginBottom: 14,
+  },
+  handicapFieldValue: {
+    color: colors.white,
+    fontSize: 15,
+  },
+  handicapFieldPlaceholder: {
+    color: colors.muted,
+    fontSize: 15,
   },
   helperText: {
     color: colors.muted,

@@ -8,9 +8,24 @@ create table if not exists public.profiles (
   username text unique,
   full_name text,
   home_state text,
-  handicap numeric,
+  handicap_index numeric,
   created_at timestamptz not null default now()
 );
+
+-- Existing installations created the column as `handicap`; rename it in place
+-- so the app's handicap_index field matches without losing any data.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'profiles' and column_name = 'handicap'
+  ) and not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'profiles' and column_name = 'handicap_index'
+  ) then
+    alter table public.profiles rename column handicap to handicap_index;
+  end if;
+end $$;
 
 alter table public.profiles enable row level security;
 

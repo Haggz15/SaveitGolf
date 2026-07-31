@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { supabase } from '../services/supabase';
-import { getProfile, insertProfile } from '../services/profiles';
+import { getProfile, insertProfile, updateProfile as updateProfileRequest } from '../services/profiles';
 
 const AuthContext = createContext(null);
 
@@ -61,6 +61,16 @@ export function AuthProvider({ children }) {
     [session]
   );
 
+  const updateProfile = useCallback(
+    async (fields) => {
+      if (!session?.user?.id) throw new Error('Not signed in.');
+      const row = await updateProfileRequest(session.user.id, fields);
+      setProfile(row);
+      return row;
+    },
+    [session]
+  );
+
   const value = useMemo(
     () => ({
       session,
@@ -71,8 +81,9 @@ export function AuthProvider({ children }) {
       needsOnboarding: Boolean(session?.user) && !profile,
       refreshProfile,
       completeOnboarding,
+      updateProfile,
     }),
-    [session, profile, initializing, refreshProfile, completeOnboarding]
+    [session, profile, initializing, refreshProfile, completeOnboarding, updateProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
