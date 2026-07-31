@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,14 +7,28 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
 import colors from '../theme/colors';
 import { courseRankings, wantToPlay, uploads } from '../data/mockData';
 import { supabase } from '../services/supabase';
+import { useAuth } from '../context/AuthContext';
 
 const TABS = ['Course Rankings', 'Want to Play', 'Uploads'];
+
+function getInitials(fullName) {
+  if (!fullName) return '';
+  return fullName
+    .trim()
+    .split(/\s+/)
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
 
 function RankingsList() {
   return (
@@ -92,7 +106,49 @@ async function handleLogout() {
 }
 
 export default function ProfileScreen() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState(TABS[0]);
+  const [profileData, setProfileData] = useState(null);
+  const [email, setEmail] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [error, setError] = useState(null);
+
+  const loadProfileData = useCallback(async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    setError(null);
+    setNotFound(false);
+    try {
+      const [{ data: profileRow, error: profileError }, { data: authData, error: authError }] = await Promise.all([
+        supabase.from('profiles').select('*').eq('user_id', user.id).single(),
+        supabase.auth.getUser(),
+      ]);
+
+      if (profileError) {
+        if (profileError.code === 'PGRST116') {
+          setProfileData(null);
+          setNotFound(true);
+        } else {
+          throw profileError;
+        }
+      } else {
+        setProfileData(profileRow);
+      }
+
+      if (authError) throw authError;
+      setEmail(authData?.user?.email ?? null);
+    } catch (err) {
+      console.error('Failed to load profile:', err);
+      setError("We couldn't load your profile.");
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadProfileData();
+  }, [loadProfileData]);
 
   return (
     <View style={styles.screen}>
@@ -114,33 +170,69 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.profileHeader}>
           <View style={styles.avatarRing}>
-            <View style={styles.avatar} />
-          </View>
-          <Text style={styles.name}>Owen Haggerty</Text>
-          <Text style={styles.handle}>@owenhgolf</Text>
-
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>128</Text>
-              <Text style={styles.statLabel}>Posts</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>1.4k</Text>
-              <Text style={styles.statLabel}>Followers</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>312</Text>
-              <Text style={styles.statLabel}>Following</Text>
+            <View style={styles.avatar}>
+              {!loading && profileData?.full_name && (
+                <Text style={styles.avatarInitials}>{getInitials(profileData.full_name)}</Text>
+              )}
             </View>
           </View>
 
-          <View style={styles.handicapBox}>
-            <Ionicons name="golf-outline" size={20} color={colors.red} />
-            <View style={{ marginLeft: 10 }}>
-              <Text style={styles.handicapValue}>6.2</Text>
-              <Text style={styles.handicapLabel}>Handicap Index</Text>
+          {loading ? (
+            <ActivityIndicator color={colors.red} size="large" style={styles.stateSpacing} />
+          ) : error ? (
+            <View style={styles.stateSpacing}>
+              <Text style={styles.errorText}>{error}</Text>
+              <TouchableOpacity onPress={loadProfileData} style={styles.retryButton}>
+                <Text style={styles.retryButtonText}>Try Again</Text>
+              </TouchableOpacity>
             </View>
-          </View>
+          ) : notFound ? (
+            <View style={styles.stateSpacing}>
+              <Text style={styles.name}>{email || 'Golfer'}</Text>
+              <Text style={styles.emptyText}>
+                Finish setting up your profile to see your info here.
+              </Text>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.name}>{profileData?.full_name || 'Unnamed Golfer'}</Text>
+              <Text style={styles.handle}>
+                {profileData?.username ? `@${profileData.username}` : ''}
+              </Text>
+              {email && <Text style={styles.email}>{email}</Text>}
+              {profileData?.home_state && (
+                <View style={styles.locationRow}>
+                  <Ionicons name="location-outline" size={14} color={colors.muted} />
+                  <Text style={styles.locationText}>{profileData.home_state}</Text>
+                </View>
+              )}
+
+              <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>128</Text>
+                  <Text style={styles.statLabel}>Posts</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>1.4k</Text>
+                  <Text style={styles.statLabel}>Followers</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>312</Text>
+                  <Text style={styles.statLabel}>Following</Text>
+                </View>
+              </View>
+
+              <View style={styles.handicapBox}>
+                <Ionicons name="golf-outline" size={20} color={colors.red} />
+                <View style={{ marginLeft: 10 }}>
+                  <Text style={styles.handicapValue}>
+                    {profileData?.handicap != null ? profileData.handicap : '—'}
+                  </Text>
+                  <Text style={styles.handicapLabel}>Handicap Index</Text>
+                </View>
+              </View>
+            </>
+          )}
         </View>
 
         <View style={styles.tabRow}>
@@ -203,6 +295,13 @@ const styles = StyleSheet.create({
     height: 82,
     borderRadius: 41,
     backgroundColor: colors.navyBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    color: colors.white,
+    fontSize: 26,
+    fontWeight: '700',
   },
   name: {
     color: colors.white,
@@ -213,12 +312,57 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     marginTop: 2,
+  },
+  email: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 4,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
     marginBottom: 18,
+  },
+  locationText: {
+    color: colors.muted,
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  stateSpacing: {
+    marginVertical: 20,
+    alignItems: 'center',
+  },
+  errorText: {
+    color: colors.muted,
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  retryButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: colors.white,
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 13,
+    marginTop: 6,
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     width: '100%',
+    marginTop: 12,
     marginBottom: 18,
   },
   statItem: {
