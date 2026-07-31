@@ -50,10 +50,9 @@ export default function ProfileSetupScreen() {
         fullName: fullName.trim(),
         username: username.trim().toLowerCase(),
         homeState: homeState || undefined,
-        handicapIndex: handicap.trim() ? Number(handicap.trim()) : undefined,
-        avatarUrl: avatarUri || undefined,
+        handicap: handicap.trim() ? Number(handicap.trim()) : undefined,
       });
-      // RootNavigator switches to the Feed automatically once onboarding_complete is true.
+      // RootNavigator switches to the Feed automatically once the profile row exists.
     } catch (err) {
       setErrors({ form: friendlyAuthError(err) });
     } finally {

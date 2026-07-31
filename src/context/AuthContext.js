@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { supabase } from '../services/supabase';
-import { getProfile, saveProfile } from '../services/profiles';
+import { getProfile, insertProfile } from '../services/profiles';
 
 const AuthContext = createContext(null);
 
@@ -54,7 +54,7 @@ export function AuthProvider({ children }) {
   const completeOnboarding = useCallback(
     async (fields) => {
       if (!session?.user?.id) throw new Error('Not signed in.');
-      const row = await saveProfile(session.user.id, { ...fields, onboardingComplete: true });
+      const row = await insertProfile(session.user.id, fields);
       setProfile(row);
       return row;
     },
@@ -67,7 +67,8 @@ export function AuthProvider({ children }) {
       user: session?.user ?? null,
       profile,
       initializing,
-      needsOnboarding: Boolean(session?.user) && !profile?.onboarding_complete,
+      // profiles has no onboarding_complete flag — the row's existence is the signal.
+      needsOnboarding: Boolean(session?.user) && !profile,
       refreshProfile,
       completeOnboarding,
     }),
