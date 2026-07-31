@@ -1,5 +1,14 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
 import colors from '../theme/colors';
@@ -60,13 +69,6 @@ function UploadsGrid() {
   );
 }
 
-function handleLogOut() {
-  Alert.alert('Log out', 'Are you sure you want to log out?', [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Log out', style: 'destructive', onPress: () => signOut() },
-  ]);
-}
-
 function handleOpenSettings() {
   // Settings screen doesn't exist yet.
   Alert.alert('Settings', 'App settings are coming soon.');
@@ -74,6 +76,29 @@ function handleOpenSettings() {
 
 export default function ProfileScreen() {
   const [activeTab, setActiveTab] = useState(TABS[0]);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const performSignOut = async () => {
+    setIsSigningOut(true);
+    try {
+      // Clears the Supabase session; AuthContext's onAuthStateChange listener
+      // picks this up and clears session/profile state, which swaps
+      // RootNavigator from the Tabs stack to the AuthStack (SignUp first) —
+      // that unmount is what actually prevents navigating back to the feed.
+      await signOut();
+    } catch (err) {
+      Alert.alert('Sign out failed', err?.message ?? 'Something went wrong. Please try again.');
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
+
+  const handleLogOut = () => {
+    Alert.alert('Log out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Log out', style: 'destructive', onPress: performSignOut },
+    ]);
+  };
 
   return (
     <View style={styles.screen}>
@@ -83,8 +108,17 @@ export default function ProfileScreen() {
             <TouchableOpacity onPress={handleOpenSettings} hitSlop={10} style={styles.headerActionButton}>
               <Ionicons name="settings-outline" size={22} color={colors.muted} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleLogOut} hitSlop={10} style={styles.headerActionButton}>
-              <Ionicons name="log-out-outline" size={22} color={colors.red} />
+            <TouchableOpacity
+              onPress={handleLogOut}
+              hitSlop={10}
+              disabled={isSigningOut}
+              style={styles.headerActionButton}
+            >
+              {isSigningOut ? (
+                <ActivityIndicator size="small" color={colors.red} />
+              ) : (
+                <Ionicons name="log-out-outline" size={22} color={colors.red} />
+              )}
             </TouchableOpacity>
           </View>
         }
