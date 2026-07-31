@@ -73,6 +73,24 @@ function handleOpenSettings() {
   Alert.alert('Settings', 'App settings are coming soon.');
 }
 
+// AuthContext's onAuthStateChange listener swaps in the auth stack once the
+// session clears, so signOut() alone is enough to redirect to sign-up.
+async function handleLogout() {
+  console.log('Logout pressed');
+  try {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('Logout error:', error);
+      Alert.alert('Error logging out', error.message);
+    } else {
+      console.log('Logged out successfully');
+    }
+  } catch (err) {
+    console.error('Unexpected logout error:', err);
+    Alert.alert('Unexpected error', err.message);
+  }
+}
+
 export default function ProfileScreen() {
   const [activeTab, setActiveTab] = useState(TABS[0]);
 
@@ -85,14 +103,10 @@ export default function ProfileScreen() {
               <Ionicons name="settings-outline" size={22} color={colors.muted} />
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => {
-                console.log('Logout button pressed');
-                supabase.auth.signOut();
-              }}
-              hitSlop={10}
-              style={styles.headerActionButton}
+              onPress={handleLogout}
+              style={{ padding: 10, backgroundColor: '#c0001a', borderRadius: 8 }}
             >
-              <Text style={styles.logoutText}>Log Out</Text>
+              <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 14 }}>Log Out</Text>
             </TouchableOpacity>
           </View>
         }
@@ -165,10 +179,6 @@ const styles = StyleSheet.create({
   },
   headerActionButton: {
     marginLeft: 16,
-  },
-  logoutText: {
-    color: '#c0001a',
-    fontWeight: 'bold',
   },
   content: {
     paddingBottom: 40,
