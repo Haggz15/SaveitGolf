@@ -67,6 +67,11 @@ function handleLogOut() {
   ]);
 }
 
+function handleOpenSettings() {
+  // Settings screen doesn't exist yet.
+  Alert.alert('Settings', 'App settings are coming soon.');
+}
+
 export default function ProfileScreen() {
   const [activeTab, setActiveTab] = useState(TABS[0]);
 
@@ -74,9 +79,14 @@ export default function ProfileScreen() {
     <View style={styles.screen}>
       <Header
         right={
-          <TouchableOpacity onPress={handleLogOut} hitSlop={10}>
-            <Ionicons name="log-out-outline" size={22} color={colors.muted} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity onPress={handleOpenSettings} hitSlop={10} style={styles.headerActionButton}>
+              <Ionicons name="settings-outline" size={22} color={colors.muted} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleLogOut} hitSlop={10} style={styles.headerActionButton}>
+              <Ionicons name="log-out-outline" size={22} color={colors.red} />
+            </TouchableOpacity>
+          </View>
         }
       />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -140,6 +150,13 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.navy,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerActionButton: {
+    marginLeft: 16,
   },
   content: {
     paddingBottom: 40,
