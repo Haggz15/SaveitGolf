@@ -1,5 +1,12 @@
 require('dotenv/config');
 
+console.log(
+  '[app.config.js] SUPABASE_URL is',
+  process.env.SUPABASE_URL ? 'defined' : 'undefined',
+  '| SUPABASE_ANON_KEY is',
+  process.env.SUPABASE_ANON_KEY ? 'defined' : 'undefined'
+);
+
 module.exports = {
   expo: {
     name: 'SaveitGolf',
@@ -73,8 +80,8 @@ module.exports = {
     extra: {
       golfCourseApiKey: process.env.GOLF_COURSE_API_KEY,
       googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
-      supabaseUrl: process.env.SUPABASE_URL,
-      supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+      supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
+      supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY,
       eas: {
         projectId: '48ad35b3-294a-4970-b8fe-612a50cd94fb',
       },
