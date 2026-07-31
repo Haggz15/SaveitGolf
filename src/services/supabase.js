@@ -1,4 +1,5 @@
 import 'react-native-url-polyfill/auto';
+import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
@@ -44,7 +45,11 @@ export const supabase = createClient(
       storage: AsyncStorage,
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: false,
+      // OAuth and email-confirmation links land the user back on the web
+      // build at saveitgolf.com with the session in the URL; on native
+      // there's no URL bar to parse, and the popup-based OAuth flow in
+      // services/auth.js extracts the tokens itself.
+      detectSessionInUrl: Platform.OS === 'web',
     },
   }
 );
