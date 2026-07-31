@@ -3,12 +3,6 @@ import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 
-// TEMPORARY fallback values so we can confirm the Supabase connection works
-// even if env vars fail to reach the client. Remove once app.config.js `extra`
-// wiring is confirmed working end-to-end and pull these from .env instead.
-const FALLBACK_SUPABASE_URL = 'https://jupzxrhcwtjifwgzrhhs.supabase.co';
-const FALLBACK_SUPABASE_ANON_KEY = 'sb_publishable_-y_kGS4AbLjdCC1C_YNDCA_c6QeM-lB';
-
 // Expo inlines process.env.EXPO_PUBLIC_* automatically, but SUPABASE_URL /
 // SUPABASE_ANON_KEY aren't EXPO_PUBLIC_-prefixed, so they only reach the
 // client via app.config.js's `extra` field (read through expo-constants).
@@ -16,13 +10,11 @@ const FALLBACK_SUPABASE_ANON_KEY = 'sb_publishable_-y_kGS4AbLjdCC1C_YNDCA_c6QeM-
 const SUPABASE_URL =
   Constants.expoConfig?.extra?.supabaseUrl ||
   process.env.VITE_SUPABASE_URL ||
-  process.env.SUPABASE_URL ||
-  FALLBACK_SUPABASE_URL;
+  process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY =
   Constants.expoConfig?.extra?.supabaseAnonKey ||
   process.env.VITE_SUPABASE_ANON_KEY ||
-  process.env.SUPABASE_ANON_KEY ||
-  FALLBACK_SUPABASE_ANON_KEY;
+  process.env.SUPABASE_ANON_KEY;
 
 console.log(
   '[supabase] SUPABASE_URL is',
