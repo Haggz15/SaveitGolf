@@ -12,10 +12,8 @@ import {
 
 import colors from '../../theme/colors';
 import AuthLogo from '../../components/auth/AuthLogo';
-import SocialButton from '../../components/auth/SocialButton';
-import Divider from '../../components/auth/Divider';
 import AuthTextField from '../../components/auth/AuthTextField';
-import { signUpWithEmail, signInWithApple, signInWithGoogle } from '../../services/auth';
+import { signUpWithEmail } from '../../services/auth';
 import { friendlyAuthError } from '../../services/authErrors';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -23,14 +21,15 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function SignUpScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState(null);
 
   const validate = () => {
     const next = {};
     if (!EMAIL_RE.test(email.trim())) next.email = 'Enter a valid email address.';
     if (password.length < 6) next.password = 'Password must be at least 6 characters.';
+    if (confirmPassword !== password) next.confirmPassword = 'Passwords do not match.';
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -57,30 +56,6 @@ export default function SignUpScreen({ navigation }) {
     }
   };
 
-  const handleApple = async () => {
-    setSocialLoading('apple');
-    setErrors({});
-    try {
-      await signInWithApple();
-    } catch (err) {
-      setErrors({ form: friendlyAuthError(err) });
-    } finally {
-      setSocialLoading(null);
-    }
-  };
-
-  const handleGoogle = async () => {
-    setSocialLoading('google');
-    setErrors({});
-    try {
-      await signInWithGoogle();
-    } catch (err) {
-      setErrors({ form: friendlyAuthError(err) });
-    } finally {
-      setSocialLoading(null);
-    }
-  };
-
   return (
     <KeyboardAvoidingView
       style={styles.screen}
@@ -93,11 +68,6 @@ export default function SignUpScreen({ navigation }) {
         <Text style={styles.subtext}>The social app for golfers</Text>
 
         <View style={styles.section}>
-          <SocialButton variant="apple" onPress={handleApple} loading={socialLoading === 'apple'} disabled={!!socialLoading} />
-          <SocialButton variant="google" onPress={handleGoogle} loading={socialLoading === 'google'} disabled={!!socialLoading} />
-
-          <Divider />
-
           <AuthTextField
             placeholder="Email address"
             value={email}
@@ -113,6 +83,14 @@ export default function SignUpScreen({ navigation }) {
             secureTextEntry
             textContentType="newPassword"
             error={errors.password}
+          />
+          <AuthTextField
+            placeholder="Confirm password"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            secureTextEntry
+            textContentType="newPassword"
+            error={errors.confirmPassword}
           />
 
           {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}

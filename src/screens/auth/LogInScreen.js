@@ -12,19 +12,18 @@ import {
 
 import colors from '../../theme/colors';
 import AuthLogo from '../../components/auth/AuthLogo';
-import SocialButton from '../../components/auth/SocialButton';
-import Divider from '../../components/auth/Divider';
 import AuthTextField from '../../components/auth/AuthTextField';
-import { signInWithEmail, signInWithApple, signInWithGoogle } from '../../services/auth';
+import { signInWithEmail } from '../../services/auth';
 import { friendlyAuthError } from '../../services/authErrors';
 import { supabase } from '../../services/supabase';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LogInScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState(null);
 
   const handleLogIn = async () => {
     if (!email.trim() || !password) {
@@ -40,30 +39,6 @@ export default function LogInScreen({ navigation }) {
       setErrors({ form: friendlyAuthError(err) });
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleApple = async () => {
-    setSocialLoading('apple');
-    setErrors({});
-    try {
-      await signInWithApple();
-    } catch (err) {
-      setErrors({ form: friendlyAuthError(err) });
-    } finally {
-      setSocialLoading(null);
-    }
-  };
-
-  const handleGoogle = async () => {
-    setSocialLoading('google');
-    setErrors({});
-    try {
-      await signInWithGoogle();
-    } catch (err) {
-      setErrors({ form: friendlyAuthError(err) });
-    } finally {
-      setSocialLoading(null);
     }
   };
 
@@ -93,11 +68,6 @@ export default function LogInScreen({ navigation }) {
         <Text style={styles.subtext}>Log in to your SaveitGolf account</Text>
 
         <View style={styles.section}>
-          <SocialButton variant="apple" onPress={handleApple} loading={socialLoading === 'apple'} disabled={!!socialLoading} />
-          <SocialButton variant="google" onPress={handleGoogle} loading={socialLoading === 'google'} disabled={!!socialLoading} />
-
-          <Divider />
-
           <AuthTextField
             placeholder="Email address"
             value={email}
@@ -139,8 +109,6 @@ export default function LogInScreen({ navigation }) {
     </KeyboardAvoidingView>
   );
 }
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const styles = StyleSheet.create({
   screen: {
