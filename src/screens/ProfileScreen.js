@@ -6,43 +6,53 @@ import {
   FlatList,
   ScrollView,
   TouchableOpacity,
+  Image,
   Alert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
 import colors from '../theme/colors';
-import { courseRankings, wantToPlay, uploads } from '../data/mockData';
+import { wantToPlay } from '../data/mockData';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import HandicapInputModal from '../components/profile/HandicapInputModal';
+import CourseRankingModal from '../components/profile/CourseRankingModal';
+import { uploadAvatar } from '../services/profiles';
+import { getCourseRankings, addCourseRanking, updateCourseRanking } from '../services/courseRankings';
+import { getUserPosts } from '../services/posts';
 
 const TABS = ['Course Rankings', 'Want to Play', 'Uploads'];
 
-function getInitials(fullName) {
-  if (!fullName) return '';
-  return fullName
-    .trim()
-    .split(/\s+/)
-    .map((part) => part[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-}
-
-function RankingsList() {
+function RankingsList({ rankings, loading, onUpdate, onAdd }) {
   return (
     <View>
-      {courseRankings.map((item) => (
-        <View key={item.id} style={styles.listRow}>
-          <View style={styles.rankBadge}>
-            <Text style={styles.rankBadgeText}>{item.rank}</Text>
+      <TouchableOpacity style={styles.addRankingButton} onPress={onAdd} activeOpacity={0.8}>
+        <Ionicons name="add" size={16} color={colors.white} />
+        <Text style={styles.addRankingButtonText}>Add Course Ranking</Text>
+      </TouchableOpacity>
+
+      {loading ? (
+        <ActivityIndicator color={colors.red} style={{ marginTop: 16 }} />
+      ) : rankings.length === 0 ? (
+        <Text style={styles.emptyText}>You haven't ranked any courses yet.</Text>
+      ) : (
+        rankings.map((item, index) => (
+          <View key={item.id} style={styles.listRow}>
+            <View style={styles.rankBadge}>
+              <Text style={styles.rankBadgeText}>{index + 1}</Text>
+            </View>
+            <Text style={styles.listRowTitle} numberOfLines={1}>
+              {item.courseName}
+            </Text>
+            <Text style={styles.listRowRating}>{item.rating.toFixed(1)}</Text>
+            <TouchableOpacity style={styles.updateButton} onPress={() => onUpdate(item)} hitSlop={8}>
+              <Text style={styles.updateButtonText}>Update</Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.listRowTitle}>{item.name}</Text>
-          <Text style={styles.listRowRating}>{item.rating}</Text>
-        </View>
-      ))}
+        ))
+      )}
     </View>
   );
 }
@@ -63,10 +73,16 @@ function WantToPlayList() {
   );
 }
 
-function UploadsGrid() {
+function UploadsGrid({ posts, loading }) {
+  if (loading) {
+    return <ActivityIndicator color={colors.red} style={{ marginTop: 16 }} />;
+  }
+  if (posts.length === 0) {
+    return <Text style={styles.emptyText}>No posts yet — share your first hole to see it here.</Text>;
+  }
   return (
     <FlatList
-      data={uploads}
+      data={posts}
       keyExtractor={(item) => item.id}
       numColumns={3}
       scrollEnabled={false}
@@ -74,9 +90,12 @@ function UploadsGrid() {
       contentContainerStyle={{ gap: 8 }}
       renderItem={({ item }) => (
         <View style={styles.uploadTile}>
-          <Ionicons name="image-outline" size={24} color={colors.muted} />
-          <Text style={styles.uploadTileText}>{item.course}</Text>
-          <Text style={styles.uploadTileHole}>Hole {item.hole}</Text>
+          <Image source={{ uri: item.mediaUrl }} style={styles.uploadTileImage} resizeMode="cover" />
+          {item.isVideo && (
+            <View style={styles.uploadPlayBadge}>
+              <Ionicons name="play" size={10} color={colors.white} />
+            </View>
+          )}
         </View>
       )}
     />
@@ -114,6 +133,101 @@ export default function ProfileScreen() {
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState(null);
   const [handicapModalVisible, setHandicapModalVisible] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [rankings, setRankings] = useState([]);
+  const [rankingsLoading, setRankingsLoading] = useState(true);
+  const [rankingModalVisible, setRankingModalVisible] = useState(false);
+  const [editingRanking, setEditingRanking] = useState(null);
+  const [uploadPosts, setUploadPosts] = useState([]);
+  const [uploadsLoading, setUploadsLoading] = useState(true);
+
+  const loadRankings = useCallback(async () => {
+    if (!user?.id) return;
+    setRankingsLoading(true);
+    try {
+      setRankings(await getCourseRankings(user.id));
+    } catch (err) {
+      console.error('Failed to load course rankings:', err);
+    } finally {
+      setRankingsLoading(false);
+    }
+  }, [user?.id]);
+
+  const loadUploads = useCallback(async () => {
+    if (!user?.id) return;
+    setUploadsLoading(true);
+    try {
+      setUploadPosts(await getUserPosts(user.id));
+    } catch (err) {
+      console.error('Failed to load uploads:', err);
+    } finally {
+      setUploadsLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadRankings();
+  }, [loadRankings]);
+
+  useEffect(() => {
+    loadUploads();
+  }, [loadUploads]);
+
+  async function handlePickAvatar() {
+    if (Platform.OS === 'web') {
+      Alert.alert('Not available', 'Changing your profile photo is only available in the mobile app.');
+      return;
+    }
+    try {
+      const ImagePicker = require('expo-image-picker');
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow photo library access to set a profile photo.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.9,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri || !user?.id) return;
+
+      setAvatarUploading(true);
+      const avatarUrl = await uploadAvatar(user.id, result.assets[0].uri);
+      const updated = await updateProfile({ avatarUrl });
+      setProfileData((prev) => (prev ? { ...prev, avatar_url: updated.avatar_url } : updated));
+    } catch (err) {
+      console.error('Failed to update profile photo:', err);
+      Alert.alert('Something went wrong', 'Could not update your profile photo. Please try again.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
+  function handleOpenAddRanking() {
+    setEditingRanking(null);
+    setRankingModalVisible(true);
+  }
+
+  function handleOpenUpdateRanking(ranking) {
+    setEditingRanking(ranking);
+    setRankingModalVisible(true);
+  }
+
+  async function handleSaveRanking({ courseName, rating }) {
+    if (!user?.id) return;
+    if (editingRanking) {
+      const updated = await updateCourseRanking(editingRanking.id, { courseName, rating });
+      setRankings((prev) =>
+        prev.map((r) => (r.id === updated.id ? updated : r)).sort((a, b) => b.rating - a.rating)
+      );
+    } else {
+      const created = await addCourseRanking(user.id, { courseName, rating });
+      setRankings((prev) => [...prev, created].sort((a, b) => b.rating - a.rating));
+    }
+    setRankingModalVisible(false);
+  }
 
   const loadProfileData = useCallback(async () => {
     if (!user?.id) return;
@@ -176,13 +290,20 @@ export default function ProfileScreen() {
       />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.profileHeader}>
-          <View style={styles.avatarRing}>
+          <TouchableOpacity style={styles.avatarRing} onPress={handlePickAvatar} activeOpacity={0.85}>
             <View style={styles.avatar}>
-              {!loading && profileData?.full_name && (
-                <Text style={styles.avatarInitials}>{getInitials(profileData.full_name)}</Text>
+              {avatarUploading ? (
+                <ActivityIndicator color={colors.white} size="small" />
+              ) : profileData?.avatar_url ? (
+                <Image source={{ uri: profileData.avatar_url }} style={styles.avatarImage} />
+              ) : (
+                <Ionicons name="camera-outline" size={26} color={colors.muted} />
               )}
             </View>
-          </View>
+            <View style={styles.avatarCameraBadge}>
+              <Ionicons name="camera" size={13} color={colors.white} />
+            </View>
+          </TouchableOpacity>
 
           {loading ? (
             <ActivityIndicator color={colors.red} size="large" style={styles.stateSpacing} />
@@ -270,11 +391,25 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.tabContent}>
-          {activeTab === 'Course Rankings' && <RankingsList />}
+          {activeTab === 'Course Rankings' && (
+            <RankingsList
+              rankings={rankings}
+              loading={rankingsLoading}
+              onUpdate={handleOpenUpdateRanking}
+              onAdd={handleOpenAddRanking}
+            />
+          )}
           {activeTab === 'Want to Play' && <WantToPlayList />}
-          {activeTab === 'Uploads' && <UploadsGrid />}
+          {activeTab === 'Uploads' && <UploadsGrid posts={uploadPosts} loading={uploadsLoading} />}
         </View>
       </ScrollView>
+
+      <CourseRankingModal
+        visible={rankingModalVisible}
+        initialRanking={editingRanking}
+        onClose={() => setRankingModalVisible(false)}
+        onSave={handleSaveRanking}
+      />
     </View>
   );
 }
@@ -316,11 +451,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.navyBorder,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  avatarInitials: {
-    color: colors.white,
-    fontSize: 26,
-    fontWeight: '700',
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  avatarCameraBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.red,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.navy,
   },
   name: {
     color: colors.white,
@@ -488,6 +636,35 @@ const styles = StyleSheet.create({
     color: colors.gold,
     fontWeight: '700',
     fontSize: 14,
+    marginRight: 10,
+  },
+  updateButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: colors.navy,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+  },
+  updateButtonText: {
+    color: colors.offWhite,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  addRankingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.red,
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  addRankingButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700',
   },
   uploadTile: {
     flex: 1 / 3,
@@ -496,20 +673,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.navyBorder,
     borderRadius: 10,
+    overflow: 'hidden',
+  },
+  uploadTileImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  uploadPlayBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.red,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 6,
-  },
-  uploadTileText: {
-    color: colors.offWhite,
-    fontSize: 10,
-    fontWeight: '600',
-    marginTop: 6,
-    textAlign: 'center',
-  },
-  uploadTileHole: {
-    color: colors.muted,
-    fontSize: 9,
-    marginTop: 2,
   },
 });

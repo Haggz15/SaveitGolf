@@ -19,10 +19,11 @@ import StateSelect from '../../components/auth/StateSelect';
 import HandicapInputModal from '../../components/profile/HandicapInputModal';
 import { useAuth } from '../../context/AuthContext';
 import { friendlyAuthError } from '../../services/authErrors';
+import { uploadAvatar } from '../../services/profiles';
 
 export default function ProfileSetupScreen() {
   const insets = useSafeAreaInsets();
-  const { completeOnboarding } = useAuth();
+  const { session, completeOnboarding } = useAuth();
 
   const [avatarUri, setAvatarUri] = useState(null);
   const [fullName, setFullName] = useState('');
@@ -44,16 +45,28 @@ export default function ProfileSetupScreen() {
     return Object.keys(next).length === 0;
   };
 
+  const uploadPickedAvatar = async () => {
+    if (!avatarUri || !session?.user?.id) return undefined;
+    try {
+      return await uploadAvatar(session.user.id, avatarUri);
+    } catch (err) {
+      console.error('Failed to upload avatar:', err);
+      return undefined;
+    }
+  };
+
   const handleContinue = async () => {
     if (!validate()) return;
     setLoading(true);
     setErrors({});
     try {
+      const avatarUrl = await uploadPickedAvatar();
       await completeOnboarding({
         fullName: fullName.trim(),
         username: username.trim().toLowerCase(),
         homeState: homeState || undefined,
         handicapIndex: handicap.trim() ? Number(handicap.trim()) : undefined,
+        avatarUrl,
       });
       // RootNavigator switches to the Feed automatically once the profile row exists.
     } catch (err) {
@@ -67,7 +80,8 @@ export default function ProfileSetupScreen() {
     setLoading(true);
     setErrors({});
     try {
-      await completeOnboarding({});
+      const avatarUrl = await uploadPickedAvatar();
+      await completeOnboarding({ avatarUrl });
     } catch (err) {
       setErrors({ form: friendlyAuthError(err) });
     } finally {

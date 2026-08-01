@@ -202,7 +202,11 @@ export default function OtherUserProfileScreen({ route, navigation }) {
           <View style={styles.profileHeader}>
             <View style={styles.avatarRing}>
               <View style={styles.avatar}>
-                <Text style={styles.avatarInitials}>{getInitials(profile?.full_name)}</Text>
+                {profile?.avatar_url ? (
+                  <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} />
+                ) : (
+                  <Text style={styles.avatarInitials}>{getInitials(profile?.full_name)}</Text>
+                )}
               </View>
             </View>
             <Text style={styles.name}>{profile?.full_name || 'Golfer'}</Text>
@@ -320,6 +324,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.navyBorder,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarInitials: {
     color: colors.white,

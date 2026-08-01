@@ -4,7 +4,7 @@ export const currentUser = {
   username: 'owenhgolf',
 };
 
-export const filterPills = ['Following', 'Nearby', 'Top Rated'];
+export const filterPills = ['Nearby', 'Feed', 'Following'];
 
 export const feedPosts = [
   {
@@ -161,28 +161,11 @@ export const scorecard = {
   ],
 };
 
-export const courseRankings = [
-  { id: 'r1', rank: 1, name: 'Pebble Beach Golf Links', rating: 9.6 },
-  { id: 'r2', rank: 2, name: 'Bandon Dunes', rating: 9.4 },
-  { id: 'r3', rank: 3, name: 'Whistling Straits', rating: 9.1 },
-  { id: 'r4', rank: 4, name: 'Torrey Pines (South)', rating: 8.8 },
-  { id: 'r5', rank: 5, name: 'TPC Sawgrass', rating: 8.6 },
-];
-
 export const wantToPlay = [
   { id: 'w1', name: 'Augusta National', location: 'Augusta, GA' },
   { id: 'w2', name: 'Cypress Point', location: 'Pebble Beach, CA' },
   { id: 'w3', name: 'St Andrews (Old Course)', location: 'Scotland' },
   { id: 'w4', name: 'Shinnecock Hills', location: 'Southampton, NY' },
-];
-
-export const uploads = [
-  { id: 'u1', course: 'Pebble Beach', hole: 7 },
-  { id: 'u2', course: 'Bandon Dunes', hole: 16 },
-  { id: 'u3', course: 'Whistling Straits', hole: 3 },
-  { id: 'u4', course: 'Torrey Pines', hole: 4 },
-  { id: 'u5', course: 'Pebble Beach', hole: 18 },
-  { id: 'u6', course: 'Bandon Dunes', hole: 9 },
 ];
 
 export const postFilters = ['All', 'Pictures', 'Videos', 'Swings'];

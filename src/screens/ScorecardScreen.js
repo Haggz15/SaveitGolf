@@ -9,6 +9,9 @@ import { scorecard as mockScorecard, currentUser } from '../data/mockData';
 import { getLatestScorecard, saveScorecard } from '../services/scorecards';
 import { useAuth } from '../context/AuthContext';
 
+const EXPORT_WIDTH = 1080;
+const EXPORT_HEIGHT = 1920;
+
 function sumPar(holes) {
   return holes.reduce((sum, h) => sum + h.par, 0);
 }
@@ -42,9 +45,7 @@ function ScoreBadge({ score, par }) {
   return <View style={styles.scoreBadge}>{node}</View>;
 }
 
-function NineColumn({ holes, label }) {
-  const total = sumScore(holes);
-
+function NineColumn({ holes }) {
   return (
     <View style={styles.column}>
       {holes.map((h) => (
@@ -52,18 +53,41 @@ function NineColumn({ holes, label }) {
           <ScoreBadge score={h.score} par={h.par} />
         </View>
       ))}
-
-      <View style={styles.columnTotalBlock}>
-        <Text style={styles.columnTotalText}>{total}</Text>
-        <Text style={styles.columnTotalLabel}>{label}</Text>
-      </View>
     </View>
   );
 }
 
+// Front-total-left / back-total-right summary line, followed by the grand
+// total (large, bold) with over/under par in parens — shared between the
+// on-screen card and the exported story image.
+function TotalsSummary({ frontTotal, backTotal, isNineHoleRound, totalScore, diffLabel, diff }) {
+  return (
+    <>
+      <View style={styles.frontBackRow}>
+        <Text style={styles.frontBackText}>
+          FRONT <Text style={styles.frontBackValue}>{frontTotal}</Text>
+        </Text>
+        {!isNineHoleRound && (
+          <Text style={styles.frontBackText}>
+            <Text style={styles.frontBackValue}>{backTotal}</Text> BACK
+          </Text>
+        )}
+      </View>
+
+      <View style={styles.totalBlock}>
+        <View style={styles.totalRow}>
+          <Text style={styles.totalScore}>{totalScore}</Text>
+          <Text style={[styles.totalDiff, { color: diffColor(diff) }]}>({diffLabel})</Text>
+        </View>
+      </View>
+    </>
+  );
+}
+
 export default function ScorecardScreen() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const viewShotRef = useRef(null);
+  const exportViewShotRef = useRef(null);
   const [isSharing, setIsSharing] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
   const [activeScorecard, setActiveScorecard] = useState(mockScorecard);
@@ -85,6 +109,8 @@ export default function ScorecardScreen() {
 
   const totalPar = sumPar(activeScorecard.front) + (isNineHoleRound ? 0 : sumPar(activeScorecard.back));
   const totalScore = sumScore(activeScorecard.front) + (isNineHoleRound ? 0 : sumScore(activeScorecard.back));
+  const frontTotal = sumScore(activeScorecard.front);
+  const backTotal = isNineHoleRound ? 0 : sumScore(activeScorecard.back);
   const diff = totalScore - totalPar;
   const diffLabel = diff === 0 ? 'E' : diff > 0 ? `+${diff}` : `${diff}`;
   const fullName = `${currentUser.firstName} ${currentUser.lastName}`.toUpperCase();
@@ -134,6 +160,11 @@ export default function ScorecardScreen() {
     }
   }
 
+  function handleUseProfilePhoto() {
+    if (!profile?.avatar_url) return;
+    setPhotoUri(profile.avatar_url);
+  }
+
   async function handleShare() {
     if (Platform.OS === 'web') {
       Alert.alert('Not available', 'Sharing your scorecard is only available in the mobile app.');
@@ -154,7 +185,12 @@ export default function ScorecardScreen() {
         return;
       }
 
-      const uri = await viewShotRef.current.capture();
+      // With a photo attached, share the two-column 1080x1920 story image
+      // instead of the compact on-screen card.
+      const uri = photoUri
+        ? await exportViewShotRef.current.capture()
+        : await viewShotRef.current.capture();
+
       await MediaLibrary.saveToLibraryAsync(uri);
 
       if (await Sharing.isAvailableAsync()) {
@@ -186,35 +222,36 @@ export default function ScorecardScreen() {
             style={styles.card}
             options={{ format: 'png', quality: 1 }}
           >
-            <View style={styles.cardRow}>
-              <View style={styles.leftCol}>
-                <Text style={styles.userName}>{fullName}</Text>
-                <Text style={styles.courseNameText} numberOfLines={2}>
-                  {activeScorecard.courseName}
-                </Text>
+            <View style={styles.cardBody}>
+              <Text style={styles.userName}>{fullName}</Text>
+              <Text style={styles.courseNameText} numberOfLines={2}>
+                {activeScorecard.courseName}
+              </Text>
 
-                <View style={styles.scoresRow}>
-                  <NineColumn holes={activeScorecard.front} label="FRONT" />
-                  {!isNineHoleRound && <NineColumn holes={activeScorecard.back} label="BACK" />}
-                </View>
+              <View style={styles.scoresRow}>
+                <NineColumn holes={activeScorecard.front} />
+                {!isNineHoleRound && <NineColumn holes={activeScorecard.back} />}
 
-                <View style={styles.bottomSpacer} />
-
-                <View style={styles.totalBlock}>
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalScore}>{totalScore}</Text>
-                    <Text style={[styles.totalDiff, { color: diffColor(diff) }]}>
-                      ({diffLabel})
-                    </Text>
-                  </View>
-                </View>
+                <TouchableOpacity style={styles.photoInlineBox} onPress={handlePickPhoto} activeOpacity={0.8}>
+                  {photoUri ? (
+                    <Image source={{ uri: photoUri }} style={styles.photoInlineImage} resizeMode="cover" />
+                  ) : (
+                    <>
+                      <Ionicons name="camera-outline" size={18} color={colors.muted} />
+                      <Text style={styles.photoInlineText}>Add{'\n'}Photo</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
               </View>
 
-              {photoUri && (
-                <View style={styles.photoBox}>
-                  <Image source={{ uri: photoUri }} style={styles.photoImage} resizeMode="cover" />
-                </View>
-              )}
+              <TotalsSummary
+                frontTotal={frontTotal}
+                backTotal={backTotal}
+                isNineHoleRound={isNineHoleRound}
+                totalScore={totalScore}
+                diffLabel={diffLabel}
+                diff={diff}
+              />
             </View>
 
             <View style={styles.watermarkWrap}>
@@ -222,12 +259,13 @@ export default function ScorecardScreen() {
             </View>
           </ViewShot>
 
-          <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.photoActionButton} onPress={handlePickPhoto} activeOpacity={0.8}>
-              <Ionicons name={photoUri ? 'image' : 'camera-outline'} size={16} color={colors.white} />
-              <Text style={styles.photoActionText}>{photoUri ? 'Change Photo' : 'Add Photo'}</Text>
+          {profile?.avatar_url && !photoUri && (
+            <TouchableOpacity onPress={handleUseProfilePhoto} style={styles.useProfilePhotoLink}>
+              <Text style={styles.useProfilePhotoText}>Use my profile photo instead</Text>
             </TouchableOpacity>
+          )}
 
+          <View style={styles.actionRow}>
             <TouchableOpacity
               style={styles.shareButton}
               onPress={handleShare}
@@ -271,6 +309,50 @@ export default function ScorecardScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Hidden off-screen template captured for the shared story image only
+          — kept at a fixed 9:16 box and resized to exactly 1080x1920 by
+          ViewShot's capture options, independent of on-screen layout. */}
+      {photoUri && (
+        <View style={styles.exportOffscreenWrap} pointerEvents="none">
+          <ViewShot
+            ref={exportViewShotRef}
+            style={styles.exportCard}
+            options={{ format: 'png', quality: 1, width: EXPORT_WIDTH, height: EXPORT_HEIGHT }}
+          >
+            <View style={styles.exportRow}>
+              <View style={styles.exportLeftCol}>
+                <Text style={styles.userName}>{fullName}</Text>
+                <Text style={styles.courseNameText} numberOfLines={2}>
+                  {activeScorecard.courseName}
+                </Text>
+
+                <View style={styles.scoresRow}>
+                  <NineColumn holes={activeScorecard.front} />
+                  {!isNineHoleRound && <NineColumn holes={activeScorecard.back} />}
+                </View>
+
+                <TotalsSummary
+                  frontTotal={frontTotal}
+                  backTotal={backTotal}
+                  isNineHoleRound={isNineHoleRound}
+                  totalScore={totalScore}
+                  diffLabel={diffLabel}
+                  diff={diff}
+                />
+              </View>
+
+              <View style={styles.exportPhotoBox}>
+                <Image source={{ uri: photoUri }} style={styles.photoImage} resizeMode="cover" />
+              </View>
+            </View>
+
+            <View style={styles.watermarkWrap}>
+              <Text style={styles.watermarkText}>SaveitGolf</Text>
+            </View>
+          </ViewShot>
+        </View>
+      )}
 
       <NewScorecardModal
         visible={modalVisible}
@@ -316,20 +398,14 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.navy,
-    aspectRatio: 9 / 16,
     width: '100%',
     overflow: 'hidden',
     position: 'relative',
   },
-  cardRow: {
-    flex: 1,
-    flexDirection: 'row',
-  },
-  leftCol: {
-    flex: 1,
+  cardBody: {
     paddingTop: 22,
     paddingHorizontal: 14,
-    paddingBottom: 14,
+    paddingBottom: 34,
   },
   userName: {
     color: colors.white,
@@ -355,6 +431,28 @@ const styles = StyleSheet.create({
   columnRow: {
     alignItems: 'flex-start',
     paddingVertical: 3,
+  },
+  photoInlineBox: {
+    width: 64,
+    borderRadius: 10,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  photoInlineImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoInlineText: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 11,
   },
   scoreBadge: {
     alignItems: 'center',
@@ -383,30 +481,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  columnTotalBlock: {
+  frontBackRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 18,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: colors.navyBorder,
-    marginTop: 6,
-    paddingTop: 6,
   },
-  columnTotalText: {
-    color: colors.white,
-    fontWeight: '800',
-    fontSize: 16,
-  },
-  columnTotalLabel: {
+  frontBackText: {
     color: colors.muted,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
-    marginTop: 1,
   },
-  bottomSpacer: {
-    flex: 1,
+  frontBackValue: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '800',
   },
   totalBlock: {
     alignItems: 'center',
     width: '100%',
+    marginTop: 10,
   },
   totalRow: {
     flexDirection: 'row',
@@ -438,36 +536,20 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
-  photoBox: {
-    flex: 1,
-    height: '100%',
-    backgroundColor: colors.navyLight,
+  useProfilePhotoLink: {
+    alignItems: 'center',
+    marginTop: 10,
   },
-  photoImage: {
-    width: '100%',
-    height: '100%',
+  useProfilePhotoText: {
+    color: colors.blue,
+    fontSize: 13,
+    fontWeight: '600',
   },
   actionRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 10,
     marginTop: 14,
-  },
-  photoActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.navyCard,
-    borderWidth: 1,
-    borderColor: colors.navyBorder,
-    borderRadius: 24,
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-  },
-  photoActionText: {
-    color: colors.white,
-    fontSize: 14,
-    fontWeight: '700',
   },
   shareButton: {
     flexDirection: 'row',
@@ -510,5 +592,36 @@ const styles = StyleSheet.create({
   legendText: {
     color: colors.muted,
     fontSize: 12,
+  },
+  // Export-only (1080x1920 share image) styles below.
+  exportOffscreenWrap: {
+    position: 'absolute',
+    top: 0,
+    left: -3000,
+  },
+  exportCard: {
+    width: 337.5,
+    height: 600,
+    backgroundColor: colors.navy,
+    overflow: 'hidden',
+  },
+  exportRow: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  exportLeftCol: {
+    flex: 1,
+    paddingTop: 22,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+  },
+  exportPhotoBox: {
+    flex: 1,
+    height: '100%',
+    backgroundColor: colors.navyLight,
+  },
+  photoImage: {
+    width: '100%',
+    height: '100%',
   },
 });

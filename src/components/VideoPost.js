@@ -51,7 +51,7 @@ export default function VideoPost({ source, isActive }) {
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         activeOpacity={0.75}
       >
-        <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={18} color={colors.white} />
+        <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={14} color={colors.white} />
       </TouchableOpacity>
     </>
   );
@@ -61,10 +61,10 @@ const styles = StyleSheet.create({
   speakerButton: {
     position: 'absolute',
     top: 12,
-    left: 14,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    right: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: 'rgba(6, 14, 26, 0.6)',
     alignItems: 'center',
     justifyContent: 'center',

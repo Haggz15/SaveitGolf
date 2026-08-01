@@ -8,7 +8,7 @@ export async function searchProfiles(query, currentUserId) {
 
   let request = supabase
     .from('profiles')
-    .select('id, user_id, username, full_name, home_state')
+    .select('id, user_id, username, full_name, home_state, avatar_url')
     .or(`username.ilike.%${trimmed}%,full_name.ilike.%${trimmed}%`)
     .limit(20);
 

@@ -73,10 +73,13 @@ function mapRow(row) {
     userId: row.user_id,
     user: row.profiles?.username ?? 'golfer',
     fullName: row.profiles?.full_name ?? null,
+    avatarUrl: row.profiles?.avatar_url ?? null,
     course: row.course_name,
     courseId: row.course_id,
     city: row.city,
     state: row.state,
+    lat: row.lat,
+    lng: row.lng,
     hole: row.hole,
     par: row.par,
     caption: row.caption ?? '',
@@ -100,12 +103,14 @@ function timeAgo(isoDate) {
   return `${days}d`;
 }
 
-// Real posts for the feed, newest first. `userIds`, when provided, scopes
-// results to those authors (used by the Following filter).
-export async function getFeedPosts({ userIds } = {}) {
+// Real posts for the feed. `userIds`, when provided, scopes results to
+// those authors (used by the Following filter). `sort: 'top'` reorders the
+// page client-side by likes+comments (used by the Feed pill) instead of
+// the default newest-first ordering.
+export async function getFeedPosts({ userIds, sort } = {}) {
   let request = supabase
     .from('posts')
-    .select('*, profiles!posts_user_id_profiles_fkey(username, full_name)')
+    .select('*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)')
     .order('created_at', { ascending: false })
     .limit(50);
 
@@ -116,7 +121,12 @@ export async function getFeedPosts({ userIds } = {}) {
 
   const { data, error } = await request;
   if (error) throw error;
-  return (data ?? []).map(mapRow);
+  const posts = (data ?? []).map(mapRow);
+
+  if (sort === 'top') {
+    return posts.sort((a, b) => b.likes + b.comments - (a.likes + a.comments));
+  }
+  return posts;
 }
 
 export async function getUserPosts(userId) {

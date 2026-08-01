@@ -120,7 +120,7 @@ export default function SignUpScreen({ navigation }) {
         <View style={styles.footer}>
           <Text style={styles.footerText}>Already have an account? </Text>
           <TouchableOpacity onPress={() => navigation.navigate('LogIn')}>
-            <Text style={styles.footerLink}>Log in</Text>
+            <Text style={styles.footerLink}>Log In</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -142,13 +142,13 @@ const styles = StyleSheet.create({
   },
   headline: {
     color: colors.white,
-    fontSize: 24,
-    fontWeight: '800',
-    marginTop: 28,
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 20,
   },
   subtext: {
     color: colors.muted,
-    fontSize: 14,
+    fontSize: 12,
     marginTop: 4,
     marginBottom: 28,
   },

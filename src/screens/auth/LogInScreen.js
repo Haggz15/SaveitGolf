@@ -65,7 +65,7 @@ export default function LogInScreen({ navigation }) {
         <AuthLogo />
 
         <Text style={styles.headline}>Welcome back</Text>
-        <Text style={styles.subtext}>Log in to your SaveitGolf account</Text>
+        <Text style={styles.subtext}>Sign in to your account</Text>
 
         <View style={styles.section}>
           <AuthTextField
@@ -99,10 +99,16 @@ export default function LogInScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.divider}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>new to SaveitGolf?</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
         <View style={styles.footer}>
           <Text style={styles.footerText}>Don't have an account? </Text>
           <TouchableOpacity onPress={() => navigation.navigate('SignUp')}>
-            <Text style={styles.footerLink}>Sign up</Text>
+            <Text style={styles.footerLink}>Sign Up</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -124,13 +130,13 @@ const styles = StyleSheet.create({
   },
   headline: {
     color: colors.white,
-    fontSize: 24,
-    fontWeight: '800',
-    marginTop: 28,
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 20,
   },
   subtext: {
     color: colors.muted,
-    fontSize: 14,
+    fontSize: 12,
     marginTop: 4,
     marginBottom: 28,
   },
@@ -164,13 +170,29 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   forgotLink: {
-    color: colors.red,
+    color: colors.blue,
     fontSize: 13,
     fontWeight: '600',
   },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginTop: 32,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.navyBorder,
+  },
+  dividerText: {
+    color: colors.muted,
+    fontSize: 12,
+    marginHorizontal: 10,
+  },
   footer: {
     flexDirection: 'row',
-    marginTop: 32,
+    marginTop: 20,
   },
   footerText: {
     color: colors.muted,

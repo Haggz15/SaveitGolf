@@ -1,17 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, useWindowDimensions } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Image,
+  ActivityIndicator,
+  useWindowDimensions,
+  Platform,
+  Share,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Header from '../components/Header';
 import VideoPost from '../components/VideoPost';
 import AddFriendsModal from '../components/social/AddFriendsModal';
+import CommentSheet from '../components/feed/CommentSheet';
+import NotificationPanel from '../components/feed/NotificationPanel';
 import colors from '../theme/colors';
 import { feedPosts as mockFeedPosts, filterPills } from '../data/mockData';
 import { HEADER_CONTENT_HEIGHT, PILL_ROW_HEIGHT, TAB_BAR_HEIGHT } from '../theme/layout';
 import { useAuth } from '../context/AuthContext';
 import { getFeedPosts } from '../services/posts';
 import { getFollowingIds } from '../services/social';
+import { likePost, unlikePost, getLikedPostIds } from '../services/likes';
+import { createNotification, getUnreadNotificationCount } from '../services/notifications';
+import { haversineMiles } from '../utils/distance';
 
 function FilterPill({ label, active, onPress }) {
   return (
@@ -24,16 +40,43 @@ function FilterPill({ label, active, onPress }) {
   );
 }
 
-function PostSlide({ post, height, isActive, onStatePress, onUserPress }) {
-  const [liked, setLiked] = useState(false);
+function PostSlide({ post, height, isActive, currentUserId, initiallyLiked, onStatePress, onUserPress, onCommentPress }) {
+  const [liked, setLiked] = useState(initiallyLiked);
   const [likeCount, setLikeCount] = useState(post.likes);
   const [saved, setSaved] = useState(false);
   const isVideo = post.isVideo ?? Boolean(post.video);
 
-  const toggleLike = () => {
-    setLiked((prev) => !prev);
-    setLikeCount((prev) => (liked ? prev - 1 : prev + 1));
-  };
+  async function toggleLike() {
+    if (!currentUserId) return;
+    const next = !liked;
+    setLiked(next);
+    setLikeCount((prev) => (next ? prev + 1 : prev - 1));
+    try {
+      if (next) {
+        await likePost(post.id, currentUserId);
+        await createNotification({ userId: post.userId, actorId: currentUserId, type: 'like', postId: post.id });
+      } else {
+        await unlikePost(post.id, currentUserId);
+      }
+    } catch (err) {
+      console.error('Failed to toggle like:', err);
+      setLiked(!next);
+      setLikeCount((prev) => (next ? prev - 1 : prev + 1));
+    }
+  }
+
+  async function handleShare() {
+    try {
+      const result = await Share.share({
+        message: `Check out ${post.user}'s post on SaveitGolf${post.course ? ` at ${post.course}` : ''}!`,
+      });
+      if (result.action === Share.sharedAction && currentUserId) {
+        await createNotification({ userId: post.userId, actorId: currentUserId, type: 'share', postId: post.id });
+      }
+    } catch (err) {
+      console.error('Failed to share post:', err);
+    }
+  }
 
   return (
     <View style={[styles.slide, { height }]}>
@@ -60,13 +103,14 @@ function PostSlide({ post, height, isActive, onStatePress, onUserPress }) {
         pointerEvents="none"
       />
 
-      <View style={styles.topRightStack} pointerEvents="none">
-        <Text style={styles.topRightCourseName} numberOfLines={1} ellipsizeMode="tail">
+      <View style={styles.topLeftStack} pointerEvents="none">
+        <Text style={styles.topLeftCourseName} numberOfLines={2} ellipsizeMode="tail">
           {post.course}
         </Text>
         {post.hole != null && (
-          <View style={styles.holeBadge}>
-            <Text style={styles.holeBadgeNumber}>{post.hole}</Text>
+          <View style={styles.holeWrap}>
+            <Text style={styles.holeLabel}>Hole</Text>
+            <Text style={styles.holeNumberLarge}>{post.hole}</Text>
           </View>
         )}
       </View>
@@ -75,30 +119,34 @@ function PostSlide({ post, height, isActive, onStatePress, onUserPress }) {
         <TouchableOpacity style={styles.railButton} onPress={toggleLike}>
           <Ionicons
             name={liked ? 'heart' : 'heart-outline'}
-            size={34}
-            color={liked ? colors.red : colors.white}
+            size={20}
+            color={liked ? colors.red : 'rgba(255,255,255,0.85)'}
           />
           <Text style={styles.railText}>{likeCount}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.railButton}>
-          <Ionicons name="chatbubble-outline" size={31} color={colors.white} />
+        <TouchableOpacity style={styles.railButton} onPress={() => onCommentPress(post)}>
+          <Ionicons name="chatbubble-outline" size={20} color="rgba(255,255,255,0.85)" />
           <Text style={styles.railText}>{post.comments}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.railButton}>
-          <Ionicons name="share-outline" size={32} color={colors.white} />
+        <TouchableOpacity style={styles.railButton} onPress={handleShare}>
+          <Ionicons name="share-outline" size={20} color="rgba(255,255,255,0.85)" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.railButton} onPress={() => setSaved((prev) => !prev)}>
           <Ionicons
             name={saved ? 'bookmark' : 'bookmark-outline'}
-            size={30}
-            color={colors.white}
+            size={20}
+            color={saved ? colors.gold : 'rgba(255,255,255,0.85)'}
           />
         </TouchableOpacity>
       </View>
 
       <View style={styles.leftInfo}>
         <View style={styles.avatarRow}>
-          <View style={styles.avatar} />
+          {post.avatarUrl ? (
+            <Image source={{ uri: post.avatarUrl }} style={styles.avatar} />
+          ) : (
+            <View style={styles.avatar} />
+          )}
           <TouchableOpacity onPress={() => onUserPress(post)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
             <Text style={styles.username}>{post.user}</Text>
           </TouchableOpacity>
@@ -124,9 +172,13 @@ export default function FeedScreen({ navigation }) {
   const { user } = useAuth();
   const [activeFilter, setActiveFilter] = useState('Following');
   const [posts, setPosts] = useState([]);
+  const [likedPostIds, setLikedPostIds] = useState(new Set());
   const [loadingFeed, setLoadingFeed] = useState(true);
   const [activePostId, setActivePostId] = useState(null);
   const [addFriendsVisible, setAddFriendsVisible] = useState(false);
+  const [notificationsVisible, setNotificationsVisible] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [commentPost, setCommentPost] = useState(null);
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const containerHeight =
@@ -135,15 +187,44 @@ export default function FeedScreen({ navigation }) {
   const loadFeed = useCallback(async () => {
     setLoadingFeed(true);
     try {
+      let realPosts;
       if (activeFilter === 'Following') {
         const followingIds = user?.id ? await getFollowingIds(user.id) : [];
-        const realPosts = await getFeedPosts({ userIds: followingIds });
+        realPosts = await getFeedPosts({ userIds: followingIds });
         setPosts(realPosts);
-      } else {
-        const realPosts = await getFeedPosts();
+      } else if (activeFilter === 'Feed') {
+        realPosts = await getFeedPosts({ sort: 'top' });
         // Demo content trails real posts so the feed still has something to
-        // browse on Nearby/Top Rated before there's much real activity.
+        // browse before there's much real activity.
         setPosts([...realPosts, ...mockFeedPosts]);
+      } else {
+        // Nearby: sort by distance from the device's current location when
+        // permission is granted; otherwise fall back to newest-first.
+        realPosts = await getFeedPosts();
+        let sorted = realPosts;
+        if (Platform.OS !== 'web') {
+          try {
+            const Location = require('expo-location');
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status === 'granted') {
+              const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+              const { latitude, longitude } = position.coords;
+              sorted = [...realPosts].sort((a, b) => {
+                const distA = a.lat != null && a.lng != null ? haversineMiles(latitude, longitude, a.lat, a.lng) : Infinity;
+                const distB = b.lat != null && b.lng != null ? haversineMiles(latitude, longitude, b.lat, b.lng) : Infinity;
+                return distA - distB;
+              });
+            }
+          } catch (err) {
+            // Location unavailable — keep the newest-first order.
+          }
+        }
+        setPosts([...sorted, ...mockFeedPosts]);
+      }
+
+      if (user?.id && realPosts?.length) {
+        const liked = await getLikedPostIds(user.id, realPosts.map((p) => p.id));
+        setLikedPostIds(new Set(liked));
       }
     } catch (err) {
       console.error('Failed to load feed:', err);
@@ -161,6 +242,13 @@ export default function FeedScreen({ navigation }) {
     setActivePostId(posts[0]?.id ?? null);
   }, [posts]);
 
+  useEffect(() => {
+    if (!user?.id) return;
+    getUnreadNotificationCount(user.id)
+      .then(setUnreadCount)
+      .catch((err) => console.error('Failed to load unread notification count:', err));
+  }, [user?.id]);
+
   const handleStatePress = (post) => {
     navigation.navigate('Map', {
       state: post.state,
@@ -171,6 +259,10 @@ export default function FeedScreen({ navigation }) {
   const handleUserPress = (post) => {
     if (!post.user) return;
     navigation.navigate('UserProfile', { username: post.user });
+  };
+
+  const handleCommentPosted = (postId) => {
+    setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, comments: p.comments + 1 } : p)));
   };
 
   // Equivalent of an Intersection Observer for React Native: fires whenever
@@ -187,13 +279,23 @@ export default function FeedScreen({ navigation }) {
     <View style={styles.screen}>
       <Header
         right={
-          <TouchableOpacity
-            style={styles.addFriendsButton}
-            onPress={() => setAddFriendsVisible(true)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="person-add" size={22} color={colors.white} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.headerIconButton}
+              onPress={() => setNotificationsVisible(true)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="notifications-outline" size={22} color={colors.white} />
+              {unreadCount > 0 && <View style={styles.unreadDot} />}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerIconButton}
+              onPress={() => setAddFriendsVisible(true)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="person-add" size={22} color={colors.white} />
+            </TouchableOpacity>
+          </View>
         }
       />
       <View style={styles.pillRow}>
@@ -233,8 +335,11 @@ export default function FeedScreen({ navigation }) {
                   post={item}
                   height={containerHeight}
                   isActive={item.id === activePostId}
+                  currentUserId={user?.id}
+                  initiallyLiked={likedPostIds.has(item.id)}
                   onStatePress={handleStatePress}
                   onUserPress={handleUserPress}
+                  onCommentPress={setCommentPost}
                 />
               )}
               pagingEnabled
@@ -264,6 +369,21 @@ export default function FeedScreen({ navigation }) {
         currentUserId={user?.id}
         navigation={navigation}
       />
+
+      <NotificationPanel
+        visible={notificationsVisible}
+        onClose={() => setNotificationsVisible(false)}
+        userId={user?.id}
+        onMarkedRead={() => setUnreadCount(0)}
+      />
+
+      <CommentSheet
+        visible={Boolean(commentPost)}
+        onClose={() => setCommentPost(null)}
+        post={commentPost}
+        currentUserId={user?.id}
+        onCommentPosted={handleCommentPosted}
+      />
     </View>
   );
 }
@@ -273,12 +393,27 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.navy,
   },
-  addFriendsButton: {
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  headerIconButton: {
     width: 36,
     height: 36,
-    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  unreadDot: {
+    position: 'absolute',
+    top: 5,
+    right: 6,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: colors.red,
+    borderWidth: 1.5,
+    borderColor: colors.navy,
   },
   pillRow: {
     paddingVertical: 12,
@@ -340,37 +475,41 @@ const styles = StyleSheet.create({
     bottom: 0,
     height: '55%',
   },
-  topRightStack: {
+  topLeftStack: {
     position: 'absolute',
     top: 12,
-    right: 14,
-    alignItems: 'center',
+    left: 14,
+    maxWidth: 170,
   },
-  topRightCourseName: {
+  topLeftCourseName: {
     fontFamily: 'Cinzel_700Bold',
     fontSize: 13,
     color: colors.white,
-    maxWidth: 140,
-    textAlign: 'center',
-    marginBottom: 6,
     textShadowColor: 'rgba(0, 0, 0, 0.7)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
-  holeBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 2,
-    borderColor: colors.red,
-    backgroundColor: 'rgba(6, 14, 26, 0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
+  holeWrap: {
+    marginTop: 6,
   },
-  holeBadgeNumber: {
+  holeLabel: {
+    color: colors.offWhite,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    textShadowColor: 'rgba(0, 0, 0, 0.7)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  holeNumberLarge: {
     color: colors.white,
-    fontWeight: '800',
-    fontSize: 14,
+    fontSize: 30,
+    fontWeight: '900',
+    lineHeight: 32,
+    textShadowColor: 'rgba(0, 0, 0, 0.7)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   actionRail: {
     position: 'absolute',
@@ -380,13 +519,13 @@ const styles = StyleSheet.create({
   },
   railButton: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   railText: {
-    color: colors.white,
-    fontSize: 12,
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 11,
     fontWeight: '700',
-    marginTop: 4,
+    marginTop: 3,
   },
   leftInfo: {
     position: 'absolute',
@@ -427,14 +566,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 14,
     bottom: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 6,
     backgroundColor: 'rgba(6, 14, 26, 0.65)',
   },
   stateBadgeText: {
     color: colors.white,
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.4,
   },

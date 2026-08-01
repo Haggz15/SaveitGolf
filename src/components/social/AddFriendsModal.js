@@ -6,6 +6,7 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
+  Image,
   ActivityIndicator,
   StyleSheet,
 } from 'react-native';
@@ -138,7 +139,11 @@ export default function AddFriendsModal({ visible, onClose, currentUserId, navig
               return (
                 <TouchableOpacity style={styles.resultRow} onPress={() => handleOpenProfile(item)} activeOpacity={0.7}>
                   <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{getInitials(item.full_name || item.username)}</Text>
+                    {item.avatar_url ? (
+                      <Image source={{ uri: item.avatar_url }} style={styles.avatarImage} />
+                    ) : (
+                      <Text style={styles.avatarText}>{getInitials(item.full_name || item.username)}</Text>
+                    )}
                   </View>
                   <View style={styles.resultTextWrap}>
                     <Text style={styles.resultName} numberOfLines={1}>
@@ -239,6 +244,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarText: {
     color: colors.white,

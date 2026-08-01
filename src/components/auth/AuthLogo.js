@@ -1,64 +1,113 @@
 import { View, Text, StyleSheet } from 'react-native';
-import colors from '../../theme/colors';
+import Svg, {
+  Circle,
+  Ellipse,
+  Polygon,
+  Rect,
+  Defs,
+  RadialGradient,
+  Stop,
+  Text as SvgText,
+} from 'react-native-svg';
 
-const BALL_SIZE = 34;
-const DOME_SIZE = 58;
-const NECK_SIZE = 16;
-const NEEDLE_WIDTH = 22;
-const NEEDLE_HEIGHT = 44;
-const PIN_GREEN = '#2e8b57';
-const PIN_GREEN_DARK = '#1f6b41';
-const PIN_GREEN_LIGHT = '#57b880';
-const NEEDLE_SILVER = '#c7ccd6';
+const LOGO_WIDTH = 160;
+const LOGO_HEIGHT = 232;
 
-const DIMPLES = [
-  { top: 7, left: 10 },
-  { top: 13, left: 19 },
-  { top: 7, left: 27 },
-  { top: 20, left: 10 },
-  { top: 22, left: 28 },
-  { top: 12, left: 5 },
-];
+const BALL_CX = 80;
+const BALL_CY = 76;
+const BALL_R = 64;
 
-function GolfBall() {
+const PIN_GREEN = '#4dd860';
+const PIN_GREEN_LIGHT = '#8bf09a';
+const PIN_GREEN_DARK = '#2e8b3a';
+const NEEDLE_COLOR = '#1a1a1a';
+
+// Dense hex-grid dimple pattern clipped to the ball's circle, generated once
+// at module load so every AuthLogo instance reuses the same point set.
+function generateDimples(cx, cy, r) {
+  const dimples = [];
+  const dx = 9;
+  const dy = 8;
+  const padding = 5;
+  for (let row = -r; row <= r; row += dy) {
+    const offset = Math.round(row / dy) % 2 === 0 ? 0 : dx / 2;
+    for (let col = -r; col <= r; col += dx) {
+      const x = col + offset;
+      const y = row;
+      if (Math.sqrt(x * x + y * y) <= r - padding) {
+        dimples.push({ x: cx + x, y: cy + y });
+      }
+    }
+  }
+  return dimples;
+}
+
+const DIMPLES = generateDimples(BALL_CX, BALL_CY, BALL_R);
+
+function GolfBallMark() {
   return (
-    <View style={styles.ball}>
+    <Svg width={LOGO_WIDTH} height={LOGO_HEIGHT} viewBox={`0 0 ${LOGO_WIDTH} ${LOGO_HEIGHT}`}>
+      <Defs>
+        <RadialGradient id="ballShine" cx="34%" cy="28%" r="70%">
+          <Stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
+          <Stop offset="55%" stopColor="#ffffff" stopOpacity="0.3" />
+          <Stop offset="100%" stopColor="#c9ccd2" stopOpacity="0" />
+        </RadialGradient>
+      </Defs>
+
+      {/* Ball base */}
+      <Circle cx={BALL_CX} cy={BALL_CY} r={BALL_R} fill="#f4f5f7" stroke="#b7bcc4" strokeWidth={1} />
+
+      {/* Dense dimple pattern */}
       {DIMPLES.map((d, i) => (
-        <View key={i} style={[styles.dimple, { top: d.top, left: d.left }]} />
+        <Circle key={i} cx={d.x} cy={d.y} r={1.5} fill="#c9ccd2" opacity={0.85} />
       ))}
-    </View>
+
+      {/* Radial gradient shine overlay */}
+      <Circle cx={BALL_CX} cy={BALL_CY} r={BALL_R} fill="url(#ballShine)" />
+
+      {/* "Save it" — upper half of the ball */}
+      <SvgText
+        x={BALL_CX}
+        y={58}
+        fontFamily="DancingScript_700Bold"
+        fontSize={24}
+        fill="#0d1f3c"
+        textAnchor="middle"
+      >
+        Save it
+      </SvgText>
+
+      {/* "Golf" — lower half of the ball */}
+      <SvgText
+        x={BALL_CX}
+        y={110}
+        fontFamily="DancingScript_700Bold"
+        fontSize={28}
+        fill="#c0001a"
+        textAnchor="middle"
+      >
+        Golf
+      </SvgText>
+
+      {/* Push pin */}
+      <Ellipse cx={BALL_CX} cy={166} rx={30} ry={20} fill={PIN_GREEN} stroke={PIN_GREEN_DARK} strokeWidth={1} />
+      <Ellipse cx={70} cy={159} rx={10} ry={7} fill={PIN_GREEN_LIGHT} opacity={0.6} />
+      <Rect x={70} y={182} width={20} height={14} fill={PIN_GREEN_DARK} />
+      <Polygon points="70,196 90,196 80,222" fill={NEEDLE_COLOR} />
+    </Svg>
   );
 }
 
-// Round green push pin: a wide domed cap (with a highlight for a 3D look),
-// a short neck tucked just under the cap, and a needle point below it.
-function PushPin() {
-  return (
-    <View style={styles.pin}>
-      <View style={styles.pinDome}>
-        <View style={styles.pinDomeHighlight} />
-      </View>
-      <View style={styles.pinNeck} />
-      <View style={styles.pinNeedle} />
-    </View>
-  );
-}
-
-// The SaveitGolf logo: a golf ball with "Save it" (navy) "Golf" (red) in
-// Dancing Script, and a round green push pin stacked below it. Sized to
-// read as the app's mark at the top of the Login and Sign Up screens.
+// The SaveitGolf logo: a dimpled golf ball with "Save it" (navy) / "Golf"
+// (red) lettering across its face, a round green push pin below it, and the
+// tagline underneath. Sized to read as the app's mark at the top of the
+// Login and Sign Up screens.
 export default function AuthLogo() {
   return (
     <View style={styles.container}>
-      <View style={styles.mark}>
-        <GolfBall />
-        <Text style={styles.markText}>
-          <Text style={styles.markSaveIt}>Save it</Text>
-          <Text style={styles.markGolf}> Golf</Text>
-        </Text>
-      </View>
-
-      <PushPin />
+      <GolfBallMark />
+      <Text style={styles.tagline}>DISCOVER · PLAY · SAVE IT</Text>
     </View>
   );
 }
@@ -67,94 +116,12 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
-    height: 180,
   },
-  mark: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.offWhite,
-    borderRadius: 28,
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    marginBottom: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  ball: {
-    width: BALL_SIZE,
-    height: BALL_SIZE,
-    borderRadius: BALL_SIZE / 2,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.navyBorder,
-    marginRight: 10,
-  },
-  dimple: {
-    position: 'absolute',
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: colors.navyBorder,
-  },
-  markText: {
-    fontFamily: 'DancingScript_700Bold',
-    fontSize: 34,
-    lineHeight: 40,
-  },
-  markSaveIt: {
-    color: colors.navy,
-  },
-  markGolf: {
-    color: colors.red,
-  },
-  pin: {
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-  pinDome: {
-    width: DOME_SIZE,
-    height: DOME_SIZE,
-    borderRadius: DOME_SIZE / 2,
-    backgroundColor: PIN_GREEN,
-    borderWidth: 1,
-    borderColor: PIN_GREEN_DARK,
-    overflow: 'hidden',
-    zIndex: 2,
-  },
-  pinDomeHighlight: {
-    position: 'absolute',
-    top: 8,
-    left: 10,
-    width: DOME_SIZE * 0.4,
-    height: DOME_SIZE * 0.32,
-    borderRadius: DOME_SIZE * 0.2,
-    backgroundColor: PIN_GREEN_LIGHT,
-    opacity: 0.7,
-  },
-  pinNeck: {
-    width: NECK_SIZE,
-    height: NECK_SIZE * 0.7,
-    backgroundColor: PIN_GREEN_DARK,
-    marginTop: -6,
-    zIndex: 1,
-  },
-  pinNeedle: {
-    marginTop: -1,
-    width: 0,
-    height: 0,
-    borderLeftWidth: NEEDLE_WIDTH / 2,
-    borderRightWidth: NEEDLE_WIDTH / 2,
-    borderTopWidth: NEEDLE_HEIGHT,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderTopColor: NEEDLE_SILVER,
+  tagline: {
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 10,
+    color: '#6a8ab0',
+    letterSpacing: 3,
+    marginTop: 2,
   },
 });
