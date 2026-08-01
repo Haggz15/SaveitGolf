@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react';
-import { StyleSheet } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { StyleSheet, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { getAssetByID } from '@react-native/assets-registry/registry';
+import colors from '../theme/colors';
 
 function isMobileDevice() {
   if (typeof navigator === 'undefined') return false;
@@ -28,6 +30,7 @@ function resolveWebAssetUri(source) {
 
 export default function VideoPost({ source, mobileSource, isActive }) {
   const videoRef = useRef(null);
+  const [muted, setMuted] = useState(true);
   const asset = isMobileDevice() && mobileSource ? mobileSource : source;
   const uri = resolveWebAssetUri(asset);
 
@@ -45,21 +48,49 @@ export default function VideoPost({ source, mobileSource, isActive }) {
     }
   }, [isActive, uri]);
 
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.muted = muted;
+  }, [muted]);
+
   return (
-    <video
-      ref={videoRef}
-      style={{ ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', objectFit: 'cover' }}
-      muted
-      loop
-      playsInline
-      webkit-playsinline="true"
-      x-webkit-airplay="deny"
-      preload="auto"
-      disablePictureInPicture
-      controls={false}
-      onError={() => console.error('Video failed to load:', asset)}
-    >
-      <source src={uri} type="video/mp4" />
-    </video>
+    <>
+      <video
+        ref={videoRef}
+        style={{ ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', objectFit: 'cover' }}
+        muted={muted}
+        loop
+        playsInline
+        webkit-playsinline="true"
+        x-webkit-airplay="deny"
+        preload="auto"
+        disablePictureInPicture
+        controls={false}
+        onError={() => console.error('Video failed to load:', asset)}
+      >
+        <source src={uri} type="video/mp4" />
+      </video>
+      <TouchableOpacity
+        style={styles.speakerButton}
+        onPress={() => setMuted((prev) => !prev)}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        activeOpacity={0.75}
+      >
+        <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={18} color={colors.white} />
+      </TouchableOpacity>
+    </>
   );
 }
+
+const styles = StyleSheet.create({
+  speakerButton: {
+    position: 'absolute',
+    top: 12,
+    left: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(6, 14, 26, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

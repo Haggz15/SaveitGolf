@@ -11,6 +11,7 @@ import MapScreen from '../screens/MapScreen';
 import PostScreen from '../screens/PostScreen';
 import ScorecardScreen from '../screens/ScorecardScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import OtherUserProfileScreen from '../screens/OtherUserProfileScreen';
 import CourseDetailScreen from '../screens/CourseDetailScreen';
 import SignUpScreen from '../screens/auth/SignUpScreen';
 import LogInScreen from '../screens/auth/LogInScreen';
@@ -126,6 +127,7 @@ export default function RootNavigator() {
             component={CourseDetailScreen}
             options={{ presentation: 'modal' }}
           />
+          <Stack.Screen name="UserProfile" component={OtherUserProfileScreen} />
         </Stack.Navigator>
       )}
     </NavigationContainer>

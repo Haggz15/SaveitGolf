@@ -24,10 +24,6 @@ const DEFAULT_HOLE_PATTERN = [4, 4, 3, 5, 4, 4, 3, 5, 4, 4, 4, 3, 5, 4, 4, 4, 3,
 
 const SEARCH_DEBOUNCE_MS = 400;
 
-function formatDate(date) {
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
 async function resolveHolePars(course, holesCount) {
   if (course?.id) {
     try {
@@ -151,13 +147,10 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
         : undefined;
 
     const newScorecard = {
-      id: `sc_${Date.now()}`,
-      courseName: selectedCourse.name,
-      date: formatDate(new Date()),
+      course: selectedCourse,
       holesCount,
       front,
       ...(back ? { back } : {}),
-      createdAt: new Date().toISOString(),
     };
 
     onSaved(newScorecard);

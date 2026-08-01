@@ -1,15 +1,23 @@
 import { View, Text, StyleSheet } from 'react-native';
 import colors from '../../theme/colors';
 
-const LOGO_WIDTH = 120;
+const BALL_SIZE = 34;
+const DOME_SIZE = 58;
+const NECK_SIZE = 16;
+const NEEDLE_WIDTH = 22;
+const NEEDLE_HEIGHT = 44;
+const PIN_GREEN = '#2e8b57';
+const PIN_GREEN_DARK = '#1f6b41';
+const PIN_GREEN_LIGHT = '#57b880';
+const NEEDLE_SILVER = '#c7ccd6';
 
 const DIMPLES = [
-  { top: 5, left: 8 },
-  { top: 10, left: 15 },
-  { top: 5, left: 21 },
-  { top: 15, left: 8 },
-  { top: 17, left: 22 },
-  { top: 9, left: 4 },
+  { top: 7, left: 10 },
+  { top: 13, left: 19 },
+  { top: 7, left: 27 },
+  { top: 20, left: 10 },
+  { top: 22, left: 28 },
+  { top: 12, left: 5 },
 ];
 
 function GolfBall() {
@@ -22,10 +30,23 @@ function GolfBall() {
   );
 }
 
-// The logo mark: golf ball + "Save it" (navy) "Golf" (red) in Dancing
-// Script, on a light backdrop so the navy half stays legible against the
-// navy screen background. The plain wordmark/tagline below it (white on
-// navy) stay as-is.
+// Round green push pin: a wide domed cap (with a highlight for a 3D look),
+// a short neck tucked just under the cap, and a needle point below it.
+function PushPin() {
+  return (
+    <View style={styles.pin}>
+      <View style={styles.pinDome}>
+        <View style={styles.pinDomeHighlight} />
+      </View>
+      <View style={styles.pinNeck} />
+      <View style={styles.pinNeedle} />
+    </View>
+  );
+}
+
+// The SaveitGolf logo: a golf ball with "Save it" (navy) "Golf" (red) in
+// Dancing Script, and a round green push pin stacked below it. Sized to
+// read as the app's mark at the top of the Login and Sign Up screens.
 export default function AuthLogo() {
   return (
     <View style={styles.container}>
@@ -37,8 +58,7 @@ export default function AuthLogo() {
         </Text>
       </View>
 
-      <Text style={styles.wordmark}>SaveitGolf</Text>
-      <Text style={styles.tagline}>Discover · Play · Save It</Text>
+      <PushPin />
     </View>
   );
 }
@@ -46,15 +66,17 @@ export default function AuthLogo() {
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
+    justifyContent: 'center',
+    height: 180,
   },
   mark: {
-    width: LOGO_WIDTH,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.offWhite,
-    borderRadius: 24,
-    paddingVertical: 9,
+    borderRadius: 28,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
     marginBottom: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -63,25 +85,25 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   ball: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: BALL_SIZE,
+    height: BALL_SIZE,
+    borderRadius: BALL_SIZE / 2,
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.navyBorder,
-    marginRight: 6,
+    marginRight: 10,
   },
   dimple: {
     position: 'absolute',
-    width: 2.5,
-    height: 2.5,
-    borderRadius: 1.25,
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
     backgroundColor: colors.navyBorder,
   },
   markText: {
     fontFamily: 'DancingScript_700Bold',
-    fontSize: 22,
-    lineHeight: 26,
+    fontSize: 34,
+    lineHeight: 40,
   },
   markSaveIt: {
     color: colors.navy,
@@ -89,18 +111,50 @@ const styles = StyleSheet.create({
   markGolf: {
     color: colors.red,
   },
-  wordmark: {
-    fontFamily: 'DancingScript_700Bold',
-    fontSize: 40,
-    color: colors.white,
-    lineHeight: 48,
+  pin: {
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 5,
   },
-  tagline: {
-    fontFamily: 'Cinzel_700Bold',
-    fontSize: 11,
-    letterSpacing: 2,
-    color: colors.gold,
-    marginTop: 4,
-    textTransform: 'uppercase',
+  pinDome: {
+    width: DOME_SIZE,
+    height: DOME_SIZE,
+    borderRadius: DOME_SIZE / 2,
+    backgroundColor: PIN_GREEN,
+    borderWidth: 1,
+    borderColor: PIN_GREEN_DARK,
+    overflow: 'hidden',
+    zIndex: 2,
+  },
+  pinDomeHighlight: {
+    position: 'absolute',
+    top: 8,
+    left: 10,
+    width: DOME_SIZE * 0.4,
+    height: DOME_SIZE * 0.32,
+    borderRadius: DOME_SIZE * 0.2,
+    backgroundColor: PIN_GREEN_LIGHT,
+    opacity: 0.7,
+  },
+  pinNeck: {
+    width: NECK_SIZE,
+    height: NECK_SIZE * 0.7,
+    backgroundColor: PIN_GREEN_DARK,
+    marginTop: -6,
+    zIndex: 1,
+  },
+  pinNeedle: {
+    marginTop: -1,
+    width: 0,
+    height: 0,
+    borderLeftWidth: NEEDLE_WIDTH / 2,
+    borderRightWidth: NEEDLE_WIDTH / 2,
+    borderTopWidth: NEEDLE_HEIGHT,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: NEEDLE_SILVER,
   },
 });

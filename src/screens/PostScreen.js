@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,17 +8,130 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Image,
+  FlatList,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
 import colors from '../theme/colors';
+import { useAuth } from '../context/AuthContext';
+import { createPost } from '../services/posts';
+import { searchCourses } from '../services/golfCourseApi';
 
-export default function PostScreen() {
-  const [course, setCourse] = useState('');
+const SEARCH_DEBOUNCE_MS = 400;
+
+export default function PostScreen({ navigation }) {
+  const { user } = useAuth();
+  const [courseQuery, setCourseQuery] = useState('');
+  const [courseResults, setCourseResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedCourse, setSelectedCourse] = useState(null);
   const [hole, setHole] = useState('');
   const [par, setPar] = useState('');
-  const [score, setScore] = useState('');
   const [caption, setCaption] = useState('');
+  const [media, setMedia] = useState(null); // { uri, type: 'photo' | 'video' }
+  const [posting, setPosting] = useState(false);
+  const searchTimer = useRef(null);
+
+  const handleChangeCourseQuery = (text) => {
+    setCourseQuery(text);
+    setSelectedCourse(null);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+
+    if (text.trim().length < 2) {
+      setCourseResults([]);
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const results = await searchCourses(text.trim());
+        setCourseResults(results);
+      } catch (err) {
+        console.error('Course search failed:', err);
+        setCourseResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, SEARCH_DEBOUNCE_MS);
+  };
+
+  const handleSelectCourse = (course) => {
+    setSelectedCourse(course);
+    setCourseQuery(course.name);
+    setCourseResults([]);
+  };
+
+  async function handlePickMedia() {
+    if (Platform.OS === 'web') {
+      Alert.alert('Not available', 'Adding a photo or video is only available in the mobile app.');
+      return;
+    }
+    try {
+      const ImagePicker = require('expo-image-picker');
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow photo library access to add a photo or video.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsEditing: false,
+        quality: 0.9,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        setMedia({ uri: asset.uri, type: asset.type === 'video' ? 'video' : 'photo' });
+      }
+    } catch (err) {
+      Alert.alert('Something went wrong', 'Could not open your photo library. Please try again.');
+    }
+  }
+
+  async function handleSharePost() {
+    if (!user?.id) return;
+    if (!media) {
+      Alert.alert('Add a photo or video', 'Pick a photo or video to share first.');
+      return;
+    }
+    const courseName = selectedCourse?.name ?? courseQuery.trim();
+    if (!courseName) {
+      Alert.alert('Add a course', 'Enter or search for the course you played.');
+      return;
+    }
+
+    setPosting(true);
+    try {
+      await createPost({
+        userId: user.id,
+        course: selectedCourse ?? { id: null, name: courseName },
+        hole: hole ? Number(hole) : null,
+        par: par ? Number(par) : null,
+        caption: caption.trim(),
+        mediaUri: media.uri,
+        mediaType: media.type,
+      });
+
+      setCourseQuery('');
+      setSelectedCourse(null);
+      setHole('');
+      setPar('');
+      setCaption('');
+      setMedia(null);
+
+      Alert.alert('Posted!', 'Your post is live on the feed.');
+      navigation.navigate('Tabs', { screen: 'Feed' });
+    } catch (err) {
+      console.error('Failed to create post:', err);
+      Alert.alert('Something went wrong', 'Could not share your post. Please try again.');
+    } finally {
+      setPosting(false);
+    }
+  }
 
   return (
     <KeyboardAvoidingView
@@ -29,19 +142,65 @@ export default function PostScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>New Hole Post</Text>
 
-        <TouchableOpacity style={styles.photoUpload}>
-          <Ionicons name="camera-outline" size={32} color={colors.muted} />
-          <Text style={styles.photoUploadText}>Add photo</Text>
+        <TouchableOpacity style={styles.photoUpload} onPress={handlePickMedia} activeOpacity={0.85}>
+          {media ? (
+            media.type === 'video' ? (
+              <View style={styles.videoPreview}>
+                <Ionicons name="videocam" size={28} color={colors.white} />
+                <Text style={styles.videoPreviewText}>Video selected</Text>
+              </View>
+            ) : (
+              <Image source={{ uri: media.uri }} style={styles.photoPreview} resizeMode="cover" />
+            )
+          ) : (
+            <>
+              <Ionicons name="camera-outline" size={32} color={colors.muted} />
+              <Text style={styles.photoUploadText}>Add photo or video</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         <Text style={styles.label}>Course</Text>
         <TextInput
           style={styles.input}
-          value={course}
-          onChangeText={setCourse}
+          value={courseQuery}
+          onChangeText={handleChangeCourseQuery}
           placeholder="e.g. Pebble Beach Golf Links"
           placeholderTextColor={colors.muted}
+          autoCorrect={false}
         />
+        {courseQuery.trim().length >= 2 && !selectedCourse && (
+          <View style={styles.dropdown}>
+            {searching ? (
+              <View style={styles.statusRow}>
+                <ActivityIndicator size="small" color={colors.red} />
+                <Text style={styles.statusText}>Searching…</Text>
+              </View>
+            ) : courseResults.length === 0 ? (
+              <View style={styles.statusRow}>
+                <Text style={styles.statusText}>No matches — you can still post with this name</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={courseResults}
+                keyExtractor={(item) => item.id}
+                keyboardShouldPersistTaps="handled"
+                style={{ maxHeight: 220 }}
+                renderItem={({ item }) => (
+                  <TouchableOpacity style={styles.resultRow} onPress={() => handleSelectCourse(item)}>
+                    <Ionicons name="flag-outline" size={16} color={colors.red} />
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
+                      <Text style={styles.resultLocation} numberOfLines={1}>
+                        {[item.city, item.state].filter(Boolean).join(', ') || 'Location unknown'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+          </View>
+        )}
 
         <View style={styles.row}>
           <View style={styles.rowItem}>
@@ -66,17 +225,6 @@ export default function PostScreen() {
               placeholderTextColor={colors.muted}
             />
           </View>
-          <View style={styles.rowItem}>
-            <Text style={styles.label}>Score</Text>
-            <TextInput
-              style={styles.input}
-              value={score}
-              onChangeText={setScore}
-              keyboardType="number-pad"
-              placeholder="#"
-              placeholderTextColor={colors.muted}
-            />
-          </View>
         </View>
 
         <Text style={styles.label}>Caption</Text>
@@ -89,8 +237,12 @@ export default function PostScreen() {
           multiline
         />
 
-        <TouchableOpacity style={styles.submitButton}>
-          <Text style={styles.submitButtonText}>Share Post</Text>
+        <TouchableOpacity
+          style={[styles.submitButton, posting && styles.submitButtonDisabled]}
+          onPress={handleSharePost}
+          disabled={posting}
+        >
+          <Text style={styles.submitButtonText}>{posting ? 'Posting…' : 'Share Post'}</Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -122,11 +274,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
+    overflow: 'hidden',
   },
   photoUploadText: {
     color: colors.muted,
     marginTop: 8,
     fontSize: 13,
+  },
+  photoPreview: {
+    width: '100%',
+    height: '100%',
+  },
+  videoPreview: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoPreviewText: {
+    color: colors.white,
+    marginTop: 8,
+    fontSize: 13,
+    fontWeight: '600',
   },
   label: {
     color: colors.muted,
@@ -148,6 +315,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 16,
   },
+  dropdown: {
+    marginTop: -10,
+    marginBottom: 16,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    gap: 8,
+  },
+  statusText: {
+    color: colors.muted,
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  resultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.navyBorder,
+  },
+  resultName: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  resultLocation: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 2,
+  },
   captionInput: {
     height: 100,
     textAlignVertical: 'top',
@@ -165,6 +371,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 8,
+  },
+  submitButtonDisabled: {
+    opacity: 0.6,
   },
   submitButtonText: {
     color: colors.white,

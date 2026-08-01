@@ -6,7 +6,8 @@ import Header from '../components/Header';
 import NewScorecardModal from '../components/scorecard/NewScorecardModal';
 import colors from '../theme/colors';
 import { scorecard as mockScorecard, currentUser } from '../data/mockData';
-import { getLatestScorecard, saveScorecard } from '../data/scorecards';
+import { getLatestScorecard, saveScorecard } from '../services/scorecards';
+import { useAuth } from '../context/AuthContext';
 
 function sumPar(holes) {
   return holes.reduce((sum, h) => sum + h.par, 0);
@@ -61,6 +62,7 @@ function NineColumn({ holes, label }) {
 }
 
 export default function ScorecardScreen() {
+  const { user } = useAuth();
   const viewShotRef = useRef(null);
   const [isSharing, setIsSharing] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
@@ -68,11 +70,16 @@ export default function ScorecardScreen() {
   const [modalVisible, setModalVisible] = useState(false);
 
   useEffect(() => {
+    if (!user?.id) return;
     (async () => {
-      const latest = await getLatestScorecard();
-      if (latest) setActiveScorecard(latest);
+      try {
+        const latest = await getLatestScorecard(user.id);
+        if (latest) setActiveScorecard(latest);
+      } catch (err) {
+        console.error('Failed to load latest scorecard:', err);
+      }
     })();
-  }, []);
+  }, [user?.id]);
 
   const isNineHoleRound = !activeScorecard.back || activeScorecard.back.length === 0;
 
@@ -83,10 +90,16 @@ export default function ScorecardScreen() {
   const fullName = `${currentUser.firstName} ${currentUser.lastName}`.toUpperCase();
 
   async function handleScorecardSaved(newScorecard) {
-    await saveScorecard(newScorecard);
-    setActiveScorecard(newScorecard);
-    setPhotoUri(null);
-    setModalVisible(false);
+    if (!user?.id) return;
+    try {
+      const saved = await saveScorecard(user.id, newScorecard);
+      setActiveScorecard(saved);
+      setPhotoUri(null);
+      setModalVisible(false);
+    } catch (err) {
+      console.error('Failed to save scorecard:', err);
+      Alert.alert('Something went wrong', 'Could not save your scorecard. Please try again.');
+    }
   }
 
   async function handlePickPhoto() {

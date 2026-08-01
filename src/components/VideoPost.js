@@ -1,8 +1,11 @@
-import { useEffect } from 'react';
-import { StyleSheet } from 'react-native';
+import { useEffect, useState } from 'react';
+import { StyleSheet, TouchableOpacity } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { Ionicons } from '@expo/vector-icons';
+import colors from '../theme/colors';
 
 export default function VideoPost({ source, isActive }) {
+  const [muted, setMuted] = useState(true);
   const player = useVideoPlayer(source, (p) => {
     p.loop = true;
     p.muted = true;
@@ -28,14 +31,42 @@ export default function VideoPost({ source, isActive }) {
     }
   }, [isActive, player]);
 
+  useEffect(() => {
+    player.muted = muted;
+  }, [muted, player]);
+
   return (
-    <VideoView
-      player={player}
-      style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]}
-      contentFit="cover"
-      nativeControls={false}
-      fullscreenOptions={{ enable: false }}
-      playsInline
-    />
+    <>
+      <VideoView
+        player={player}
+        style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]}
+        contentFit="cover"
+        nativeControls={false}
+        fullscreenOptions={{ enable: false }}
+        playsInline
+      />
+      <TouchableOpacity
+        style={styles.speakerButton}
+        onPress={() => setMuted((prev) => !prev)}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        activeOpacity={0.75}
+      >
+        <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={18} color={colors.white} />
+      </TouchableOpacity>
+    </>
   );
 }
+
+const styles = StyleSheet.create({
+  speakerButton: {
+    position: 'absolute',
+    top: 12,
+    left: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(6, 14, 26, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

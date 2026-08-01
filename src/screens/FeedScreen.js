@@ -1,13 +1,17 @@
-import { useState, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, useWindowDimensions } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Header from '../components/Header';
 import VideoPost from '../components/VideoPost';
+import AddFriendsModal from '../components/social/AddFriendsModal';
 import colors from '../theme/colors';
-import { feedPosts, filterPills } from '../data/mockData';
+import { feedPosts as mockFeedPosts, filterPills } from '../data/mockData';
 import { HEADER_CONTENT_HEIGHT, PILL_ROW_HEIGHT, TAB_BAR_HEIGHT } from '../theme/layout';
+import { useAuth } from '../context/AuthContext';
+import { getFeedPosts } from '../services/posts';
+import { getFollowingIds } from '../services/social';
 
 function FilterPill({ label, active, onPress }) {
   return (
@@ -20,11 +24,11 @@ function FilterPill({ label, active, onPress }) {
   );
 }
 
-function PostSlide({ post, height, isActive, onStatePress }) {
+function PostSlide({ post, height, isActive, onStatePress, onUserPress }) {
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(post.likes);
   const [saved, setSaved] = useState(false);
-  const isVideo = !!post.video;
+  const isVideo = post.isVideo ?? Boolean(post.video);
 
   const toggleLike = () => {
     setLiked((prev) => !prev);
@@ -34,10 +38,14 @@ function PostSlide({ post, height, isActive, onStatePress }) {
   return (
     <View style={[styles.slide, { height }]}>
       {isVideo ? (
-        <VideoPost source={post.video} mobileSource={post.videoMobile} isActive={isActive} />
+        <VideoPost
+          source={post.mediaUrl || post.video}
+          mobileSource={post.videoMobile}
+          isActive={isActive}
+        />
       ) : (
         <Image
-          source={post.image}
+          source={post.mediaUrl ? { uri: post.mediaUrl } : post.image}
           style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]}
           resizeMode="cover"
         />
@@ -52,12 +60,15 @@ function PostSlide({ post, height, isActive, onStatePress }) {
         pointerEvents="none"
       />
 
-      <View style={styles.holeVisual}>
-        <View style={styles.holeBadge}>
-          <Text style={styles.holeBadgeNumber}>{post.hole}</Text>
-          <Text style={styles.holeBadgeLabel}>HOLE</Text>
-        </View>
-        <Text style={styles.holeStatsText}>Par {post.par}</Text>
+      <View style={styles.topRightStack} pointerEvents="none">
+        <Text style={styles.topRightCourseName} numberOfLines={1} ellipsizeMode="tail">
+          {post.course}
+        </Text>
+        {post.hole != null && (
+          <View style={styles.holeBadge}>
+            <Text style={styles.holeBadgeNumber}>{post.hole}</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.actionRail}>
@@ -85,14 +96,12 @@ function PostSlide({ post, height, isActive, onStatePress }) {
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.courseName} numberOfLines={1} ellipsizeMode="tail">
-        {post.course}
-      </Text>
-
       <View style={styles.leftInfo}>
         <View style={styles.avatarRow}>
           <View style={styles.avatar} />
-          <Text style={styles.username}>{post.user}</Text>
+          <TouchableOpacity onPress={() => onUserPress(post)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+            <Text style={styles.username}>{post.user}</Text>
+          </TouchableOpacity>
           <Text style={styles.timeAgo}>{post.timeAgo}</Text>
         </View>
         <Text style={styles.caption} numberOfLines={2} ellipsizeMode="tail">
@@ -112,18 +121,56 @@ function PostSlide({ post, height, isActive, onStatePress }) {
 }
 
 export default function FeedScreen({ navigation }) {
+  const { user } = useAuth();
   const [activeFilter, setActiveFilter] = useState('Following');
-  const [activePostId, setActivePostId] = useState(feedPosts[0]?.id ?? null);
+  const [posts, setPosts] = useState([]);
+  const [loadingFeed, setLoadingFeed] = useState(true);
+  const [activePostId, setActivePostId] = useState(null);
+  const [addFriendsVisible, setAddFriendsVisible] = useState(false);
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const containerHeight =
     windowHeight - insets.top - HEADER_CONTENT_HEIGHT - PILL_ROW_HEIGHT - TAB_BAR_HEIGHT;
+
+  const loadFeed = useCallback(async () => {
+    setLoadingFeed(true);
+    try {
+      if (activeFilter === 'Following') {
+        const followingIds = user?.id ? await getFollowingIds(user.id) : [];
+        const realPosts = await getFeedPosts({ userIds: followingIds });
+        setPosts(realPosts);
+      } else {
+        const realPosts = await getFeedPosts();
+        // Demo content trails real posts so the feed still has something to
+        // browse on Nearby/Top Rated before there's much real activity.
+        setPosts([...realPosts, ...mockFeedPosts]);
+      }
+    } catch (err) {
+      console.error('Failed to load feed:', err);
+      setPosts(activeFilter === 'Following' ? [] : mockFeedPosts);
+    } finally {
+      setLoadingFeed(false);
+    }
+  }, [activeFilter, user?.id]);
+
+  useEffect(() => {
+    loadFeed();
+  }, [loadFeed]);
+
+  useEffect(() => {
+    setActivePostId(posts[0]?.id ?? null);
+  }, [posts]);
 
   const handleStatePress = (post) => {
     navigation.navigate('Map', {
       state: post.state,
       timestamp: Date.now(),
     });
+  };
+
+  const handleUserPress = (post) => {
+    if (!post.user) return;
+    navigation.navigate('UserProfile', { username: post.user });
   };
 
   // Equivalent of an Intersection Observer for React Native: fires whenever
@@ -138,7 +185,17 @@ export default function FeedScreen({ navigation }) {
 
   return (
     <View style={styles.screen}>
-      <Header />
+      <Header
+        right={
+          <TouchableOpacity
+            style={styles.addFriendsButton}
+            onPress={() => setAddFriendsVisible(true)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="person-add" size={22} color={colors.white} />
+          </TouchableOpacity>
+        }
+      />
       <View style={styles.pillRow}>
         <FlatList
           data={filterPills}
@@ -157,37 +214,56 @@ export default function FeedScreen({ navigation }) {
       </View>
 
       <View style={styles.pagerContainer}>
-        {containerHeight > 0 && (
-          <FlatList
-            data={feedPosts}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <PostSlide
-                post={item}
-                height={containerHeight}
-                isActive={item.id === activePostId}
-                onStatePress={handleStatePress}
-              />
-            )}
-            pagingEnabled
-            showsVerticalScrollIndicator={false}
-            decelerationRate="fast"
-            snapToInterval={containerHeight}
-            snapToAlignment="start"
-            getItemLayout={(_, index) => ({
-              length: containerHeight,
-              offset: containerHeight * index,
-              index,
-            })}
-            viewabilityConfig={viewabilityConfig}
-            onViewableItemsChanged={onViewableItemsChanged}
-            initialNumToRender={2}
-            maxToRenderPerBatch={2}
-            windowSize={3}
-            removeClippedSubviews
-          />
+        {loadingFeed ? (
+          <ActivityIndicator color={colors.red} size="large" style={{ marginTop: 40 }} />
+        ) : posts.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="people-outline" size={36} color={colors.muted} />
+            <Text style={styles.emptyStateText}>
+              Follow golfers to see their posts here — tap the Add Friends icon above.
+            </Text>
+          </View>
+        ) : (
+          containerHeight > 0 && (
+            <FlatList
+              data={posts}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <PostSlide
+                  post={item}
+                  height={containerHeight}
+                  isActive={item.id === activePostId}
+                  onStatePress={handleStatePress}
+                  onUserPress={handleUserPress}
+                />
+              )}
+              pagingEnabled
+              showsVerticalScrollIndicator={false}
+              decelerationRate="fast"
+              snapToInterval={containerHeight}
+              snapToAlignment="start"
+              getItemLayout={(_, index) => ({
+                length: containerHeight,
+                offset: containerHeight * index,
+                index,
+              })}
+              viewabilityConfig={viewabilityConfig}
+              onViewableItemsChanged={onViewableItemsChanged}
+              initialNumToRender={2}
+              maxToRenderPerBatch={2}
+              windowSize={3}
+              removeClippedSubviews
+            />
+          )
         )}
       </View>
+
+      <AddFriendsModal
+        visible={addFriendsVisible}
+        onClose={() => setAddFriendsVisible(false)}
+        currentUserId={user?.id}
+        navigation={navigation}
+      />
     </View>
   );
 }
@@ -196,6 +272,13 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.navy,
+  },
+  addFriendsButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pillRow: {
     paddingVertical: 12,
@@ -227,6 +310,19 @@ const styles = StyleSheet.create({
   pagerContainer: {
     flex: 1,
   },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+    marginTop: 60,
+  },
+  emptyStateText: {
+    color: colors.muted,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 12,
+    lineHeight: 19,
+  },
   slide: {
     width: '100%',
     backgroundColor: colors.navyLight,
@@ -244,44 +340,37 @@ const styles = StyleSheet.create({
     bottom: 0,
     height: '55%',
   },
-  holeVisual: {
+  topRightStack: {
     position: 'absolute',
     top: 12,
     right: 14,
     alignItems: 'center',
   },
+  topRightCourseName: {
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 13,
+    color: colors.white,
+    maxWidth: 140,
+    textAlign: 'center',
+    marginBottom: 6,
+    textShadowColor: 'rgba(0, 0, 0, 0.7)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
   holeBadge: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 3,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
     borderColor: colors.red,
     backgroundColor: 'rgba(6, 14, 26, 0.6)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 6,
   },
   holeBadgeNumber: {
     color: colors.white,
     fontWeight: '800',
-    fontSize: 24,
-    lineHeight: 27,
-  },
-  holeBadgeLabel: {
-    color: colors.muted,
-    fontSize: 9,
-    letterSpacing: 1,
-  },
-  holeStatsText: {
-    color: colors.offWhite,
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
-    backgroundColor: 'rgba(6, 14, 26, 0.55)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-    overflow: 'hidden',
+    fontSize: 14,
   },
   actionRail: {
     position: 'absolute',
@@ -298,20 +387,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginTop: 4,
-  },
-  courseName: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 80,
-    color: '#ffffff',
-    fontFamily: 'Cinzel_700Bold',
-    fontSize: 15,
-    letterSpacing: 0.6,
-    textAlign: 'center',
-    textShadowColor: 'rgba(0, 0, 0, 0.6)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
   },
   leftInfo: {
     position: 'absolute',
@@ -352,14 +427,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 14,
     bottom: 14,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
     backgroundColor: 'rgba(6, 14, 26, 0.65)',
   },
   stateBadgeText: {
     color: colors.white,
-    fontSize: 10,
+    fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.4,
   },

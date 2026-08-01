@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
 import CourseSearchBar from '../components/map/CourseSearchBar';
+import FriendSearchBar from '../components/map/FriendSearchBar';
 import FilterPills from '../components/map/FilterPills';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
@@ -11,6 +12,8 @@ import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessage
 import colors from '../theme/colors';
 import { darkSlateMapStyle } from '../theme/mapStyle';
 import { useCourseMapData, NORTHEAST_US_INITIAL_REGION, MAX_MAP_DELTA } from '../hooks/useCourseMapData';
+import { useAuth } from '../context/AuthContext';
+import { getFriendPlayedCourses } from '../services/friendMap';
 
 const ZOOM_MIN_DELTA = 0.01;
 const ZOOM_MAX_DELTA = MAX_MAP_DELTA;
@@ -35,7 +38,9 @@ function CourseMarker({ course, highlighted, onPress }) {
 }
 
 export default function MapScreen({ navigation, route }) {
+  const { user } = useAuth();
   const mapRef = useRef(null);
+  const [friendFilter, setFriendFilter] = useState(null); // { username, courses, loading }
   const {
     region,
     setRegion,
@@ -70,6 +75,32 @@ export default function MapScreen({ navigation, route }) {
     mapRef.current?.animateToRegion(focusRegion, 600);
   }, [focusRegion]);
 
+  useEffect(() => {
+    if (!friendFilter || friendFilter.loading || friendFilter.courses.length === 0) return;
+    const coords = friendFilter.courses.map((c) => ({ latitude: c.lat, longitude: c.lng }));
+    mapRef.current?.fitToCoordinates(coords, {
+      edgePadding: { top: 120, right: 60, bottom: 200, left: 60 },
+      animated: true,
+    });
+  }, [friendFilter]);
+
+  const handleSelectFriend = async (profile) => {
+    clearSelectedCourse();
+    setFriendFilter({ username: profile.username, courses: [], loading: true });
+    try {
+      const courses = await getFriendPlayedCourses(profile.user_id);
+      setFriendFilter({ username: profile.username, courses, loading: false });
+    } catch (err) {
+      console.error('Failed to load friend played courses:', err);
+      setFriendFilter({ username: profile.username, courses: [], loading: false });
+    }
+  };
+
+  const handleClearFriendFilter = () => {
+    setFriendFilter(null);
+    clearSelectedCourse();
+  };
+
   const handleZoomIn = () => {
     mapRef.current?.animateToRegion(
       {
@@ -103,7 +134,24 @@ export default function MapScreen({ navigation, route }) {
         searching={searching}
         onSelectResult={handleSelectSearchResult}
       />
+      <FriendSearchBar currentUserId={user?.id} onSelectFriend={handleSelectFriend} />
       <FilterPills value={filter} onChange={setFilter} />
+
+      {friendFilter && (
+        <View style={styles.friendBanner}>
+          <Ionicons name="golf-outline" size={16} color={colors.white} />
+          <Text style={styles.friendBannerText} numberOfLines={1}>
+            {friendFilter.loading
+              ? `Loading courses played by ${friendFilter.username}…`
+              : friendFilter.courses.length > 0
+              ? `Showing courses played by ${friendFilter.username}`
+              : `${friendFilter.username} hasn't played any courses yet`}
+          </Text>
+          <TouchableOpacity onPress={handleClearFriendFilter} style={styles.friendBannerClear}>
+            <Text style={styles.friendBannerClearText}>Clear</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {locationDenied && (
         <MapWarningBanner icon="location-outline">
@@ -127,7 +175,7 @@ export default function MapScreen({ navigation, route }) {
           showsUserLocation={!locationDenied}
           onRegionChangeComplete={setRegion}
         >
-          {visibleCourses.map((course) => (
+          {(friendFilter ? friendFilter.courses : visibleCourses).map((course) => (
             <CourseMarker
               key={course.id}
               course={course}
@@ -163,6 +211,36 @@ const styles = StyleSheet.create({
   },
   mapContainer: {
     flex: 1,
+  },
+  friendBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.red,
+    gap: 8,
+  },
+  friendBannerText: {
+    flex: 1,
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  friendBannerClear: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: colors.red,
+  },
+  friendBannerClearText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '700',
   },
   map: {
     flex: 1,
