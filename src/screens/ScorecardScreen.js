@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
 import Header from '../components/Header';
@@ -7,21 +7,25 @@ import NewScorecardModal from '../components/scorecard/NewScorecardModal';
 import PastScorecardsList from '../components/scorecard/PastScorecardsList';
 import ScorecardDetailModal from '../components/scorecard/ScorecardDetailModal';
 import ScorecardCard, { NineColumn, GrandTotal, computeTotals } from '../components/scorecard/ScorecardCard';
+import PhotoCropBox from '../components/scorecard/PhotoCropBox';
+import CroppedPhoto from '../components/scorecard/CroppedPhoto';
 import colors from '../theme/colors';
-import { scorecard as mockScorecard, currentUser } from '../data/mockData';
+import { scorecard as mockScorecard } from '../data/mockData';
 import { getLatestScorecard, saveScorecard } from '../services/scorecards';
 import { notifyFollowersOfScorecard } from '../services/notifications';
 import { useAuth } from '../context/AuthContext';
 
 const EXPORT_WIDTH = 1080;
 const EXPORT_HEIGHT = 1920;
+const DEFAULT_CROP = { zoom: 1, panX: 0.5, panY: 0.5 };
 
 export default function ScorecardScreen() {
   const { user, profile } = useAuth();
-  const viewShotRef = useRef(null);
-  const exportViewShotRef = useRef(null);
+  const cleanViewShotRef = useRef(null);
+  const photoViewShotRef = useRef(null);
   const [isSharing, setIsSharing] = useState(false);
-  const [photoUri, setPhotoUri] = useState(null);
+  const [photo, setPhoto] = useState(null); // { uri, width, height }
+  const [crop, setCrop] = useState(DEFAULT_CROP);
   const [activeScorecard, setActiveScorecard] = useState(mockScorecard);
   const [modalVisible, setModalVisible] = useState(false);
   const [pastListKey, setPastListKey] = useState(0);
@@ -40,14 +44,15 @@ export default function ScorecardScreen() {
   }, [user?.id]);
 
   const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(activeScorecard);
-  const fullName = `${currentUser.firstName} ${currentUser.lastName}`.toUpperCase();
+  const fullName = (profile?.full_name || 'Unnamed Golfer').toUpperCase();
 
   async function handleScorecardSaved(newScorecard) {
     if (!user?.id) return;
     try {
       const saved = await saveScorecard(user.id, newScorecard);
       setActiveScorecard(saved);
-      setPhotoUri(null);
+      setPhoto(null);
+      setCrop(DEFAULT_CROP);
       setModalVisible(false);
       // Refresh the Past Scorecards list so the round just logged shows up.
       setPastListKey((k) => k + 1);
@@ -60,7 +65,25 @@ export default function ScorecardScreen() {
     }
   }
 
-  async function handlePickPhoto() {
+  function handlePickPhotoWeb() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const uri = URL.createObjectURL(file);
+      const img = new window.Image();
+      img.onload = () => {
+        setPhoto({ uri, width: img.naturalWidth, height: img.naturalHeight });
+        setCrop(DEFAULT_CROP);
+      };
+      img.src = uri;
+    };
+    input.click();
+  }
+
+  async function handlePickPhotoNative() {
     try {
       // Required lazily: this native module isn't available on web and
       // throws at import time if loaded statically there.
@@ -72,29 +95,48 @@ export default function ScorecardScreen() {
         return;
       }
 
+      // No allowsEditing here — cropping/panning happens in-place afterward
+      // via PhotoCropBox so the same crop can be reproduced in the export.
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [9, 16],
         quality: 0.9,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setPhotoUri(result.assets[0].uri);
+        const asset = result.assets[0];
+        setPhoto({ uri: asset.uri, width: asset.width, height: asset.height });
+        setCrop(DEFAULT_CROP);
       }
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not open your photo library. Please try again.');
     }
   }
 
-  function handleUseProfilePhoto() {
-    if (!profile?.avatar_url) return;
-    setPhotoUri(profile.avatar_url);
+  function handlePickPhoto() {
+    if (Platform.OS === 'web') {
+      handlePickPhotoWeb();
+    } else {
+      handlePickPhotoNative();
+    }
   }
 
   async function handleShare() {
     if (Platform.OS === 'web') {
-      Alert.alert('Not available', 'Sharing your scorecard is only available in the mobile app.');
+      const ref = photo ? photoViewShotRef.current : cleanViewShotRef.current;
+      try {
+        setIsSharing(true);
+        const dataUrl = await ref.capture();
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = `${activeScorecard.courseName || 'scorecard'}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (err) {
+        Alert.alert('Something went wrong', 'Could not export your scorecard. Please try again.');
+      } finally {
+        setIsSharing(false);
+      }
       return;
     }
 
@@ -112,11 +154,7 @@ export default function ScorecardScreen() {
         return;
       }
 
-      // With a photo attached, share the two-column 1080x1920 story image
-      // instead of the compact on-screen card.
-      const uri = photoUri
-        ? await exportViewShotRef.current.capture()
-        : await viewShotRef.current.capture();
+      const uri = photo ? await photoViewShotRef.current.capture() : await cleanViewShotRef.current.capture();
 
       await MediaLibrary.saveToLibraryAsync(uri);
 
@@ -131,16 +169,7 @@ export default function ScorecardScreen() {
   }
 
   const photoSlot = (
-    <TouchableOpacity style={styles.photoInlineBox} onPress={handlePickPhoto} activeOpacity={0.8}>
-      {photoUri ? (
-        <Image source={{ uri: photoUri }} style={styles.photoInlineImage} resizeMode="cover" />
-      ) : (
-        <>
-          <Ionicons name="camera-outline" size={18} color={colors.muted} />
-          <Text style={styles.photoInlineText}>Add{'\n'}Photo</Text>
-        </>
-      )}
-    </TouchableOpacity>
+    <PhotoCropBox photo={photo} crop={crop} onCropChange={setCrop} onRequestPhoto={handlePickPhoto} />
   );
 
   return (
@@ -157,62 +186,13 @@ export default function ScorecardScreen() {
         </TouchableOpacity>
 
         <View style={styles.cardWrapper}>
-          <ViewShot
-            ref={viewShotRef}
-            style={styles.card}
-            options={{ format: 'png', quality: 1 }}
-          >
-            <ScorecardCard scorecard={activeScorecard} fullName={fullName} photoSlot={photoSlot} />
-          </ViewShot>
-
-          {profile?.avatar_url && !photoUri && (
-            <TouchableOpacity onPress={handleUseProfilePhoto} style={styles.useProfilePhotoLink}>
-              <Text style={styles.useProfilePhotoText}>Use my profile photo instead</Text>
-            </TouchableOpacity>
-          )}
-
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={styles.shareButton}
-              onPress={handleShare}
-              disabled={isSharing}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="share-outline" size={16} color={colors.white} />
-              <Text style={styles.shareButtonText}>{isSharing ? 'Saving…' : 'Share'}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.legend}>
-          <View style={styles.legendItem}>
-            <View style={styles.circleRing}>
-              <Text style={styles.legendGlyph}>3</Text>
-            </View>
-            <Text style={styles.legendText}>Birdie</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={styles.circleRing}>
-              <View style={styles.circleRing}>
-                <Text style={styles.legendGlyph}>2</Text>
-              </View>
-            </View>
-            <Text style={styles.legendText}>Eagle</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={styles.squareRing}>
-              <Text style={styles.legendGlyph}>5</Text>
-            </View>
-            <Text style={styles.legendText}>Bogey</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={styles.squareRing}>
-              <View style={styles.squareRing}>
-                <Text style={styles.legendGlyph}>6</Text>
-              </View>
-            </View>
-            <Text style={styles.legendText}>Double Bogey</Text>
-          </View>
+          <ScorecardCard
+            scorecard={activeScorecard}
+            fullName={fullName}
+            photoSlot={photoSlot}
+            onShare={handleShare}
+            sharing={isSharing}
+          />
         </View>
 
         <View style={styles.pastSection}>
@@ -223,14 +203,34 @@ export default function ScorecardScreen() {
         </View>
       </ScrollView>
 
-      {/* Hidden off-screen template captured for the shared story image only
-          — kept at a fixed 9:16 box and resized to exactly 1080x1920 by
-          ViewShot's capture options, independent of on-screen layout. */}
-      {photoUri && (
-        <View style={styles.exportOffscreenWrap} pointerEvents="none">
+      {/* Hidden off-screen templates captured for sharing. Both are laid out
+          at on-screen scale (matching ScorecardCard's own text sizes) and
+          then resized by ViewShot's capture options — the clean card to its
+          natural size, the with-photo card up to the required 1080x1920 —
+          so nothing needs re-tuning font sizes per export target. */}
+      <View style={styles.exportOffscreenWrap} pointerEvents="none">
+        <ViewShot ref={cleanViewShotRef} style={styles.cleanExportCard} options={{ format: 'png', quality: 1 }}>
+          <Text style={styles.userName}>{fullName}</Text>
+          <Text style={styles.courseNameText} numberOfLines={2}>
+            {activeScorecard.courseName}
+          </Text>
+
+          <View style={styles.scoresRow}>
+            <NineColumn holes={activeScorecard.front} label="FRONT" />
+            {!isNineHoleRound && <NineColumn holes={activeScorecard.back} label="BACK" />}
+          </View>
+
+          <GrandTotal totalScore={totalScore} diffLabel={diffLabel} diff={diff} />
+
+          <View style={styles.watermarkWrap}>
+            <Text style={styles.watermarkText}>SaveitGolf</Text>
+          </View>
+        </ViewShot>
+
+        {photo && (
           <ViewShot
-            ref={exportViewShotRef}
-            style={styles.exportCard}
+            ref={photoViewShotRef}
+            style={styles.photoExportCard}
             options={{ format: 'png', quality: 1, width: EXPORT_WIDTH, height: EXPORT_HEIGHT }}
           >
             <View style={styles.exportRow}>
@@ -241,15 +241,15 @@ export default function ScorecardScreen() {
                 </Text>
 
                 <View style={styles.scoresRow}>
-                  <NineColumn holes={activeScorecard.front} totalLabel="FRONT" />
-                  {!isNineHoleRound && <NineColumn holes={activeScorecard.back} totalLabel="BACK" />}
+                  <NineColumn holes={activeScorecard.front} label="FRONT" />
+                  {!isNineHoleRound && <NineColumn holes={activeScorecard.back} label="BACK" />}
                 </View>
 
                 <GrandTotal totalScore={totalScore} diffLabel={diffLabel} diff={diff} />
               </View>
 
-              <View style={styles.exportPhotoBox}>
-                <Image source={{ uri: photoUri }} style={styles.photoImage} resizeMode="cover" />
+              <View style={styles.exportPhotoHalf}>
+                <CroppedPhoto photo={photo} crop={crop} />
               </View>
             </View>
 
@@ -257,8 +257,8 @@ export default function ScorecardScreen() {
               <Text style={styles.watermarkText}>SaveitGolf</Text>
             </View>
           </ViewShot>
-        </View>
-      )}
+        )}
+      </View>
 
       <NewScorecardModal
         visible={modalVisible}
@@ -307,108 +307,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   cardWrapper: {
-    position: 'relative',
-  },
-  card: {
     backgroundColor: colors.navy,
-    width: '100%',
+    borderRadius: 16,
     overflow: 'hidden',
-    position: 'relative',
-  },
-  photoInlineBox: {
-    width: 64,
-    borderRadius: 10,
-    backgroundColor: colors.navyCard,
     borderWidth: 1,
     borderColor: colors.navyBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  photoInlineImage: {
-    width: '100%',
-    height: '100%',
-  },
-  photoInlineText: {
-    color: colors.muted,
-    fontSize: 9,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginTop: 4,
-    lineHeight: 11,
-  },
-  useProfilePhotoLink: {
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  useProfilePhotoText: {
-    color: colors.blue,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 10,
-    marginTop: 14,
-  },
-  shareButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.red,
-    borderRadius: 24,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  shareButtonText: {
-    color: colors.white,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  legend: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    gap: 20,
-    marginTop: 20,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  circleRing: {
-    borderWidth: 1.6,
-    borderColor: colors.green,
-    borderRadius: 999,
-    padding: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  squareRing: {
-    borderWidth: 1.6,
-    borderColor: colors.red,
-    borderRadius: 4,
-    padding: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  legendGlyph: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: '700',
-    minWidth: 12,
-    textAlign: 'center',
-  },
-  legendText: {
-    color: colors.muted,
-    fontSize: 12,
   },
   pastSection: {
     marginTop: 28,
@@ -419,17 +322,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 12,
   },
-  // Export-only (1080x1920 share image) styles below.
+  // Export-only styles below — deliberately at the same scale as
+  // ScorecardCard's own on-screen text. ViewShot resizes the captured
+  // bitmap to each template's target dimensions (natural size for the clean
+  // card, 1080x1920 for the with-photo card), so a uniform image upscale
+  // handles the rest without needing separately-tuned font sizes.
   exportOffscreenWrap: {
     position: 'absolute',
     top: 0,
     left: -3000,
   },
-  exportCard: {
+  cleanExportCard: {
+    width: 380,
+    backgroundColor: colors.navy,
+    paddingTop: 22,
+    paddingHorizontal: 18,
+    paddingBottom: 40,
+    position: 'relative',
+  },
+  photoExportCard: {
     width: 337.5,
     height: 600,
     backgroundColor: colors.navy,
     overflow: 'hidden',
+    position: 'relative',
   },
   exportRow: {
     flex: 1,
@@ -441,14 +357,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingBottom: 14,
   },
-  exportPhotoBox: {
+  exportPhotoHalf: {
     flex: 1,
     height: '100%',
     backgroundColor: colors.navyLight,
-  },
-  photoImage: {
-    width: '100%',
-    height: '100%',
   },
   userName: {
     color: colors.white,
@@ -459,8 +371,8 @@ const styles = StyleSheet.create({
   },
   courseNameText: {
     fontFamily: 'Cinzel_700Bold',
-    color: colors.white,
-    fontSize: 13,
+    color: colors.lightBlue,
+    fontSize: 12,
     marginTop: 6,
   },
   scoresRow: {

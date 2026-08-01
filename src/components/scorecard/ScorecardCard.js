@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 
 export function sumPar(holes) {
@@ -24,16 +25,22 @@ function diffColor(diff) {
   return colors.offWhite;
 }
 
+// Birdie/eagle: green ring(s), green text. Bogey/double bogey: red square(s),
+// red text. Par: plain white number, no indicator.
 function ScoreBadge({ score, par }) {
   const diff = score - par;
-  let node = <Text style={styles.scoreNumber}>{score}</Text>;
+  const isUnder = diff <= -1;
+  const isOver = diff >= 1;
+  const color = isUnder ? colors.green : isOver ? colors.red : colors.white;
 
-  if (diff <= -1) {
+  let node = <Text style={[styles.scoreNumber, { color }]}>{score}</Text>;
+
+  if (isUnder) {
     const rings = Math.min(-diff, 2);
     for (let i = 0; i < rings; i++) {
       node = <View style={styles.circleRing}>{node}</View>;
     }
-  } else if (diff >= 1) {
+  } else if (isOver) {
     const rings = Math.min(diff, 2);
     for (let i = 0; i < rings; i++) {
       node = <View style={styles.squareRing}>{node}</View>;
@@ -43,18 +50,21 @@ function ScoreBadge({ score, par }) {
   return <View style={styles.scoreBadge}>{node}</View>;
 }
 
-// Each column carries its own FRONT/BACK total directly beneath its holes,
-// so the total always lines up under the column it belongs to.
-export function NineColumn({ holes, totalLabel }) {
+// One nine (front or back): small grey label at top, each hole row with the
+// hole number (small, grey, left) and the score (bold, right), then a total
+// row separated by a thin divider line.
+export function NineColumn({ holes, label }) {
   return (
     <View style={styles.column}>
+      <Text style={styles.columnLabel}>{label}</Text>
       {holes.map((h) => (
         <View key={h.hole} style={styles.columnRow}>
+          <Text style={styles.holeNumber}>{h.hole}</Text>
           <ScoreBadge score={h.score} par={h.par} />
         </View>
       ))}
       <View style={styles.columnTotalRow}>
-        <Text style={styles.columnTotalLabel}>{totalLabel}</Text>
+        <Text style={styles.columnTotalLabel}>{label}</Text>
         <Text style={styles.columnTotalValue}>{sumScore(holes)}</Text>
       </View>
     </View>
@@ -64,6 +74,7 @@ export function NineColumn({ holes, totalLabel }) {
 export function GrandTotal({ totalScore, diffLabel, diff }) {
   return (
     <View style={styles.totalBlock}>
+      <Text style={styles.totalBlockLabel}>TOTAL</Text>
       <View style={styles.totalRow}>
         <Text style={styles.totalScore}>{totalScore}</Text>
         <Text style={[styles.totalDiff, { color: diffColor(diff) }]}>({diffLabel})</Text>
@@ -72,28 +83,49 @@ export function GrandTotal({ totalScore, diffLabel, diff }) {
   );
 }
 
-// Compact on-screen card: name, course, front/back columns (each with its
-// own total), grand total, watermark. `photoSlot`, when provided, renders as
-// a third item alongside the columns — used by the live "new scorecard"
-// view; past scorecards fetched from Supabase never have a photo attached,
-// so callers viewing history simply omit it.
-export default function ScorecardCard({ scorecard, fullName, photoSlot }) {
+// Full scorecard: header (name / course / optional Share button), scores row
+// (front+back nines on the left, photo slot ~90px on the right, matching
+// height), grand total centered under the nines, watermark. `onShare` and
+// `photoSlot` are only passed by the live "new scorecard" view — past
+// scorecards fetched from Supabase render read-only with neither.
+export default function ScorecardCard({ scorecard, fullName, photoSlot, onShare, sharing }) {
   const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(scorecard);
 
   return (
     <View style={styles.cardBody}>
-      <Text style={styles.userName}>{fullName}</Text>
-      <Text style={styles.courseNameText} numberOfLines={2}>
-        {scorecard.courseName}
-      </Text>
+      <View style={styles.headerRow}>
+        <View style={styles.headerText}>
+          <Text style={styles.userName}>{fullName}</Text>
+          <Text style={styles.courseNameText} numberOfLines={2}>
+            {scorecard.courseName}
+          </Text>
+        </View>
 
-      <View style={styles.scoresRow}>
-        <NineColumn holes={scorecard.front} totalLabel="FRONT" />
-        {!isNineHoleRound && <NineColumn holes={scorecard.back} totalLabel="BACK" />}
-        {photoSlot}
+        {onShare && (
+          <TouchableOpacity
+            style={styles.shareButton}
+            onPress={onShare}
+            disabled={sharing}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="share-outline" size={13} color={colors.white} />
+            <Text style={styles.shareButtonText}>{sharing ? 'Saving…' : 'Share'}</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      <GrandTotal totalScore={totalScore} diffLabel={diffLabel} diff={diff} />
+      <View style={styles.mainRow}>
+        <View style={styles.leftSection}>
+          <View style={styles.ninesRow}>
+            <NineColumn holes={scorecard.front} label="FRONT" />
+            {!isNineHoleRound && <NineColumn holes={scorecard.back} label="BACK" />}
+          </View>
+
+          <GrandTotal totalScore={totalScore} diffLabel={diffLabel} diff={diff} />
+        </View>
+
+        {photoSlot && <View style={styles.photoColumn}>{photoSlot}</View>}
+      </View>
 
       <View style={styles.watermarkWrap}>
         <Text style={styles.watermarkText}>SaveitGolf</Text>
@@ -104,10 +136,19 @@ export default function ScorecardCard({ scorecard, fullName, photoSlot }) {
 
 const styles = StyleSheet.create({
   cardBody: {
-    paddingTop: 22,
+    paddingTop: 18,
     paddingHorizontal: 14,
     paddingBottom: 34,
     position: 'relative',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  headerText: {
+    flex: 1,
   },
   userName: {
     color: colors.white,
@@ -118,21 +159,59 @@ const styles = StyleSheet.create({
   },
   courseNameText: {
     fontFamily: 'Cinzel_700Bold',
-    color: colors.white,
-    fontSize: 13,
+    color: colors.lightBlue,
+    fontSize: 12,
     marginTop: 6,
   },
-  scoresRow: {
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: colors.red,
+    borderRadius: 20,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+  },
+  shareButtonText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  mainRow: {
     flexDirection: 'row',
     gap: 10,
     marginTop: 18,
   },
+  leftSection: {
+    flex: 1,
+  },
+  ninesRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  photoColumn: {
+    width: 90,
+  },
   column: {
     flex: 1,
   },
+  columnLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
   columnRow: {
-    alignItems: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 3,
+  },
+  holeNumber: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '600',
   },
   columnTotalRow: {
     flexDirection: 'row',
@@ -159,10 +238,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   scoreNumber: {
-    color: colors.white,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
-    minWidth: 20,
+    minWidth: 18,
     textAlign: 'center',
   },
   circleRing: {
@@ -188,6 +266,13 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: colors.navyBorder,
+  },
+  totalBlockLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: 4,
   },
   totalRow: {
     flexDirection: 'row',
