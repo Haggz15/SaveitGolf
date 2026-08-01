@@ -34,6 +34,15 @@ export default function VideoPost({ source, mobileSource, isActive }) {
   const asset = isMobileDevice() && mobileSource ? mobileSource : source;
   const uri = resolveWebAssetUri(asset);
 
+  // React doesn't recognize a `defaultMuted` JSX prop on <video> in this
+  // setup (it warns and drops it), so the initial autoplay-compliant muted
+  // state is set imperatively here, the same way toggling is — via a plain
+  // ref assignment, never a JSX `muted` attribute.
+  const setVideoRef = (node) => {
+    videoRef.current = node;
+    if (node) node.muted = true;
+  };
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -55,9 +64,8 @@ export default function VideoPost({ source, mobileSource, isActive }) {
   return (
     <>
       <video
-        ref={videoRef}
+        ref={setVideoRef}
         style={{ ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', objectFit: 'cover' }}
-        muted={muted}
         loop
         playsInline
         webkit-playsinline="true"

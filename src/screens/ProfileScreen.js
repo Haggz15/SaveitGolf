@@ -9,7 +9,6 @@ import {
   Image,
   Alert,
   ActivityIndicator,
-  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
@@ -30,7 +29,7 @@ function RankingsList({ rankings, loading, onUpdate, onAdd }) {
     <View>
       <TouchableOpacity style={styles.addRankingButton} onPress={onAdd} activeOpacity={0.8}>
         <Ionicons name="add" size={16} color={colors.white} />
-        <Text style={styles.addRankingButtonText}>Add Course Ranking</Text>
+        <Text style={styles.addRankingButtonText}>Add Courses</Text>
       </TouchableOpacity>
 
       {loading ? (
@@ -125,7 +124,7 @@ async function handleLogout() {
   }
 }
 
-export default function ProfileScreen() {
+export default function ProfileScreen({ navigation }) {
   const { user, updateProfile } = useAuth();
   const [activeTab, setActiveTab] = useState(TABS[0]);
   const [profileData, setProfileData] = useState(null);
@@ -174,10 +173,6 @@ export default function ProfileScreen() {
   }, [loadUploads]);
 
   async function handlePickAvatar() {
-    if (Platform.OS === 'web') {
-      Alert.alert('Not available', 'Changing your profile photo is only available in the mobile app.');
-      return;
-    }
     try {
       const ImagePicker = require('expo-image-picker');
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -215,7 +210,7 @@ export default function ProfileScreen() {
     setRankingModalVisible(true);
   }
 
-  async function handleSaveRanking({ courseName, rating }) {
+  async function handleSaveRanking({ courseId, courseName, rating }) {
     if (!user?.id) return;
     if (editingRanking) {
       const updated = await updateCourseRanking(editingRanking.id, { courseName, rating });
@@ -223,7 +218,7 @@ export default function ProfileScreen() {
         prev.map((r) => (r.id === updated.id ? updated : r)).sort((a, b) => b.rating - a.rating)
       );
     } else {
-      const created = await addCourseRanking(user.id, { courseName, rating });
+      const created = await addCourseRanking(user.id, { courseId, courseName, rating });
       setRankings((prev) => [...prev, created].sort((a, b) => b.rating - a.rating));
     }
     setRankingModalVisible(false);
@@ -365,6 +360,20 @@ export default function ProfileScreen() {
                   <Ionicons name="pencil-outline" size={16} color={colors.muted} />
                 </TouchableOpacity>
               </View>
+
+              <TouchableOpacity
+                style={styles.scorecardsButton}
+                onPress={() =>
+                  navigation.navigate('UserScorecards', {
+                    userId: user.id,
+                    displayName: profileData?.full_name || 'Golfer',
+                  })
+                }
+                activeOpacity={0.85}
+              >
+                <Ionicons name="reader-outline" size={16} color={colors.white} />
+                <Text style={styles.scorecardsButtonText}>Scorecards</Text>
+              </TouchableOpacity>
 
               <HandicapInputModal
                 visible={handicapModalVisible}
@@ -559,6 +568,22 @@ const styles = StyleSheet.create({
   handicapLabel: {
     color: colors.muted,
     fontSize: 11,
+  },
+  scorecardsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.red,
+    borderRadius: 12,
+    paddingVertical: 12,
+    width: '100%',
+    marginTop: 12,
+  },
+  scorecardsButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700',
   },
   editHandicapButton: {
     padding: 6,

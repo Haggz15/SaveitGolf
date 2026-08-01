@@ -10,6 +10,7 @@ import {
   useWindowDimensions,
   Platform,
   Share,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,14 +20,19 @@ import VideoPost from '../components/VideoPost';
 import AddFriendsModal from '../components/social/AddFriendsModal';
 import CommentSheet from '../components/feed/CommentSheet';
 import NotificationPanel from '../components/feed/NotificationPanel';
+import ShotOfWeekBanner from '../components/feed/ShotOfWeekBanner';
+import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { feedPosts as mockFeedPosts, filterPills } from '../data/mockData';
 import { HEADER_CONTENT_HEIGHT, PILL_ROW_HEIGHT, TAB_BAR_HEIGHT } from '../theme/layout';
 import { useAuth } from '../context/AuthContext';
-import { getFeedPosts } from '../services/posts';
+import { getFeedPosts, incrementShareCount } from '../services/posts';
 import { getFollowingIds } from '../services/social';
 import { likePost, unlikePost, getLikedPostIds } from '../services/likes';
 import { createNotification, getUnreadNotificationCount } from '../services/notifications';
+import { getCurrentShotOfWeek } from '../services/shotOfWeek';
+import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
+import { saveMediaToDevice } from '../utils/saveMedia';
 import { haversineMiles } from '../utils/distance';
 
 function FilterPill({ label, active, onPress }) {
@@ -40,10 +46,22 @@ function FilterPill({ label, active, onPress }) {
   );
 }
 
-function PostSlide({ post, height, isActive, currentUserId, initiallyLiked, onStatePress, onUserPress, onCommentPress }) {
+function PostSlide({
+  post,
+  height,
+  isActive,
+  currentUserId,
+  initiallyLiked,
+  initiallySaved,
+  isShotOfWeek,
+  onStatePress,
+  onUserPress,
+  onCommentPress,
+  onSaveToast,
+}) {
   const [liked, setLiked] = useState(initiallyLiked);
   const [likeCount, setLikeCount] = useState(post.likes);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState(initiallySaved);
   const isVideo = post.isVideo ?? Boolean(post.video);
 
   async function toggleLike() {
@@ -70,11 +88,39 @@ function PostSlide({ post, height, isActive, currentUserId, initiallyLiked, onSt
       const result = await Share.share({
         message: `Check out ${post.user}'s post on SaveitGolf${post.course ? ` at ${post.course}` : ''}!`,
       });
-      if (result.action === Share.sharedAction && currentUserId) {
-        await createNotification({ userId: post.userId, actorId: currentUserId, type: 'share', postId: post.id });
+      if (result.action === Share.sharedAction) {
+        incrementShareCount(post.id).catch((err) => console.error('Failed to record share:', err));
+        if (currentUserId) {
+          await createNotification({ userId: post.userId, actorId: currentUserId, type: 'share', postId: post.id });
+        }
       }
     } catch (err) {
       console.error('Failed to share post:', err);
+    }
+  }
+
+  async function handleToggleSave() {
+    if (!currentUserId) return;
+    const next = !saved;
+    setSaved(next);
+    try {
+      if (next) {
+        await savePost(currentUserId, post.id);
+        await saveMediaToDevice(post.mediaUrl);
+        onSaveToast?.('Saved to camera roll');
+      } else {
+        await unsavePost(currentUserId, post.id);
+      }
+    } catch (err) {
+      console.error('Failed to save post:', err);
+      setSaved(!next);
+      if (next) {
+        const message =
+          err.message === 'PERMISSION_DENIED'
+            ? 'Allow photo library access to save posts to your camera roll.'
+            : "Couldn't save this post. Please try again.";
+        Alert.alert('Something went wrong', message);
+      }
     }
   }
 
@@ -94,7 +140,7 @@ function PostSlide({ post, height, isActive, currentUserId, initiallyLiked, onSt
         />
       )}
 
-      <View style={styles.dimOverlay} />
+      <View style={styles.dimOverlay} pointerEvents="none" />
 
       <LinearGradient
         colors={['transparent', 'rgba(6, 14, 26, 0.94)']}
@@ -131,7 +177,7 @@ function PostSlide({ post, height, isActive, currentUserId, initiallyLiked, onSt
         <TouchableOpacity style={styles.railButton} onPress={handleShare}>
           <Ionicons name="share-outline" size={20} color="rgba(255,255,255,0.85)" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.railButton} onPress={() => setSaved((prev) => !prev)}>
+        <TouchableOpacity style={styles.railButton} onPress={handleToggleSave}>
           <Ionicons
             name={saved ? 'bookmark' : 'bookmark-outline'}
             size={20}
@@ -139,6 +185,8 @@ function PostSlide({ post, height, isActive, currentUserId, initiallyLiked, onSt
           />
         </TouchableOpacity>
       </View>
+
+      {isShotOfWeek && <ShotOfWeekBanner />}
 
       <View style={styles.leftInfo}>
         <View style={styles.avatarRow}>
@@ -173,6 +221,9 @@ export default function FeedScreen({ navigation }) {
   const [activeFilter, setActiveFilter] = useState('Following');
   const [posts, setPosts] = useState([]);
   const [likedPostIds, setLikedPostIds] = useState(new Set());
+  const [savedPostIds, setSavedPostIds] = useState(new Set());
+  const [shotOfWeekPostId, setShotOfWeekPostId] = useState(null);
+  const [toastMessage, setToastMessage] = useState(null);
   const [loadingFeed, setLoadingFeed] = useState(true);
   const [activePostId, setActivePostId] = useState(null);
   const [addFriendsVisible, setAddFriendsVisible] = useState(false);
@@ -189,15 +240,34 @@ export default function FeedScreen({ navigation }) {
     try {
       let realPosts;
       if (activeFilter === 'Following') {
+        setShotOfWeekPostId(null);
         const followingIds = user?.id ? await getFollowingIds(user.id) : [];
         realPosts = await getFeedPosts({ userIds: followingIds });
         setPosts(realPosts);
       } else if (activeFilter === 'Feed') {
         realPosts = await getFeedPosts({ sort: 'top' });
+
+        // Pin the current Shot of the Week to the top of this pill only —
+        // pinning it into "Following" could surface a post from someone the
+        // viewer doesn't follow.
+        let shotOfWeekPost = null;
+        try {
+          shotOfWeekPost = await getCurrentShotOfWeek();
+        } catch (err) {
+          console.error('Failed to load Shot of the Week:', err);
+        }
+        setShotOfWeekPostId(shotOfWeekPost?.id ?? null);
+
+        const withoutDuplicate = shotOfWeekPost
+          ? realPosts.filter((p) => p.id !== shotOfWeekPost.id)
+          : realPosts;
+        const ordered = shotOfWeekPost ? [shotOfWeekPost, ...withoutDuplicate] : withoutDuplicate;
+
         // Demo content trails real posts so the feed still has something to
         // browse before there's much real activity.
-        setPosts([...realPosts, ...mockFeedPosts]);
+        setPosts([...ordered, ...mockFeedPosts]);
       } else {
+        setShotOfWeekPostId(null);
         // Nearby: sort by distance from the device's current location when
         // permission is granted; otherwise fall back to newest-first.
         realPosts = await getFeedPosts();
@@ -223,8 +293,13 @@ export default function FeedScreen({ navigation }) {
       }
 
       if (user?.id && realPosts?.length) {
-        const liked = await getLikedPostIds(user.id, realPosts.map((p) => p.id));
+        const postIds = realPosts.map((p) => p.id);
+        const [liked, saved] = await Promise.all([
+          getLikedPostIds(user.id, postIds),
+          getSavedPostIds(user.id, postIds),
+        ]);
         setLikedPostIds(new Set(liked));
+        setSavedPostIds(new Set(saved));
       }
     } catch (err) {
       console.error('Failed to load feed:', err);
@@ -337,9 +412,12 @@ export default function FeedScreen({ navigation }) {
                   isActive={item.id === activePostId}
                   currentUserId={user?.id}
                   initiallyLiked={likedPostIds.has(item.id)}
+                  initiallySaved={savedPostIds.has(item.id)}
+                  isShotOfWeek={activeFilter === 'Feed' && item.id === shotOfWeekPostId}
                   onStatePress={handleStatePress}
                   onUserPress={handleUserPress}
                   onCommentPress={setCommentPost}
+                  onSaveToast={setToastMessage}
                 />
               )}
               pagingEnabled
@@ -384,6 +462,8 @@ export default function FeedScreen({ navigation }) {
         currentUserId={user?.id}
         onCommentPosted={handleCommentPosted}
       />
+
+      <Toast message={toastMessage} onHide={() => setToastMessage(null)} />
     </View>
   );
 }

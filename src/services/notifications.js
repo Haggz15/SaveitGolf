@@ -16,19 +16,31 @@ const ACTION_TEXT = {
   comment: 'commented on your post',
   share: 'shared your post',
   mention: 'mentioned you in a comment',
+  new_post: 'just posted a new shot',
+  new_scorecard: 'just shot their score',
 };
+
+function actionTextFor(row) {
+  const base = ACTION_TEXT[row.type] ?? 'did something';
+  if ((row.type === 'new_post' || row.type === 'new_scorecard') && row.course_name) {
+    return `${base} at ${row.course_name}`;
+  }
+  return base;
+}
 
 function mapRow(row) {
   return {
     id: row.id,
     type: row.type,
     postId: row.post_id,
+    scorecardId: row.scorecard_id,
+    courseName: row.course_name,
     read: row.read,
     actorId: row.actor_id,
     actorUsername: row.profiles?.username ?? 'golfer',
     actorFullName: row.profiles?.full_name ?? null,
     actorAvatarUrl: row.profiles?.avatar_url ?? null,
-    actionText: ACTION_TEXT[row.type] ?? 'did something',
+    actionText: actionTextFor(row),
     timeAgo: timeAgo(row.created_at),
     createdAt: row.created_at,
   };
@@ -73,11 +85,52 @@ export async function markAllNotificationsRead(userId) {
 // Fires a notification for `userId` describing something `actorId` did.
 // Silently skipped when acting on your own post/comment — nobody needs to
 // be notified that they liked their own post.
-export async function createNotification({ userId, actorId, type, postId }) {
+export async function createNotification({ userId, actorId, type, postId, scorecardId, courseName }) {
   if (!userId || !actorId || userId === actorId) return;
-  const { error } = await supabase
-    .from('notifications')
-    .insert({ user_id: userId, actor_id: actorId, type, post_id: postId ?? null });
+  const { error } = await supabase.from('notifications').insert({
+    user_id: userId,
+    actor_id: actorId,
+    type,
+    post_id: postId ?? null,
+    scorecard_id: scorecardId ?? null,
+    course_name: courseName ?? null,
+  });
 
   if (error) throw error;
+}
+
+// Fans a `new_post` / `new_scorecard` notification out to every follower of
+// `actorId`. RLS permits this from the client because the insert policy
+// only checks `actor_id = auth.uid()`, regardless of the target `user_id`.
+async function notifyFollowers({ actorId, type, postId, scorecardId, courseName }) {
+  if (!actorId) return;
+  const { data: followerRows, error } = await supabase
+    .from('followers')
+    .select('follower_id')
+    .eq('following_id', actorId);
+
+  if (error) throw error;
+  const followerIds = (followerRows ?? []).map((row) => row.follower_id);
+  if (followerIds.length === 0) return;
+
+  const { error: insertError } = await supabase.from('notifications').insert(
+    followerIds.map((followerId) => ({
+      user_id: followerId,
+      actor_id: actorId,
+      type,
+      post_id: postId ?? null,
+      scorecard_id: scorecardId ?? null,
+      course_name: courseName ?? null,
+    }))
+  );
+
+  if (insertError) throw insertError;
+}
+
+export function notifyFollowersOfPost(actorId, postId, courseName) {
+  return notifyFollowers({ actorId, type: 'new_post', postId, courseName });
+}
+
+export function notifyFollowersOfScorecard(actorId, scorecardId, courseName) {
+  return notifyFollowers({ actorId, type: 'new_scorecard', scorecardId, courseName });
 }

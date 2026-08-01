@@ -1,8 +1,23 @@
-import { useEffect, useState } from 'react';
-import { Modal, View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, StyleSheet } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Modal,
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  FlatList,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+  StyleSheet,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
+import { searchCourses } from '../../services/golfCourseApi';
+
+const SEARCH_DEBOUNCE_MS = 400;
 
 function clampRating(value) {
   return Math.min(10, Math.max(0, Math.round(value * 10) / 10));
@@ -11,15 +26,53 @@ function clampRating(value) {
 export default function CourseRankingModal({ visible, initialRanking, onClose, onSave }) {
   const insets = useSafeAreaInsets();
   const [courseName, setCourseName] = useState('');
+  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [courseResults, setCourseResults] = useState([]);
+  const [searching, setSearching] = useState(false);
   const [rating, setRating] = useState(5);
   const [saving, setSaving] = useState(false);
+  const searchTimer = useRef(null);
 
   useEffect(() => {
     if (visible) {
       setCourseName(initialRanking?.courseName ?? '');
+      setSelectedCourse(null);
+      setCourseResults([]);
       setRating(initialRanking?.rating ?? 5);
+    } else if (searchTimer.current) {
+      clearTimeout(searchTimer.current);
     }
   }, [visible, initialRanking]);
+
+  function handleChangeCourseName(text) {
+    setCourseName(text);
+    setSelectedCourse(null);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+
+    if (text.trim().length < 2) {
+      setCourseResults([]);
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const results = await searchCourses(text.trim());
+        setCourseResults(results);
+      } catch (err) {
+        setCourseResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, SEARCH_DEBOUNCE_MS);
+  }
+
+  function handleSelectCourseResult(course) {
+    setSelectedCourse(course);
+    setCourseName(course.name);
+    setCourseResults([]);
+  }
 
   function handleStep(delta) {
     setRating((prev) => clampRating(prev + delta));
@@ -37,12 +90,16 @@ export default function CourseRankingModal({ visible, initialRanking, onClose, o
 
   async function handleSave() {
     if (!courseName.trim()) {
-      Alert.alert('Add a course name', 'Enter the name of the course you played.');
+      Alert.alert('Add a course name', 'Search for and select the course you played.');
       return;
     }
     setSaving(true);
     try {
-      await onSave({ courseName: courseName.trim(), rating: clampRating(rating) });
+      await onSave({
+        courseId: selectedCourse?.id ?? null,
+        courseName: courseName.trim(),
+        rating: clampRating(rating),
+      });
     } catch (err) {
       console.error('Failed to save course ranking:', err);
       Alert.alert('Something went wrong', 'Could not save this ranking. Please try again.');
@@ -58,7 +115,7 @@ export default function CourseRankingModal({ visible, initialRanking, onClose, o
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>{initialRanking ? 'Update Ranking' : 'Add Course Ranking'}</Text>
+          <Text style={styles.headerTitle}>{initialRanking ? 'Update Ranking' : 'Add Courses'}</Text>
           <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="close" size={26} color={colors.muted} />
           </TouchableOpacity>
@@ -69,11 +126,46 @@ export default function CourseRankingModal({ visible, initialRanking, onClose, o
           <TextInput
             style={styles.input}
             value={courseName}
-            onChangeText={setCourseName}
-            placeholder="e.g. Pebble Beach Golf Links"
+            onChangeText={handleChangeCourseName}
+            placeholder="Search for a course"
             placeholderTextColor={colors.muted}
             autoCorrect={false}
           />
+
+          {courseName.trim().length >= 2 && !selectedCourse && (
+            <View style={styles.dropdown}>
+              {searching ? (
+                <View style={styles.statusRow}>
+                  <ActivityIndicator size="small" color={colors.red} />
+                  <Text style={styles.statusText}>Searching…</Text>
+                </View>
+              ) : courseResults.length === 0 ? (
+                <View style={styles.statusRow}>
+                  <Text style={styles.statusText}>No matches — you can still save with this name</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={courseResults}
+                  keyExtractor={(item) => item.id}
+                  keyboardShouldPersistTaps="handled"
+                  style={styles.resultsList}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity style={styles.resultRow} onPress={() => handleSelectCourseResult(item)}>
+                      <Ionicons name="flag-outline" size={16} color={colors.red} />
+                      <View style={styles.resultTextWrap}>
+                        <Text style={styles.resultName} numberOfLines={1}>
+                          {item.name}
+                        </Text>
+                        <Text style={styles.resultLocation} numberOfLines={1}>
+                          {[item.city, item.state].filter(Boolean).join(', ') || 'Location unknown'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+                />
+              )}
+            </View>
+          )}
 
           <Text style={styles.label}>Rating</Text>
           <View style={styles.ratingRow}>
@@ -128,6 +220,52 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
     paddingTop: 18,
+  },
+  dropdown: {
+    marginTop: -10,
+    marginBottom: 16,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  resultsList: {
+    maxHeight: 220,
+  },
+  resultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.navyBorder,
+    gap: 10,
+  },
+  resultTextWrap: {
+    flex: 1,
+  },
+  resultName: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  resultLocation: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    gap: 8,
+  },
+  statusText: {
+    color: colors.muted,
+    fontSize: 13,
+    textAlign: 'center',
   },
   label: {
     color: colors.muted,

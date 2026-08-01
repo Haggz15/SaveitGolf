@@ -21,6 +21,8 @@ const NOTIFICATION_ICONS = {
   comment: 'chatbubble',
   share: 'share-social',
   mention: 'at',
+  new_post: 'image',
+  new_scorecard: 'golf',
 };
 
 function getInitials(name) {
@@ -42,7 +44,7 @@ function NotificationAvatar({ avatarUrl, name }) {
 export default function NotificationPanel({ visible, onClose, userId, onMarkedRead }) {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
-  const panelWidth = Math.round(screenWidth * 0.25);
+  const panelWidth = Math.round(screenWidth * 0.5);
   const translateX = useRef(new Animated.Value(panelWidth)).current;
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);

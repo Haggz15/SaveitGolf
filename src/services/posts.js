@@ -67,7 +67,7 @@ export async function createPost({
   return data;
 }
 
-function mapRow(row) {
+export function mapRow(row) {
   return {
     id: row.id,
     userId: row.user_id,
@@ -148,6 +148,14 @@ export async function getPostsCount(userId) {
 
   if (error) throw error;
   return count ?? 0;
+}
+
+// Bumps posts.shares_count via a security-definer RPC (instead of a
+// read-modify-write from the client) — feeds into the Shot of the Week
+// engagement score alongside likes_count and comments_count.
+export async function incrementShareCount(postId) {
+  const { error } = await supabase.rpc('increment_share_count', { post_id: postId });
+  if (error) throw error;
 }
 
 // Distinct courses a user has posted to — used by the Map's "Search Friends" pins.

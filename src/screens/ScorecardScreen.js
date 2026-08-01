@@ -4,85 +4,17 @@ import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
 import Header from '../components/Header';
 import NewScorecardModal from '../components/scorecard/NewScorecardModal';
+import PastScorecardsList from '../components/scorecard/PastScorecardsList';
+import ScorecardDetailModal from '../components/scorecard/ScorecardDetailModal';
+import ScorecardCard, { NineColumn, GrandTotal, computeTotals } from '../components/scorecard/ScorecardCard';
 import colors from '../theme/colors';
 import { scorecard as mockScorecard, currentUser } from '../data/mockData';
 import { getLatestScorecard, saveScorecard } from '../services/scorecards';
+import { notifyFollowersOfScorecard } from '../services/notifications';
 import { useAuth } from '../context/AuthContext';
 
 const EXPORT_WIDTH = 1080;
 const EXPORT_HEIGHT = 1920;
-
-function sumPar(holes) {
-  return holes.reduce((sum, h) => sum + h.par, 0);
-}
-
-function sumScore(holes) {
-  return holes.reduce((sum, h) => sum + h.score, 0);
-}
-
-function diffColor(diff) {
-  if (diff > 0) return colors.red;
-  if (diff < 0) return colors.green;
-  return colors.offWhite;
-}
-
-function ScoreBadge({ score, par }) {
-  const diff = score - par;
-  let node = <Text style={styles.scoreNumber}>{score}</Text>;
-
-  if (diff <= -1) {
-    const rings = Math.min(-diff, 2);
-    for (let i = 0; i < rings; i++) {
-      node = <View style={styles.circleRing}>{node}</View>;
-    }
-  } else if (diff >= 1) {
-    const rings = Math.min(diff, 2);
-    for (let i = 0; i < rings; i++) {
-      node = <View style={styles.squareRing}>{node}</View>;
-    }
-  }
-
-  return <View style={styles.scoreBadge}>{node}</View>;
-}
-
-function NineColumn({ holes }) {
-  return (
-    <View style={styles.column}>
-      {holes.map((h) => (
-        <View key={h.hole} style={styles.columnRow}>
-          <ScoreBadge score={h.score} par={h.par} />
-        </View>
-      ))}
-    </View>
-  );
-}
-
-// Front-total-left / back-total-right summary line, followed by the grand
-// total (large, bold) with over/under par in parens — shared between the
-// on-screen card and the exported story image.
-function TotalsSummary({ frontTotal, backTotal, isNineHoleRound, totalScore, diffLabel, diff }) {
-  return (
-    <>
-      <View style={styles.frontBackRow}>
-        <Text style={styles.frontBackText}>
-          FRONT <Text style={styles.frontBackValue}>{frontTotal}</Text>
-        </Text>
-        {!isNineHoleRound && (
-          <Text style={styles.frontBackText}>
-            <Text style={styles.frontBackValue}>{backTotal}</Text> BACK
-          </Text>
-        )}
-      </View>
-
-      <View style={styles.totalBlock}>
-        <View style={styles.totalRow}>
-          <Text style={styles.totalScore}>{totalScore}</Text>
-          <Text style={[styles.totalDiff, { color: diffColor(diff) }]}>({diffLabel})</Text>
-        </View>
-      </View>
-    </>
-  );
-}
 
 export default function ScorecardScreen() {
   const { user, profile } = useAuth();
@@ -92,6 +24,8 @@ export default function ScorecardScreen() {
   const [photoUri, setPhotoUri] = useState(null);
   const [activeScorecard, setActiveScorecard] = useState(mockScorecard);
   const [modalVisible, setModalVisible] = useState(false);
+  const [pastListKey, setPastListKey] = useState(0);
+  const [detailScorecard, setDetailScorecard] = useState(null);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -105,14 +39,7 @@ export default function ScorecardScreen() {
     })();
   }, [user?.id]);
 
-  const isNineHoleRound = !activeScorecard.back || activeScorecard.back.length === 0;
-
-  const totalPar = sumPar(activeScorecard.front) + (isNineHoleRound ? 0 : sumPar(activeScorecard.back));
-  const totalScore = sumScore(activeScorecard.front) + (isNineHoleRound ? 0 : sumScore(activeScorecard.back));
-  const frontTotal = sumScore(activeScorecard.front);
-  const backTotal = isNineHoleRound ? 0 : sumScore(activeScorecard.back);
-  const diff = totalScore - totalPar;
-  const diffLabel = diff === 0 ? 'E' : diff > 0 ? `+${diff}` : `${diff}`;
+  const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(activeScorecard);
   const fullName = `${currentUser.firstName} ${currentUser.lastName}`.toUpperCase();
 
   async function handleScorecardSaved(newScorecard) {
@@ -122,6 +49,11 @@ export default function ScorecardScreen() {
       setActiveScorecard(saved);
       setPhotoUri(null);
       setModalVisible(false);
+      // Refresh the Past Scorecards list so the round just logged shows up.
+      setPastListKey((k) => k + 1);
+      notifyFollowersOfScorecard(user.id, saved.id, saved.courseName).catch((err) =>
+        console.error('Failed to notify followers of scorecard:', err)
+      );
     } catch (err) {
       console.error('Failed to save scorecard:', err);
       Alert.alert('Something went wrong', 'Could not save your scorecard. Please try again.');
@@ -129,11 +61,6 @@ export default function ScorecardScreen() {
   }
 
   async function handlePickPhoto() {
-    if (Platform.OS === 'web') {
-      Alert.alert('Not available', 'Adding a photo is only available in the mobile app.');
-      return;
-    }
-
     try {
       // Required lazily: this native module isn't available on web and
       // throws at import time if loaded statically there.
@@ -203,6 +130,19 @@ export default function ScorecardScreen() {
     }
   }
 
+  const photoSlot = (
+    <TouchableOpacity style={styles.photoInlineBox} onPress={handlePickPhoto} activeOpacity={0.8}>
+      {photoUri ? (
+        <Image source={{ uri: photoUri }} style={styles.photoInlineImage} resizeMode="cover" />
+      ) : (
+        <>
+          <Ionicons name="camera-outline" size={18} color={colors.muted} />
+          <Text style={styles.photoInlineText}>Add{'\n'}Photo</Text>
+        </>
+      )}
+    </TouchableOpacity>
+  );
+
   return (
     <View style={styles.screen}>
       <Header />
@@ -222,41 +162,7 @@ export default function ScorecardScreen() {
             style={styles.card}
             options={{ format: 'png', quality: 1 }}
           >
-            <View style={styles.cardBody}>
-              <Text style={styles.userName}>{fullName}</Text>
-              <Text style={styles.courseNameText} numberOfLines={2}>
-                {activeScorecard.courseName}
-              </Text>
-
-              <View style={styles.scoresRow}>
-                <NineColumn holes={activeScorecard.front} />
-                {!isNineHoleRound && <NineColumn holes={activeScorecard.back} />}
-
-                <TouchableOpacity style={styles.photoInlineBox} onPress={handlePickPhoto} activeOpacity={0.8}>
-                  {photoUri ? (
-                    <Image source={{ uri: photoUri }} style={styles.photoInlineImage} resizeMode="cover" />
-                  ) : (
-                    <>
-                      <Ionicons name="camera-outline" size={18} color={colors.muted} />
-                      <Text style={styles.photoInlineText}>Add{'\n'}Photo</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-
-              <TotalsSummary
-                frontTotal={frontTotal}
-                backTotal={backTotal}
-                isNineHoleRound={isNineHoleRound}
-                totalScore={totalScore}
-                diffLabel={diffLabel}
-                diff={diff}
-              />
-            </View>
-
-            <View style={styles.watermarkWrap}>
-              <Text style={styles.watermarkText}>SaveitGolf</Text>
-            </View>
+            <ScorecardCard scorecard={activeScorecard} fullName={fullName} photoSlot={photoSlot} />
           </ViewShot>
 
           {profile?.avatar_url && !photoUri && (
@@ -308,6 +214,13 @@ export default function ScorecardScreen() {
             <Text style={styles.legendText}>Double Bogey</Text>
           </View>
         </View>
+
+        <View style={styles.pastSection}>
+          <Text style={styles.pastSectionTitle}>Past Scorecards</Text>
+          {user?.id && (
+            <PastScorecardsList key={pastListKey} userId={user.id} onSelect={setDetailScorecard} />
+          )}
+        </View>
       </ScrollView>
 
       {/* Hidden off-screen template captured for the shared story image only
@@ -328,18 +241,11 @@ export default function ScorecardScreen() {
                 </Text>
 
                 <View style={styles.scoresRow}>
-                  <NineColumn holes={activeScorecard.front} />
-                  {!isNineHoleRound && <NineColumn holes={activeScorecard.back} />}
+                  <NineColumn holes={activeScorecard.front} totalLabel="FRONT" />
+                  {!isNineHoleRound && <NineColumn holes={activeScorecard.back} totalLabel="BACK" />}
                 </View>
 
-                <TotalsSummary
-                  frontTotal={frontTotal}
-                  backTotal={backTotal}
-                  isNineHoleRound={isNineHoleRound}
-                  totalScore={totalScore}
-                  diffLabel={diffLabel}
-                  diff={diff}
-                />
+                <GrandTotal totalScore={totalScore} diffLabel={diffLabel} diff={diff} />
               </View>
 
               <View style={styles.exportPhotoBox}>
@@ -359,6 +265,13 @@ export default function ScorecardScreen() {
         onClose={() => setModalVisible(false)}
         onSaved={handleScorecardSaved}
         fullName={fullName}
+      />
+
+      <ScorecardDetailModal
+        visible={Boolean(detailScorecard)}
+        scorecard={detailScorecard}
+        fullName={fullName}
+        onClose={() => setDetailScorecard(null)}
       />
     </View>
   );
@@ -402,36 +315,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
   },
-  cardBody: {
-    paddingTop: 22,
-    paddingHorizontal: 14,
-    paddingBottom: 34,
-  },
-  userName: {
-    color: colors.white,
-    fontSize: 21,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-  courseNameText: {
-    fontFamily: 'Cinzel_700Bold',
-    color: colors.white,
-    fontSize: 13,
-    marginTop: 6,
-  },
-  scoresRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 18,
-  },
-  column: {
-    flex: 1,
-  },
-  columnRow: {
-    alignItems: 'flex-start',
-    paddingVertical: 3,
-  },
   photoInlineBox: {
     width: 64,
     borderRadius: 10,
@@ -453,88 +336,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     lineHeight: 11,
-  },
-  scoreBadge: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scoreNumber: {
-    color: colors.white,
-    fontSize: 20,
-    fontWeight: '800',
-    minWidth: 20,
-    textAlign: 'center',
-  },
-  circleRing: {
-    borderWidth: 1.6,
-    borderColor: colors.green,
-    borderRadius: 999,
-    padding: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  squareRing: {
-    borderWidth: 1.6,
-    borderColor: colors.red,
-    borderRadius: 4,
-    padding: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  frontBackRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 18,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.navyBorder,
-  },
-  frontBackText: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  frontBackValue: {
-    color: colors.white,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  totalBlock: {
-    alignItems: 'center',
-    width: '100%',
-    marginTop: 10,
-  },
-  totalRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 5,
-  },
-  totalScore: {
-    color: colors.white,
-    fontSize: 56,
-    fontWeight: '900',
-    lineHeight: 58,
-  },
-  totalDiff: {
-    fontSize: 20,
-    fontWeight: '800',
-    marginBottom: 8,
-  },
-  watermarkWrap: {
-    position: 'absolute',
-    bottom: 10,
-    right: 14,
-  },
-  watermarkText: {
-    fontFamily: 'DancingScript_700Bold',
-    fontSize: 14,
-    color: colors.white,
-    opacity: 0.9,
-    textShadowColor: 'rgba(0,0,0,0.6)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
   },
   useProfilePhotoLink: {
     alignItems: 'center',
@@ -582,6 +383,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  circleRing: {
+    borderWidth: 1.6,
+    borderColor: colors.green,
+    borderRadius: 999,
+    padding: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  squareRing: {
+    borderWidth: 1.6,
+    borderColor: colors.red,
+    borderRadius: 4,
+    padding: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   legendGlyph: {
     color: colors.white,
     fontSize: 12,
@@ -592,6 +409,15 @@ const styles = StyleSheet.create({
   legendText: {
     color: colors.muted,
     fontSize: 12,
+  },
+  pastSection: {
+    marginTop: 28,
+  },
+  pastSectionTitle: {
+    fontFamily: 'Cinzel_700Bold',
+    color: colors.white,
+    fontSize: 16,
+    marginBottom: 12,
   },
   // Export-only (1080x1920 share image) styles below.
   exportOffscreenWrap: {
@@ -623,5 +449,37 @@ const styles = StyleSheet.create({
   photoImage: {
     width: '100%',
     height: '100%',
+  },
+  userName: {
+    color: colors.white,
+    fontSize: 21,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  courseNameText: {
+    fontFamily: 'Cinzel_700Bold',
+    color: colors.white,
+    fontSize: 13,
+    marginTop: 6,
+  },
+  scoresRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 18,
+  },
+  watermarkWrap: {
+    position: 'absolute',
+    bottom: 10,
+    right: 14,
+  },
+  watermarkText: {
+    fontFamily: 'DancingScript_700Bold',
+    fontSize: 14,
+    color: colors.white,
+    opacity: 0.9,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
 });

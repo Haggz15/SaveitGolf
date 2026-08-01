@@ -19,6 +19,7 @@ import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { createPost } from '../services/posts';
 import { searchCourses } from '../services/golfCourseApi';
+import { notifyFollowersOfPost } from '../services/notifications';
 
 const SEARCH_DEBOUNCE_MS = 400;
 
@@ -106,7 +107,7 @@ export default function PostScreen({ navigation }) {
 
     setPosting(true);
     try {
-      await createPost({
+      const post = await createPost({
         userId: user.id,
         course: selectedCourse ?? { id: null, name: courseName },
         hole: hole ? Number(hole) : null,
@@ -115,6 +116,10 @@ export default function PostScreen({ navigation }) {
         mediaUri: media.uri,
         mediaType: media.type,
       });
+
+      notifyFollowersOfPost(user.id, post.id, courseName).catch((err) =>
+        console.error('Failed to notify followers of post:', err)
+      );
 
       setCourseQuery('');
       setSelectedCourse(null);

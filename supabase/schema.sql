@@ -470,3 +470,134 @@ drop policy if exists "Users can delete their own course rankings" on public.cou
 create policy "Users can delete their own course rankings"
   on public.course_rankings for delete
   using (auth.uid() = user_id);
+
+-- Extends notifications with the two in-app activity types (new_post,
+-- new_scorecard) fired when someone you follow posts or logs a round, plus
+-- the columns those types need: scorecard_id (post_id is post-only) and a
+-- denormalized course_name (matches how posts.course_name is itself
+-- denormalized) so the panel can render "posted at {course}" without a
+-- conditional join across posts vs scorecards.
+alter table public.notifications drop constraint if exists notifications_type_check;
+alter table public.notifications add constraint notifications_type_check
+  check (type in ('like', 'comment', 'share', 'mention', 'new_post', 'new_scorecard'));
+
+alter table public.notifications add column if not exists scorecard_id uuid references public.scorecards (id) on delete cascade;
+alter table public.notifications add column if not exists course_name text;
+
+-- Saved posts: bookmarking a feed post saves it here so it can be shown
+-- on the user's own profile later (viewing that list is a follow-up, not
+-- built in this pass).
+create table if not exists public.saved_posts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  post_id uuid not null references public.posts (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  constraint saved_posts_unique unique (user_id, post_id)
+);
+
+create index if not exists saved_posts_user_id_idx on public.saved_posts (user_id);
+
+alter table public.saved_posts enable row level security;
+
+drop policy if exists "Users can view their own saved posts" on public.saved_posts;
+create policy "Users can view their own saved posts"
+  on public.saved_posts for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can save posts as themselves" on public.saved_posts;
+create policy "Users can save posts as themselves"
+  on public.saved_posts for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can unsave their own saved posts" on public.saved_posts;
+create policy "Users can unsave their own saved posts"
+  on public.saved_posts for delete
+  using (auth.uid() = user_id);
+
+-- Shot of the Week: posts.shares_count tracks the third engagement signal
+-- (likes_count and comments_count already exist) via an RPC instead of a
+-- trigger, since shares aren't rows in their own table — just a counter
+-- bumped after a successful native share.
+alter table public.posts add column if not exists shares_count integer not null default 0;
+
+create or replace function public.increment_share_count(post_id uuid)
+returns void as $$
+begin
+  update public.posts set shares_count = shares_count + 1 where id = post_id;
+end;
+$$ language plpgsql security definer;
+
+grant execute on function public.increment_share_count(uuid) to authenticated;
+
+create table if not exists public.shot_of_week (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.posts (id) on delete cascade,
+  week_start date not null unique,
+  created_at timestamptz not null default now()
+);
+
+alter table public.shot_of_week enable row level security;
+
+drop policy if exists "Shot of the week is viewable by everyone" on public.shot_of_week;
+create policy "Shot of the week is viewable by everyone"
+  on public.shot_of_week for select
+  using (true);
+
+-- No insert/update/delete policy: this table is only ever written by
+-- calculate_shot_of_week() below (security definer), invoked by the
+-- pg_cron job — never directly by client requests.
+
+-- Finds the post with the highest combined likes+comments+shares created
+-- in the most recently completed Friday-6pm -> Friday-6pm window and pins
+-- it as that week's Shot of the Week. week_start is keyed to the UTC
+-- Friday the window opened -- 22:00 UTC is used as a stand-in for 6pm US
+-- Eastern below, since Postgres cron schedules don't shift with daylight
+-- saving.
+create or replace function public.calculate_shot_of_week()
+returns void as $$
+declare
+  window_end timestamptz := date_trunc('week', now()) + interval '4 days 22 hours';
+  window_start timestamptz;
+  winner_post_id uuid;
+  winner_week_start date;
+begin
+  if now() < window_end then
+    window_end := window_end - interval '7 days';
+  end if;
+  window_start := window_end - interval '7 days';
+  winner_week_start := window_start::date;
+
+  select id into winner_post_id
+  from public.posts
+  where created_at >= window_start and created_at < window_end
+  order by (likes_count + comments_count + shares_count) desc, created_at desc
+  limit 1;
+
+  if winner_post_id is not null then
+    insert into public.shot_of_week (post_id, week_start)
+    values (winner_post_id, winner_week_start)
+    on conflict (week_start) do update set post_id = excluded.post_id;
+  end if;
+end;
+$$ language plpgsql security definer;
+
+-- Schedules the weekly run via pg_cron. This requires the pg_cron
+-- extension, which isn't enabled by default -- turn it on once via the
+-- Supabase dashboard (Database -> Extensions -> pg_cron), then re-run this
+-- file (or just this block) to register the schedule. Safe to run before
+-- that: it detects the missing extension and skips with a notice instead
+-- of failing.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    if not exists (select 1 from cron.job where jobname = 'shot-of-week-weekly') then
+      perform cron.schedule(
+        'shot-of-week-weekly',
+        '0 22 * * 5',
+        $cron$select public.calculate_shot_of_week();$cron$
+      );
+    end if;
+  else
+    raise notice 'pg_cron extension not installed -- enable it (Database > Extensions) then re-run this file to schedule the weekly Shot of the Week job.';
+  end if;
+end $$;

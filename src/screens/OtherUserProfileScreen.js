@@ -245,6 +245,20 @@ export default function OtherUserProfileScreen({ route, navigation }) {
                 </Text>
               </TouchableOpacity>
             )}
+
+            <TouchableOpacity
+              style={styles.scorecardsButton}
+              onPress={() =>
+                navigation.navigate('UserScorecards', {
+                  userId: profile?.user_id,
+                  displayName: profile?.full_name || 'Golfer',
+                })
+              }
+              activeOpacity={0.85}
+            >
+              <Ionicons name="reader-outline" size={16} color={colors.white} />
+              <Text style={styles.scorecardsButtonText}>Scorecards</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.tabRow}>
@@ -394,6 +408,22 @@ const styles = StyleSheet.create({
   },
   followingButtonText: {
     color: colors.offWhite,
+  },
+  scorecardsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.red,
+    borderRadius: 12,
+    paddingVertical: 12,
+    width: '100%',
+    marginTop: 10,
+  },
+  scorecardsButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700',
   },
   tabRow: {
     flexDirection: 'row',
