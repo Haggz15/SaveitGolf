@@ -6,7 +6,15 @@ function locationLabel(course) {
   return [course.city, course.state].filter(Boolean).join(', ') || 'Location unknown';
 }
 
-export default function CourseSearchBar({ query, onChangeQuery, onClear, results, searching, onSelectResult }) {
+export default function CourseSearchBar({
+  query,
+  onChangeQuery,
+  onClear,
+  results,
+  searching,
+  onSelectResult,
+  placeholder = 'Search courses, cities, states',
+}) {
   const showDropdown = query.trim().length > 0;
 
   return (
@@ -17,7 +25,7 @@ export default function CourseSearchBar({ query, onChangeQuery, onClear, results
           style={styles.input}
           value={query}
           onChangeText={onChangeQuery}
-          placeholder="Search courses, cities, states"
+          placeholder={placeholder}
           placeholderTextColor={colors.muted}
           autoCorrect={false}
           autoCapitalize="none"

@@ -1,26 +1,34 @@
-import { View, Text, StyleSheet } from 'react-native';
-import Svg, { Circle, Ellipse, Polygon, Rect, Defs, RadialGradient, Stop } from 'react-native-svg';
+import { Platform, View, Text, StyleSheet } from 'react-native';
+import Svg, { Circle, Ellipse, Polygon, Rect, Text as SvgText, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { useFonts } from 'expo-font';
 import DancingScriptBold from '../../../assets/fonts/DancingScript-Bold.ttf';
 
-// The "Save it" / "Golf" wordmark is rendered as RN <Text> (below), not SVG
-// <Text>, and the font is bundled locally and loaded via expo-font here —
-// rather than relying on the app-wide @expo-google-fonts Google Fonts
-// loader — so it renders correctly on web regardless of network conditions.
+// The "Save it" / "Golf" wordmark is rendered as real SVG <Text> (inside the
+// same <Svg> as the ball art below) so its x/y/text-anchor sit in the exact
+// same coordinate space as the ball and scale with it. The font is bundled
+// locally and loaded via expo-font here — rather than relying on the
+// app-wide @expo-google-fonts Google Fonts loader — so it renders correctly
+// on web regardless of network conditions.
 const SCRIPT_FONT = 'DancingScript-Bold';
+// react-native's Text/Svg Text only match a single registered font family —
+// a CSS-style fallback stack only works on web (react-native-web forwards
+// fontFamily straight to CSS), so it's added there only.
+const scriptFontFamily = (loadedFont) =>
+  Platform.select({
+    web: `${loadedFont || SCRIPT_FONT}, "Dancing Script", cursive`,
+    default: loadedFont,
+  });
 
-// Native SVG coordinate space — the ball art is authored in this space, then
-// scaled down to LOGO_DISPLAY_WIDTH when rendered so it reads correctly at
-// auth-screen scale. The wordmark overlay (below) is sized directly in
-// display pixels to match the requested fontSize/color spec.
-const LOGO_WIDTH = 304;
-const LOGO_HEIGHT = 441;
-const LOGO_DISPLAY_WIDTH = 250;
+// SVG coordinate space — the ball, wordmark, and pin are all authored here,
+// then scaled down together to LOGO_DISPLAY_WIDTH when rendered.
+const LOGO_WIDTH = 300;
+const LOGO_HEIGHT = 370;
+const LOGO_DISPLAY_WIDTH = 155;
 const LOGO_DISPLAY_HEIGHT = Math.round(LOGO_HEIGHT * (LOGO_DISPLAY_WIDTH / LOGO_WIDTH));
 
-const BALL_CX = 152;
-const BALL_CY = 144;
-const BALL_R = 122;
+const BALL_CX = 150;
+const BALL_CY = 118;
+const BALL_R = 112;
 
 const PIN_GREEN = '#4dd860';
 const PIN_GREEN_LIGHT = '#8bf09a';
@@ -49,7 +57,7 @@ function generateDimples(cx, cy, r) {
 
 const DIMPLES = generateDimples(BALL_CX, BALL_CY, BALL_R);
 
-function GolfBallMark() {
+function GolfBallMark({ fontFamily }) {
   return (
     <Svg
       width={LOGO_DISPLAY_WIDTH}
@@ -75,23 +83,49 @@ function GolfBallMark() {
       {/* Radial gradient shine overlay */}
       <Circle cx={BALL_CX} cy={BALL_CY} r={BALL_R} fill="url(#ballShine)" />
 
-      {/* Push pin — round dome cap */}
-      <Ellipse cx={BALL_CX} cy={315} rx={57} ry={38} fill={PIN_GREEN} stroke={PIN_GREEN_DARK} strokeWidth={1} />
+      {/* Wordmark — real SVG text so it sits precisely inside the ball,
+          scaling with everything else rather than needing separate
+          display-pixel positioning. */}
+      <SvgText
+        x={150}
+        y={105}
+        fontFamily={fontFamily}
+        fontSize={48}
+        fontWeight="700"
+        fill="#0d1f3c"
+        textAnchor="middle"
+      >
+        Save it
+      </SvgText>
+      <SvgText
+        x={150}
+        y={155}
+        fontFamily={fontFamily}
+        fontSize={54}
+        fontWeight="700"
+        fill="#c0001a"
+        textAnchor="middle"
+      >
+        Golf
+      </SvgText>
+
+      {/* Push pin — wide oval dome cap */}
+      <Ellipse cx={BALL_CX} cy={238} rx={55} ry={36} fill={PIN_GREEN} stroke={PIN_GREEN_DARK} strokeWidth={1} />
 
       {/* Subtle shadow where the dome meets the neck */}
-      <Ellipse cx={BALL_CX} cy={349} rx={48} ry={8} fill="#1a1a1a" opacity={0.18} />
+      <Ellipse cx={BALL_CX} cy={262} rx={44} ry={8} fill="#1a1a1a" opacity={0.18} />
 
       {/* Upper-left highlight on the dome */}
-      <Ellipse cx={133} cy={302} rx={19} ry={13} fill={PIN_GREEN_LIGHT} opacity={0.6} />
+      <Ellipse cx={133} cy={226} rx={17} ry={12} fill={PIN_GREEN_LIGHT} opacity={0.6} />
 
       {/* Neck */}
-      <Rect x={133} y={346} width={38} height={27} rx={4} ry={4} fill={PIN_GREEN_DARK} />
+      <Rect x={132} y={262} width={36} height={34} rx={7} ry={7} fill={PIN_GREEN_DARK} />
 
       {/* Thin dark rect behind the needle for depth */}
-      <Rect x={148} y={372} width={8} height={54} fill={NEEDLE_COLOR} opacity={0.35} />
+      <Rect x={146} y={296} width={8} height={44} fill={NEEDLE_COLOR} opacity={0.35} />
 
       {/* Needle point */}
-      <Polygon points="133,372 171,372 152,422" fill={NEEDLE_COLOR} />
+      <Polygon points="132,296 168,296 150,340" fill={NEEDLE_COLOR} />
     </Svg>
   );
 }
@@ -104,15 +138,11 @@ export default function AuthLogo() {
   const [fontsLoaded] = useFonts({ [SCRIPT_FONT]: DancingScriptBold });
   // Falls back to the system font for one frame while the local TTF loads,
   // rather than hiding the whole logo — the swap to script is unnoticeable.
-  const scriptFont = fontsLoaded ? SCRIPT_FONT : undefined;
+  const fontFamily = scriptFontFamily(fontsLoaded ? SCRIPT_FONT : undefined);
 
   return (
     <View style={styles.container}>
-      <View style={styles.ballWrap}>
-        <GolfBallMark />
-        <Text style={[styles.saveIt, scriptFont && { fontFamily: scriptFont }]}>Save it</Text>
-        <Text style={[styles.golf, scriptFont && { fontFamily: scriptFont }]}>Golf</Text>
-      </View>
+      <GolfBallMark fontFamily={fontFamily} />
       <Text style={styles.tagline}>DISCOVER · PLAY · SAVE IT</Text>
     </View>
   );
@@ -123,37 +153,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ballWrap: {
-    width: LOGO_DISPLAY_WIDTH,
-    height: LOGO_DISPLAY_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveIt: {
-    position: 'absolute',
-    top: 60,
-    left: 0,
-    right: 0,
-    textAlign: 'center',
-    fontSize: 38,
-    lineHeight: 46,
-    color: '#0d1f3c',
-  },
-  golf: {
-    position: 'absolute',
-    top: 136,
-    left: 0,
-    right: 0,
-    textAlign: 'center',
-    fontSize: 44,
-    lineHeight: 52,
-    color: '#c0001a',
-  },
   tagline: {
     fontFamily: 'Cinzel_700Bold',
     fontSize: 10,
     color: '#6a8ab0',
-    letterSpacing: 3,
+    letterSpacing: 1.2,
     marginTop: 2,
   },
 });

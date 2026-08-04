@@ -157,6 +157,18 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     [zoomLevel, region]
   );
   const currentStateLoading = currentStateAbbr ? !!stateCourseCache[currentStateAbbr]?.loading : false;
+  // A state counts as "browsed" once Browse All has been used for it (or it
+  // was loaded from a previous session's AsyncStorage cache) — used to shade
+  // its zoomed-out pin differently and to hide the Browse All button once
+  // there's nothing left to opt into.
+  const currentStateBrowsed = currentStateAbbr
+    ? !!stateCourseCache[currentStateAbbr] && !stateCourseCache[currentStateAbbr].loading
+    : false;
+
+  const browsedStateAbbrs = useMemo(
+    () => new Set(Object.keys(stateCourseCache).filter((abbr) => stateCourseCache[abbr] && !stateCourseCache[abbr].loading)),
+    [stateCourseCache]
+  );
 
   const stateMarkers = useMemo(
     () =>
@@ -165,8 +177,9 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
         name: stateCenters[abbr].name,
         lat: stateCenters[abbr].lat,
         lng: stateCenters[abbr].lng,
+        browsed: browsedStateAbbrs.has(abbr),
       })),
-    []
+    [browsedStateAbbrs]
   );
 
   const announceCountBanner = useCallback((abbr, courseList) => {
@@ -243,14 +256,13 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     [ensureStateCoursesLoaded, announceCountBanner]
   );
 
-  // State detection: whenever the viewport settles on a new state at
-  // STATE or REGION zoom, load that state's courses (instantly if cached).
-  useEffect(() => {
-    if (filter === MAP_FILTERS.PLAYED) return;
-    if (zoomLevel === ZOOM_LEVEL.COUNTRY || !currentStateAbbr) return;
+  // Entering a state no longer auto-loads its courses — that's now an
+  // explicit opt-in via browseAllInState (the "Browse All" button), so a
+  // zoom/pan into a state never fires an API call on its own.
+  const browseAllInState = useCallback(() => {
+    if (!currentStateAbbr) return;
     loadStateAndAnnounce(currentStateAbbr);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoomLevel, currentStateAbbr, filter]);
+  }, [currentStateAbbr, loadStateAndAnnounce]);
 
   // Try to recenter on the user's location (state-zoom) so the app opens
   // showing their own area's courses when permission is granted; otherwise
@@ -359,22 +371,20 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     return base;
   }, [filter, myCoursesList, zoomLevel, currentStateCourses, region, selectedCourse]);
 
-  const handleSelectStateMarker = useCallback(
-    (abbr) => {
-      const center = stateCenters[abbr];
-      if (!center) return;
-      const nextRegion = {
-        latitude: center.lat,
-        longitude: center.lng,
-        latitudeDelta: STATE_FOCUS_DELTA,
-        longitudeDelta: STATE_FOCUS_DELTA,
-      };
-      setRegionState(nextRegion);
-      setFocusRegion({ ...nextRegion, key: `state-${abbr}-${Date.now()}` });
-      loadStateAndAnnounce(abbr);
-    },
-    [loadStateAndAnnounce]
-  );
+  // Tapping a state pin only zooms in smoothly — no course data is fetched
+  // until the user explicitly taps Browse All (see browseAllInState).
+  const handleSelectStateMarker = useCallback((abbr) => {
+    const center = stateCenters[abbr];
+    if (!center) return;
+    const nextRegion = {
+      latitude: center.lat,
+      longitude: center.lng,
+      latitudeDelta: STATE_FOCUS_DELTA,
+      longitudeDelta: STATE_FOCUS_DELTA,
+    };
+    setRegionState(nextRegion);
+    setFocusRegion({ ...nextRegion, key: `state-${abbr}-${Date.now()}` });
+  }, []);
 
   const setRegion = useCallback((nextRegion) => {
     setRegionState(nextRegion);
@@ -430,7 +440,16 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
       setSearching(true);
       try {
         const results = await searchCourses(trimmed);
-        if (requestId === searchRequestIdRef.current) setSearchResults(results);
+        const validResults = results.filter(courseHasValidCoordinates);
+        // Prefer matches in the state currently in view (the search bar
+        // reads "Search courses in <State>"), but fall back to the
+        // unscoped results rather than showing an empty dropdown.
+        const scoped = currentStateAbbr
+          ? validResults.filter((c) => c.state?.toUpperCase() === currentStateAbbr)
+          : validResults;
+        if (requestId === searchRequestIdRef.current) {
+          setSearchResults(scoped.length > 0 ? scoped : validResults);
+        }
       } catch (err) {
         console.error('[useCourseMapData] search failed:', err.message);
         if (requestId === searchRequestIdRef.current) setSearchResults([]);
@@ -438,7 +457,7 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
         if (requestId === searchRequestIdRef.current) setSearching(false);
       }
     }, SEARCH_DEBOUNCE_MS);
-  }, []);
+  }, [currentStateAbbr]);
 
   const clearSearch = useCallback(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -484,6 +503,8 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     currentStateAbbr,
     currentStateName: currentStateAbbr ? stateCenters[currentStateAbbr].name : null,
     currentStateLoading,
+    currentStateBrowsed,
+    browseAllInState,
     countBanner,
     handleSelectStateMarker,
     visibleCourses,

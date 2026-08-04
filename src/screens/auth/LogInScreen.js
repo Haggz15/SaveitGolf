@@ -132,7 +132,7 @@ export default function LogInScreen({ navigation }) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#111111',
+    backgroundColor: colors.navy,
   },
   content: {
     flexGrow: 1,
@@ -145,10 +145,10 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 18,
     fontWeight: '600',
-    marginTop: 16,
+    marginTop: 20,
   },
   subtext: {
-    color: '#636366',
+    color: '#8a9ab0',
     fontSize: 12,
     marginTop: 12,
     marginBottom: 28,
@@ -157,8 +157,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   inputField: {
-    backgroundColor: '#1c1c1e',
-    borderColor: '#2c2c2e',
+    backgroundColor: '#1a2e4a',
+    borderColor: '#2a4a6a',
   },
   formError: {
     color: colors.red,
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   forgotLink: {
-    color: '#0a84ff',
+    color: '#4a9eff',
     fontSize: 13,
     fontWeight: '600',
   },
@@ -200,10 +200,10 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#2c2c2e',
+    backgroundColor: '#2a4a6a',
   },
   dividerText: {
-    color: '#636366',
+    color: '#8a9ab0',
     fontSize: 12,
     marginHorizontal: 10,
   },
@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   footerText: {
-    color: '#636366',
+    color: '#8a9ab0',
     fontSize: 13,
   },
   footerLink: {

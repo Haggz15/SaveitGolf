@@ -9,6 +9,7 @@ export const colors = {
   muted: '#8a93a8',
   gold: '#d4af37',
   green: '#2e8b57',
+  greenLight: '#6fbd94',
   blue: '#4a90e2',
   lightBlue: '#a8c0e0',
 };

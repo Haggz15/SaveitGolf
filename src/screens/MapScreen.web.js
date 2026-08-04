@@ -8,6 +8,7 @@ import Header from '../components/Header';
 import CourseSearchBar from '../components/map/CourseSearchBar';
 import FriendSearchBar from '../components/map/FriendSearchBar';
 import FilterPills from '../components/map/FilterPills';
+import BrowseAllButton from '../components/map/BrowseAllButton';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
 import MapErrorBoundary from '../components/map/MapErrorBoundary';
@@ -51,23 +52,26 @@ function buildFlagIcon(color, size = PIN_SIZE, highlighted = false) {
 const courseIcon = buildFlagIcon(colors.red);
 const highlightedCourseIcon = buildFlagIcon(colors.red, HIGHLIGHTED_PIN_SIZE, true);
 
-// Level 1 (zoomed-out full-US) pin — one per state, with the state
-// abbreviation on a small label under the flag. Built per-abbreviation since
-// each needs its own text, unlike the shared course pin icons above.
+// Level 1 (zoomed-out full-US) pin — a green push pin, larger than a course
+// flag pin, with the state abbreviation on a small label underneath. Built
+// per-abbreviation (and per-browsed-state) since each needs its own text and
+// shade — `browsed` (courses already loaded via Browse All) draws a lighter
+// green so a previously-browsed state stands out at a glance.
 const STATE_PIN_WIDTH = 34;
 const STATE_PIN_HEIGHT = 50;
-function buildStateFlagIcon(abbr) {
+function buildStatePushPinIcon(abbr, browsed) {
+  const fill = browsed ? colors.greenLight : colors.green;
   const svg = `<svg width="${STATE_PIN_WIDTH}" height="${STATE_PIN_HEIGHT}" viewBox="0 0 34 50" xmlns="http://www.w3.org/2000/svg">
-    <line x1="8" y1="2" x2="8" y2="28" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
-    <path d="M8 3 L28 10 L8 17 Z" fill="${colors.red}" stroke="#ffffff" stroke-width="1" stroke-linejoin="round"/>
-    <rect x="0" y="30" width="34" height="17" rx="4" fill="${colors.navy}" stroke="${colors.red}" stroke-width="1.5"/>
-    <text x="17" y="42" font-family="sans-serif" font-size="13" font-weight="800" fill="#ffffff" text-anchor="middle">${abbr}</text>
+    <path d="M17 2C7.6 2 0 9.6 0 19c0 12.75 17 25 17 25s17-12.25 17-25C34 9.6 26.4 2 17 2z" fill="${fill}" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="17" cy="19" r="6.5" fill="${colors.navy}"/>
+    <rect x="0" y="34" width="34" height="16" rx="4" fill="${colors.navy}" stroke="${fill}" stroke-width="1.5"/>
+    <text x="17" y="45.5" font-family="sans-serif" font-size="12" font-weight="800" fill="#ffffff" text-anchor="middle">${abbr}</text>
   </svg>`;
   return L.divIcon({
     html: svg,
     className: 'saveitgolf-state-pin',
     iconSize: [STATE_PIN_WIDTH, STATE_PIN_HEIGHT],
-    iconAnchor: [8, STATE_PIN_HEIGHT - 4],
+    iconAnchor: [17, STATE_PIN_HEIGHT - 2],
   });
 }
 
@@ -144,6 +148,8 @@ export default function MapScreen({ navigation, route }) {
     stateMarkers,
     currentStateName,
     currentStateLoading,
+    currentStateBrowsed,
+    browseAllInState,
     countBanner,
     handleSelectStateMarker,
     visibleCourses,
@@ -180,7 +186,7 @@ export default function MapScreen({ navigation, route }) {
         stateMarkers
           .map((state) => {
             try {
-              return [state.abbr, buildStateFlagIcon(state.abbr)];
+              return [state.abbr, buildStatePushPinIcon(state.abbr, state.browsed)];
             } catch (err) {
               console.error(`[MapScreen] failed to build pin icon for state "${state.abbr}":`, err);
               return null;
@@ -231,16 +237,30 @@ export default function MapScreen({ navigation, route }) {
   return (
     <View style={styles.screen}>
       <Header />
-      <CourseSearchBar
-        query={searchQuery}
-        onChangeQuery={handleSearchQueryChange}
-        onClear={clearSearch}
-        results={searchResults}
-        searching={searching}
-        onSelectResult={handleSelectSearchResult}
-      />
+      {zoomLevel !== ZOOM_LEVEL.COUNTRY && (
+        <CourseSearchBar
+          query={searchQuery}
+          onChangeQuery={handleSearchQueryChange}
+          onClear={clearSearch}
+          results={searchResults}
+          searching={searching}
+          onSelectResult={handleSelectSearchResult}
+          placeholder={`Search courses in ${currentStateName}`}
+        />
+      )}
       <FriendSearchBar currentUserId={user?.id} onSelectFriend={handleSelectFriend} />
       <FilterPills value={filter} onChange={setFilter} />
+
+      {zoomLevel !== ZOOM_LEVEL.COUNTRY &&
+        !friendFilter &&
+        filter !== MAP_FILTERS.PLAYED &&
+        !currentStateBrowsed && (
+          <BrowseAllButton
+            stateName={currentStateName}
+            loading={currentStateLoading}
+            onPress={guard(browseAllInState)}
+          />
+        )}
 
       {friendFilter && (
         <View style={styles.friendBanner}>

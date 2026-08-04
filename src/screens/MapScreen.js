@@ -6,6 +6,8 @@ import Header from '../components/Header';
 import CourseSearchBar from '../components/map/CourseSearchBar';
 import FriendSearchBar from '../components/map/FriendSearchBar';
 import FilterPills from '../components/map/FilterPills';
+import BrowseAllButton from '../components/map/BrowseAllButton';
+import StatePushPin from '../components/map/StatePushPin';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
 import MapErrorBoundary from '../components/map/MapErrorBoundary';
@@ -70,8 +72,9 @@ function CourseMarker({ course, highlighted, onPress }) {
 }
 
 // Level 1 (zoomed-out full-US) pin — one per state, centered on that state's
-// centroid. No course data is loaded for these; tapping one zooms in and
-// hands off to the state-level course fetch (see useCourseMapData).
+// centroid. No course data is loaded for these; tapping one only zooms in
+// smoothly (see useCourseMapData.handleSelectStateMarker) — course loading
+// for the state is a separate, explicit opt-in via the Browse All button.
 function StateMarker({ state, onPress }) {
   return (
     <Marker
@@ -80,12 +83,7 @@ function StateMarker({ state, onPress }) {
       tracksViewChanges={false}
       zIndex={1}
     >
-      <View style={styles.stateMarker}>
-        <Ionicons name="flag" size={40} color={colors.red} />
-        <View style={styles.stateMarkerLabel}>
-          <Text style={styles.stateMarkerLabelText}>{state.abbr}</Text>
-        </View>
-      </View>
+      <StatePushPin abbr={state.abbr} browsed={state.browsed} />
     </Marker>
   );
 }
@@ -102,6 +100,8 @@ export default function MapScreen({ navigation, route }) {
     stateMarkers,
     currentStateName,
     currentStateLoading,
+    currentStateBrowsed,
+    browseAllInState,
     countBanner,
     handleSelectStateMarker,
     visibleCourses,
@@ -196,16 +196,30 @@ export default function MapScreen({ navigation, route }) {
   return (
     <View style={styles.screen}>
       <Header />
-      <CourseSearchBar
-        query={searchQuery}
-        onChangeQuery={handleSearchQueryChange}
-        onClear={clearSearch}
-        results={searchResults}
-        searching={searching}
-        onSelectResult={handleSelectSearchResult}
-      />
+      {zoomLevel !== ZOOM_LEVEL.COUNTRY && (
+        <CourseSearchBar
+          query={searchQuery}
+          onChangeQuery={handleSearchQueryChange}
+          onClear={clearSearch}
+          results={searchResults}
+          searching={searching}
+          onSelectResult={handleSelectSearchResult}
+          placeholder={`Search courses in ${currentStateName}`}
+        />
+      )}
       <FriendSearchBar currentUserId={user?.id} onSelectFriend={handleSelectFriend} />
       <FilterPills value={filter} onChange={setFilter} />
+
+      {zoomLevel !== ZOOM_LEVEL.COUNTRY &&
+        !friendFilter &&
+        filter !== MAP_FILTERS.PLAYED &&
+        !currentStateBrowsed && (
+          <BrowseAllButton
+            stateName={currentStateName}
+            loading={currentStateLoading}
+            onPress={guard(browseAllInState)}
+          />
+        )}
 
       {friendFilter && (
         <View style={styles.friendBanner}>
@@ -409,23 +423,5 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(192, 0, 26, 0.18)',
     borderWidth: 2,
     borderColor: colors.red,
-  },
-  stateMarker: {
-    alignItems: 'center',
-  },
-  stateMarkerLabel: {
-    marginTop: -4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    backgroundColor: colors.navy,
-    borderWidth: 1,
-    borderColor: colors.red,
-  },
-  stateMarkerLabelText: {
-    color: colors.white,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.5,
   },
 });
