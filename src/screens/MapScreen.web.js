@@ -10,9 +10,9 @@ import FriendSearchBar from '../components/map/FriendSearchBar';
 import FilterPills from '../components/map/FilterPills';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
-import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessageBanner';
+import { MapWarningBanner, MapLoadingBanner, MapSuccessBanner } from '../components/map/MapMessageBanner';
 import colors from '../theme/colors';
-import { useCourseMapData, NORTHEAST_US_INITIAL_REGION, MAP_FILTERS } from '../hooks/useCourseMapData';
+import { useCourseMapData, US_INITIAL_REGION, MAP_FILTERS, ZOOM_LEVEL } from '../hooks/useCourseMapData';
 import { useAuth } from '../context/AuthContext';
 import { getFriendPlayedCourses } from '../services/friendMap';
 
@@ -47,6 +47,26 @@ function buildFlagIcon(color, size = PIN_SIZE, highlighted = false) {
 
 const courseIcon = buildFlagIcon(colors.red);
 const highlightedCourseIcon = buildFlagIcon(colors.red, HIGHLIGHTED_PIN_SIZE, true);
+
+// Level 1 (zoomed-out full-US) pin — one per state, with the state
+// abbreviation on a small label under the flag. Built per-abbreviation since
+// each needs its own text, unlike the shared course pin icons above.
+const STATE_PIN_WIDTH = 34;
+const STATE_PIN_HEIGHT = 50;
+function buildStateFlagIcon(abbr) {
+  const svg = `<svg width="${STATE_PIN_WIDTH}" height="${STATE_PIN_HEIGHT}" viewBox="0 0 34 50" xmlns="http://www.w3.org/2000/svg">
+    <line x1="8" y1="2" x2="8" y2="28" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M8 3 L28 10 L8 17 Z" fill="${colors.red}" stroke="#ffffff" stroke-width="1" stroke-linejoin="round"/>
+    <rect x="0" y="30" width="34" height="17" rx="4" fill="${colors.navy}" stroke="${colors.red}" stroke-width="1.5"/>
+    <text x="17" y="42" font-family="sans-serif" font-size="13" font-weight="800" fill="#ffffff" text-anchor="middle">${abbr}</text>
+  </svg>`;
+  return L.divIcon({
+    html: svg,
+    className: 'saveitgolf-state-pin',
+    iconSize: [STATE_PIN_WIDTH, STATE_PIN_HEIGHT],
+    iconAnchor: [8, STATE_PIN_HEIGHT - 4],
+  });
+}
 
 function regionToZoom(latitudeDelta) {
   return Math.min(18, Math.max(2, Math.round(Math.log2(360 / latitudeDelta))));
@@ -94,10 +114,13 @@ export default function MapScreen({ navigation, route }) {
   const {
     setRegion,
     focusRegion,
-    visibleStates,
+    zoomLevel,
+    stateMarkers,
+    currentStateName,
+    currentStateLoading,
+    countBanner,
+    handleSelectStateMarker,
     visibleCourses,
-    geocodingStates,
-    discovering,
     quotaExceeded,
     locationDenied,
     selectedCourse,
@@ -119,12 +142,16 @@ export default function MapScreen({ navigation, route }) {
     handleSelectSearchResult,
   } = useCourseMapData({
     navigation,
-    routeState: route?.params?.state,
+    routeFocusCourse: route?.params?.focusCourse,
     routeTimestamp: route?.params?.timestamp,
     userId: user?.id,
   });
 
-  const initialZoom = useMemo(() => regionToZoom(NORTHEAST_US_INITIAL_REGION.latitudeDelta), []);
+  const initialZoom = useMemo(() => regionToZoom(US_INITIAL_REGION.latitudeDelta), []);
+  const stateIcons = useMemo(
+    () => Object.fromEntries(stateMarkers.map((state) => [state.abbr, buildStateFlagIcon(state.abbr)])),
+    [stateMarkers]
+  );
 
   const handleZoomIn = () => mapInstanceRef.current?.zoomIn();
   const handleZoomOut = () => mapInstanceRef.current?.zoomOut();
@@ -205,7 +232,7 @@ export default function MapScreen({ navigation, route }) {
 
       {locationDenied && (
         <MapWarningBanner icon="location-outline">
-          Location permission denied — showing courses near the Northeast US instead.
+          Location permission denied — tap a state to browse its courses.
         </MapWarningBanner>
       )}
       {quotaExceeded && (
@@ -216,7 +243,7 @@ export default function MapScreen({ navigation, route }) {
 
       <View style={styles.mapContainer}>
         <MapContainer
-          center={[NORTHEAST_US_INITIAL_REGION.latitude, NORTHEAST_US_INITIAL_REGION.longitude]}
+          center={[US_INITIAL_REGION.latitude, US_INITIAL_REGION.longitude]}
           zoom={initialZoom}
           zoomControl={false}
           style={styles.map}
@@ -230,15 +257,24 @@ export default function MapScreen({ navigation, route }) {
 
           <MapSync mapInstanceRef={mapInstanceRef} onRegionChange={setRegion} focusRegion={focusRegion} />
 
-          {(friendFilter ? friendFilter.courses : visibleCourses).map((course) => (
-            <Marker
-              key={course.id}
-              position={[course.lat, course.lng]}
-              icon={selectedCourse?.id === course.id ? highlightedCourseIcon : courseIcon}
-              zIndexOffset={selectedCourse?.id === course.id ? 1000 : 0}
-              eventHandlers={{ click: () => handleSelectCourse(course) }}
-            />
-          ))}
+          {!friendFilter && filter !== MAP_FILTERS.PLAYED && zoomLevel === ZOOM_LEVEL.COUNTRY
+            ? stateMarkers.map((state) => (
+                <Marker
+                  key={state.abbr}
+                  position={[state.lat, state.lng]}
+                  icon={stateIcons[state.abbr]}
+                  eventHandlers={{ click: () => handleSelectStateMarker(state.abbr) }}
+                />
+              ))
+            : (friendFilter ? friendFilter.courses : visibleCourses).map((course) => (
+                <Marker
+                  key={course.id}
+                  position={[course.lat, course.lng]}
+                  icon={selectedCourse?.id === course.id ? highlightedCourseIcon : courseIcon}
+                  zIndexOffset={selectedCourse?.id === course.id ? 1000 : 0}
+                  eventHandlers={{ click: () => handleSelectCourse(course) }}
+                />
+              ))}
 
           {userLocation && (
             <>
@@ -258,11 +294,18 @@ export default function MapScreen({ navigation, route }) {
 
         <ZoomControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} />
 
-        {filter === MAP_FILTERS.PLAYED
-          ? myCoursesLoading && <MapLoadingBanner>Loading your courses…</MapLoadingBanner>
-          : (discovering || visibleStates.some((abbr) => geocodingStates[abbr])) && (
-              <MapLoadingBanner>Finding courses…</MapLoadingBanner>
-            )}
+        {filter === MAP_FILTERS.PLAYED ? (
+          myCoursesLoading && <MapLoadingBanner>Loading your courses…</MapLoadingBanner>
+        ) : !friendFilter && currentStateLoading ? (
+          <MapLoadingBanner>Loading {currentStateName} courses…</MapLoadingBanner>
+        ) : (
+          !friendFilter &&
+          countBanner && (
+            <MapSuccessBanner>
+              {countBanner.count} courses in {countBanner.name}
+            </MapSuccessBanner>
+          )
+        )}
 
         {filter === MAP_FILTERS.PLAYED && myCoursesLoaded && !myCoursesLoading && visibleCourses.length === 0 && (
           <View style={styles.emptyMyCoursesCard} pointerEvents="none">

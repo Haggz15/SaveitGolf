@@ -326,7 +326,14 @@ export default function FeedScreen({ navigation }) {
 
   const handleStatePress = (post) => {
     navigation.navigate('Map', {
-      state: post.state,
+      focusCourse: {
+        id: post.courseId ?? null,
+        name: post.course,
+        city: post.city ?? null,
+        state: post.state ?? null,
+        lat: post.lat ?? null,
+        lng: post.lng ?? null,
+      },
       timestamp: Date.now(),
     });
   };

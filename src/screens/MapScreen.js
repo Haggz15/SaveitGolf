@@ -8,10 +8,16 @@ import FriendSearchBar from '../components/map/FriendSearchBar';
 import FilterPills from '../components/map/FilterPills';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
-import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessageBanner';
+import { MapWarningBanner, MapLoadingBanner, MapSuccessBanner } from '../components/map/MapMessageBanner';
 import colors from '../theme/colors';
 import { darkSlateMapStyle } from '../theme/mapStyle';
-import { useCourseMapData, NORTHEAST_US_INITIAL_REGION, MAX_MAP_DELTA, MAP_FILTERS } from '../hooks/useCourseMapData';
+import {
+  useCourseMapData,
+  US_INITIAL_REGION,
+  MAX_MAP_DELTA,
+  MAP_FILTERS,
+  ZOOM_LEVEL,
+} from '../hooks/useCourseMapData';
 import { useAuth } from '../context/AuthContext';
 import { getFriendPlayedCourses } from '../services/friendMap';
 
@@ -37,6 +43,27 @@ function CourseMarker({ course, highlighted, onPress }) {
   );
 }
 
+// Level 1 (zoomed-out full-US) pin — one per state, centered on that state's
+// centroid. No course data is loaded for these; tapping one zooms in and
+// hands off to the state-level course fetch (see useCourseMapData).
+function StateMarker({ state, onPress }) {
+  return (
+    <Marker
+      coordinate={{ latitude: state.lat, longitude: state.lng }}
+      onPress={() => onPress(state.abbr)}
+      tracksViewChanges={false}
+      zIndex={1}
+    >
+      <View style={styles.stateMarker}>
+        <Ionicons name="flag" size={40} color={colors.red} />
+        <View style={styles.stateMarkerLabel}>
+          <Text style={styles.stateMarkerLabelText}>{state.abbr}</Text>
+        </View>
+      </View>
+    </Marker>
+  );
+}
+
 export default function MapScreen({ navigation, route }) {
   const { user } = useAuth();
   const mapRef = useRef(null);
@@ -45,10 +72,13 @@ export default function MapScreen({ navigation, route }) {
     region,
     setRegion,
     focusRegion,
-    visibleStates,
+    zoomLevel,
+    stateMarkers,
+    currentStateName,
+    currentStateLoading,
+    countBanner,
+    handleSelectStateMarker,
     visibleCourses,
-    geocodingStates,
-    discovering,
     quotaExceeded,
     locationDenied,
     selectedCourse,
@@ -69,7 +99,7 @@ export default function MapScreen({ navigation, route }) {
     handleSelectSearchResult,
   } = useCourseMapData({
     navigation,
-    routeState: route?.params?.state,
+    routeFocusCourse: route?.params?.focusCourse,
     routeTimestamp: route?.params?.timestamp,
     userId: user?.id,
   });
@@ -179,7 +209,7 @@ export default function MapScreen({ navigation, route }) {
 
       {locationDenied && (
         <MapWarningBanner icon="location-outline">
-          Location permission denied — showing courses near the Northeast US instead.
+          Location permission denied — tap a state to browse its courses.
         </MapWarningBanner>
       )}
       {quotaExceeded && (
@@ -195,27 +225,38 @@ export default function MapScreen({ navigation, route }) {
           provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
           userInterfaceStyle="dark"
           customMapStyle={Platform.OS === 'android' ? darkSlateMapStyle : undefined}
-          initialRegion={NORTHEAST_US_INITIAL_REGION}
+          initialRegion={US_INITIAL_REGION}
           showsUserLocation={!locationDenied}
           onRegionChangeComplete={setRegion}
         >
-          {(friendFilter ? friendFilter.courses : visibleCourses).map((course) => (
-            <CourseMarker
-              key={course.id}
-              course={course}
-              highlighted={selectedCourse?.id === course.id}
-              onPress={handleSelectCourse}
-            />
-          ))}
+          {!friendFilter && filter !== MAP_FILTERS.PLAYED && zoomLevel === ZOOM_LEVEL.COUNTRY
+            ? stateMarkers.map((state) => (
+                <StateMarker key={state.abbr} state={state} onPress={handleSelectStateMarker} />
+              ))
+            : (friendFilter ? friendFilter.courses : visibleCourses).map((course) => (
+                <CourseMarker
+                  key={course.id}
+                  course={course}
+                  highlighted={selectedCourse?.id === course.id}
+                  onPress={handleSelectCourse}
+                />
+              ))}
         </MapView>
 
         <ZoomControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} />
 
-        {filter === MAP_FILTERS.PLAYED
-          ? myCoursesLoading && <MapLoadingBanner>Loading your courses…</MapLoadingBanner>
-          : (discovering || visibleStates.some((abbr) => geocodingStates[abbr])) && (
-              <MapLoadingBanner>Finding courses…</MapLoadingBanner>
-            )}
+        {filter === MAP_FILTERS.PLAYED ? (
+          myCoursesLoading && <MapLoadingBanner>Loading your courses…</MapLoadingBanner>
+        ) : !friendFilter && currentStateLoading ? (
+          <MapLoadingBanner>Loading {currentStateName} courses…</MapLoadingBanner>
+        ) : (
+          !friendFilter &&
+          countBanner && (
+            <MapSuccessBanner>
+              {countBanner.count} courses in {countBanner.name}
+            </MapSuccessBanner>
+          )
+        )}
 
         {filter === MAP_FILTERS.PLAYED && myCoursesLoaded && !myCoursesLoading && visibleCourses.length === 0 && (
           <View style={styles.emptyMyCoursesCard} pointerEvents="none">
@@ -337,5 +378,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(192, 0, 26, 0.18)',
     borderWidth: 2,
     borderColor: colors.red,
+  },
+  stateMarker: {
+    alignItems: 'center',
+  },
+  stateMarkerLabel: {
+    marginTop: -4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: colors.navy,
+    borderWidth: 1,
+    borderColor: colors.red,
+  },
+  stateMarkerLabelText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });

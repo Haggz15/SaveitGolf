@@ -20,6 +20,17 @@ export function MapLoadingBanner({ children }) {
   );
 }
 
+// Same pill as MapLoadingBanner but for a completed result (e.g. the
+// "N courses in <State>" count shown once a state finishes loading).
+export function MapSuccessBanner({ children }) {
+  return (
+    <View style={styles.loadingBanner}>
+      <Ionicons name="checkmark-circle" size={16} color={colors.green} />
+      <Text style={styles.loadingBannerText}>{children}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   warningBanner: {
     flexDirection: 'row',

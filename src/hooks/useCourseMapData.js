@@ -1,49 +1,67 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Location from 'expo-location';
-import { seedCoursesByState, stateCenters, allStateAbbreviations } from '../data/courses';
-import { geocodeCourse, getCachedGeocode } from '../services/geocoding';
-import { discoverCoursesNear, getAllDiscoveredCourses } from '../services/courseDiscovery';
+import { stateCenters, allStateAbbreviations } from '../data/courses';
 import { getCourseById, searchCourses, RateLimitError } from '../services/golfCourseApi';
+import { getCachedStateCourses, persistStateCourses } from '../services/stateCourses';
 import { getMyCourses } from '../services/myCourses';
 
-// Northeast US (New England down through the NY/NJ/PA corridor) — where the
-// map view starts on load.
-export const NORTHEAST_US_INITIAL_REGION = {
-  latitude: 41.6,
-  longitude: -73.5,
-  latitudeDelta: 6,
-  longitudeDelta: 6,
+// Zoomed-out default view — the whole contiguous US, so the map opens on the
+// Level 1 "50 state pins, no course data" view described in the map's
+// zoom-based loading system (see ZOOM_LEVEL below).
+export const US_INITIAL_REGION = {
+  latitude: 39.5,
+  longitude: -98.35,
+  latitudeDelta: 32,
+  longitudeDelta: 55,
 };
 
-// How far out the map is allowed to zoom via the in-app zoom-out control —
-// independent of the (much tighter) initial Northeast viewport, so users can
-// still zoom out to see the whole country.
+// How far out the map is allowed to zoom via the in-app zoom-out control.
 export const MAX_MAP_DELTA = 45;
 
-// New York City — dense course coverage and a reliable reverse-geocode hit,
-// used to seed the very first discovery call before the map has moved.
-const NORTHEAST_DISCOVERY_POINT = { latitude: 40.7128, longitude: -74.006 };
-
 export const USER_LOCATION_FOCUS_DELTA = 2;
-const PAN_DISCOVERY_DEBOUNCE_MS = 900;
-// Skip re-discovery if the map center hasn't moved roughly this far (degrees).
-const MIN_REFETCH_DISTANCE = 0.4;
 
-// How tight the map zooms in when a search result is selected.
+// How tight the map zooms in when a search result, feed course, or state pin
+// is selected/focused.
 export const SEARCH_FOCUS_DELTA = 0.02;
+export const STATE_FOCUS_DELTA = 4;
 const SEARCH_DEBOUNCE_MS = 400;
 
 export const MAP_FILTERS = { ALL: 'all', PLAYED: 'played' };
 
-function statesInBounds(region) {
-  const latMin = region.latitude - region.latitudeDelta / 2;
-  const latMax = region.latitude + region.latitudeDelta / 2;
-  const lngMin = region.longitude - region.longitudeDelta / 2;
-  const lngMax = region.longitude + region.longitudeDelta / 2;
-  return allStateAbbreviations.filter((abbr) => {
+// Three zoom tiers drive what gets fetched and rendered:
+//   COUNTRY — full US view: 50 one-per-state pins, no individual course data.
+//   STATE   — zoomed into one state: every course in that state, fetched (or
+//             read from cache) via a single search_query=<state name> call.
+//   REGION  — zoomed into a city: same state's courses, culled to what's
+//             actually inside the current viewport.
+export const ZOOM_LEVEL = { COUNTRY: 'country', STATE: 'state', REGION: 'region' };
+const COUNTRY_ZOOM_DELTA = 15;
+const STATE_ZOOM_DELTA = 1.2;
+
+// How long the "N courses in <State>" banner stays up after a state finishes loading.
+const COUNT_BANNER_MS = 3500;
+
+function getZoomLevel(region) {
+  if (region.latitudeDelta >= COUNTRY_ZOOM_DELTA) return ZOOM_LEVEL.COUNTRY;
+  if (region.latitudeDelta >= STATE_ZOOM_DELTA) return ZOOM_LEVEL.STATE;
+  return ZOOM_LEVEL.REGION;
+}
+
+// The app has no state-boundary polygons, so "which state is the map
+// centered on" is approximated as the nearest state centroid to the
+// viewport center — accurate enough once the viewport is state-sized or smaller.
+function nearestState(region) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const abbr of allStateAbbreviations) {
     const c = stateCenters[abbr];
-    return c.lat >= latMin && c.lat <= latMax && c.lng >= lngMin && c.lng <= lngMax;
-  });
+    const d = Math.hypot(c.lat - region.latitude, c.lng - region.longitude);
+    if (d < bestDist) {
+      bestDist = d;
+      best = abbr;
+    }
+  }
+  return best;
 }
 
 function coursesInBounds(courses, region) {
@@ -56,25 +74,21 @@ function coursesInBounds(courses, region) {
   );
 }
 
-function distance(a, b) {
-  return Math.hypot(a.latitude - b.latitude, a.longitude - b.longitude);
-}
-
-// Platform-agnostic course map state/logic (region tracking, seed geocoding,
-// live discovery, course selection, played-courses filter). Both MapScreen.js
+// Platform-agnostic course map state/logic (zoom-based state loading, course
+// selection, search, and the played-courses filter). Both MapScreen.js
 // (react-native-maps) and MapScreen.web.js (react-leaflet) drive this same
 // hook and only differ in how they render the map surface and markers.
-export function useCourseMapData({ navigation, routeState, routeTimestamp, userId } = {}) {
-  const debounceRef = useRef(null);
-  const lastFetchedCenterRef = useRef(null);
-  const [region, setRegionState] = useState(NORTHEAST_US_INITIAL_REGION);
+export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp, userId } = {}) {
+  const [region, setRegionState] = useState(US_INITIAL_REGION);
   // Set when the hook wants the map to jump somewhere outside of user
-  // panning (initial location fix, or a state focus request). Each platform
-  // watches this and drives its own map's recenter API off of it.
+  // panning (initial location fix, a state pin tap, or a feed course focus).
+  // Each platform watches this and drives its own map's recenter API off of it.
   const [focusRegion, setFocusRegion] = useState(null);
-  const [courses, setCourses] = useState({}); // id -> { id, name, city, state, lat, lng }
-  const [geocodingStates, setGeocodingStates] = useState({});
-  const [discovering, setDiscovering] = useState(false);
+  // abbr -> { courses, loading }
+  const [stateCourseCache, setStateCourseCache] = useState({});
+  const [countBanner, setCountBanner] = useState(null); // { abbr, count } | null
+  const countBannerTimeoutRef = useRef(null);
+  const stateFetchInFlight = useRef(new Set());
   const [quotaExceeded, setQuotaExceeded] = useState(false);
   const [locationDenied, setLocationDenied] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
@@ -87,8 +101,9 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp, userI
   const searchDebounceRef = useRef(null);
   const searchRequestIdRef = useRef(0);
   // "Courses I've Played" pulls from the user's own my_courses table rather
-  // than filtering the discovered/geocoded `courses` map — it's a distinct,
-  // user-curated list that may include courses never surfaced by discovery.
+  // than the zoom-level course cache — it's a distinct, user-curated list
+  // that may include courses never surfaced by state search, and it
+  // overrides the zoom-level behavior entirely per the map spec.
   const [myCoursesList, setMyCoursesList] = useState([]);
   const [myCoursesLoading, setMyCoursesLoading] = useState(false);
   const [myCoursesLoaded, setMyCoursesLoaded] = useState(false);
@@ -133,102 +148,104 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp, userI
     };
   }, [filter, userId]);
 
-  const visibleStates = useMemo(() => statesInBounds(region), [region]);
-  const courseList = useMemo(() => Object.values(courses), [courses]);
-  // Played-course pins aren't bounds-filtered — a saved course off in
-  // another state should still show up rather than silently disappear.
-  const visibleCourses = useMemo(
-    () => (filter === MAP_FILTERS.PLAYED ? myCoursesList : coursesInBounds(courseList, region)),
-    [filter, myCoursesList, courseList, region]
+  const zoomLevel = useMemo(() => getZoomLevel(region), [region]);
+  const currentStateAbbr = useMemo(
+    () => (zoomLevel === ZOOM_LEVEL.COUNTRY ? null : nearestState(region)),
+    [zoomLevel, region]
+  );
+  const currentStateLoading = currentStateAbbr ? !!stateCourseCache[currentStateAbbr]?.loading : false;
+
+  const stateMarkers = useMemo(
+    () =>
+      allStateAbbreviations.map((abbr) => ({
+        abbr,
+        name: stateCenters[abbr].name,
+        lat: stateCenters[abbr].lat,
+        lng: stateCenters[abbr].lng,
+      })),
+    []
   );
 
-  const mergeCourses = useCallback((list) => {
-    if (!list.length) return;
-    setCourses((prev) => {
-      const next = { ...prev };
-      list.forEach((c) => {
-        next[c.id] = c;
-      });
-      return next;
-    });
+  const announceCountBanner = useCallback((abbr, courseList) => {
+    if (countBannerTimeoutRef.current) clearTimeout(countBannerTimeoutRef.current);
+    setCountBanner({ abbr, name: stateCenters[abbr].name, count: courseList.length });
+    countBannerTimeoutRef.current = setTimeout(() => setCountBanner(null), COUNT_BANNER_MS);
   }, []);
 
-  // Baseline: one real, API-verified course per state (see scripts/fetchCourseSeeds.mjs),
-  // geocoded up front — works even with no live search quota.
-  const ensureSeedGeocoded = useCallback(async (abbr) => {
-    const course = seedCoursesByState[abbr];
-    if (!course) {
-      console.warn(`[useCourseMapData] no seed course for state ${abbr} — pin will be missing`);
-      return;
-    }
-    if (courses[course.id] || geocodingStates[abbr]) return;
+  // Loads every course in a state (cache -> AsyncStorage -> live search),
+  // storing the result in stateCourseCache so re-entering the state later
+  // (this session or a future one) is instant. Returns the course list, or
+  // null if another call is already loading this state or the fetch failed.
+  const ensureStateCoursesLoaded = useCallback(
+    async (abbr) => {
+      if (!abbr) return null;
+      const existing = stateCourseCache[abbr];
+      if (existing && !existing.loading) return existing.courses;
+      if (stateFetchInFlight.current.has(abbr)) return null;
 
-    const cached = await getCachedGeocode(course.id);
-    if (cached) {
-      mergeCourses([{ ...course, lat: cached.lat, lng: cached.lng }]);
-      return;
-    }
+      stateFetchInFlight.current.add(abbr);
+      setStateCourseCache((prev) => ({ ...prev, [abbr]: { courses: prev[abbr]?.courses ?? [], loading: true } }));
 
-    setGeocodingStates((prev) => ({ ...prev, [abbr]: true }));
-    try {
-      const coord = await geocodeCourse(course.id, course.address, {
-        name: course.name,
-        city: course.city,
-        state: course.state,
-      });
-      console.log(`[useCourseMapData] geocoded seed for ${abbr}: ${course.name} ->`, coord);
-      mergeCourses([{ ...course, lat: coord.lat, lng: coord.lng }]);
-    } catch (err) {
-      console.error(`[useCourseMapData] geocoding failed for ${abbr} (${course.name}):`, err.message);
-    } finally {
-      setGeocodingStates((prev) => ({ ...prev, [abbr]: false }));
-    }
-  }, [courses, geocodingStates, mergeCourses]);
+      try {
+        const cached = await getCachedStateCourses(abbr);
+        if (cached) {
+          console.log(`[useCourseMapData] ${abbr}: ${cached.length} course(s) from cache`);
+          setStateCourseCache((prev) => ({ ...prev, [abbr]: { courses: cached, loading: false } }));
+          return cached;
+        }
 
-  // Load anything discovered in previous sessions immediately (no network).
-  useEffect(() => {
-    getAllDiscoveredCourses().then(mergeCourses);
-  }, [mergeCourses]);
+        const stateName = stateCenters[abbr].name;
+        const results = await searchCourses(stateName);
+        const matches = results.filter((c) => c.state?.toUpperCase() === abbr);
+        console.log(`[useCourseMapData] ${abbr}: ${matches.length} of ${results.length} search("${stateName}") result(s) matched`);
 
-  // Backfill the one-per-state seed courses for every state up front, not
-  // just whichever states are currently in view — otherwise the initial
-  // full-US zoom-out shows nothing until discovery finds something nearby.
-  // geocodeCourse shares a single throttled (~1/sec) Nominatim queue and
-  // caches results in AsyncStorage, so this costs a few dozen seconds once
-  // and is instant on every later launch.
-  useEffect(() => {
-    allStateAbbreviations.forEach((abbr) => ensureSeedGeocoded(abbr));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const runDiscovery = useCallback(async (lat, lng) => {
-    setDiscovering(true);
-    try {
-      const result = await discoverCoursesNear(lat, lng);
-      if (result.quotaExceeded) {
-        setQuotaExceeded(true);
-      } else if (result.courses.length) {
+        await persistStateCourses(abbr, matches);
+        setStateCourseCache((prev) => ({ ...prev, [abbr]: { courses: matches, loading: false } }));
         setQuotaExceeded(false);
-        mergeCourses(result.courses);
+        return matches;
+      } catch (err) {
+        if (err instanceof RateLimitError) {
+          console.warn(`[useCourseMapData] rate limited loading ${abbr}`);
+          setQuotaExceeded(true);
+        } else {
+          console.error(`[useCourseMapData] failed to load courses for ${abbr}:`, err.message);
+        }
+        // Drop the in-progress entry entirely (rather than leaving it
+        // loading:false with no courses) so the state is retried on the next
+        // visit instead of being permanently treated as "loaded, empty".
+        setStateCourseCache((prev) => {
+          const next = { ...prev };
+          delete next[abbr];
+          return next;
+        });
+        return null;
+      } finally {
+        stateFetchInFlight.current.delete(abbr);
       }
-    } finally {
-      setDiscovering(false);
-    }
-  }, [mergeCourses]);
+    },
+    [stateCourseCache]
+  );
 
-  // Fetch courses for the initial Northeast viewport as soon as the map
-  // loads, so there's real data on screen before location permission (which
-  // may be denied) resolves.
+  const loadStateAndAnnounce = useCallback(
+    async (abbr) => {
+      const result = await ensureStateCoursesLoaded(abbr);
+      if (result) announceCountBanner(abbr, result);
+    },
+    [ensureStateCoursesLoaded, announceCountBanner]
+  );
+
+  // State detection: whenever the viewport settles on a new state at
+  // STATE or REGION zoom, load that state's courses (instantly if cached).
   useEffect(() => {
-    lastFetchedCenterRef.current = {
-      latitude: NORTHEAST_US_INITIAL_REGION.latitude,
-      longitude: NORTHEAST_US_INITIAL_REGION.longitude,
-    };
-    runDiscovery(NORTHEAST_DISCOVERY_POINT.latitude, NORTHEAST_DISCOVERY_POINT.longitude);
+    if (filter === MAP_FILTERS.PLAYED) return;
+    if (zoomLevel === ZOOM_LEVEL.COUNTRY || !currentStateAbbr) return;
+    loadStateAndAnnounce(currentStateAbbr);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [zoomLevel, currentStateAbbr, filter]);
 
-  // Then also fetch courses near the user and recenter the map there.
+  // Try to recenter on the user's location (state-zoom) so the app opens
+  // showing their own area's courses when permission is granted; otherwise
+  // it stays on the Level 1 full-US view.
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -250,44 +267,101 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp, userI
         setRegionState(nextRegion);
         setFocusRegion({ ...nextRegion, key: `user-${Date.now()}` });
         setUserLocation({ latitude, longitude });
-        lastFetchedCenterRef.current = { latitude, longitude };
-        runDiscovery(latitude, longitude);
       } catch (err) {
         console.warn('Could not get current location:', err.message);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Feed's per-post state badge navigates here with { state, timestamp }.
+  // Feed's per-post state badge navigates here with a course to focus on
+  // (see FeedScreen.handleStatePress). If the post didn't have stored
+  // coordinates, look the course up by name via the Golf Course API before
+  // dropping the pin.
   useEffect(() => {
-    if (!routeState || !stateCenters[routeState]) return;
-    const center = stateCenters[routeState];
-    const nextRegion = {
-      latitude: center.lat,
-      longitude: center.lng,
-      latitudeDelta: USER_LOCATION_FOCUS_DELTA,
-      longitudeDelta: USER_LOCATION_FOCUS_DELTA,
+    if (!routeFocusCourse) return;
+    let cancelled = false;
+
+    (async () => {
+      let course = routeFocusCourse;
+      if (course.lat == null || course.lng == null) {
+        try {
+          const results = await searchCourses(course.name);
+          const match =
+            results.find(
+              (c) => c.state && course.state && c.state.toUpperCase() === course.state.toUpperCase() && c.lat != null
+            ) ?? results.find((c) => c.lat != null && c.lng != null);
+          if (match) {
+            course = { ...match, id: course.id ?? match.id, name: course.name || match.name };
+          }
+        } catch (err) {
+          console.error(`[useCourseMapData] course lookup failed for "${course.name}":`, err.message);
+        }
+      }
+      if (cancelled || course.lat == null || course.lng == null) return;
+
+      const nextRegion = {
+        latitude: course.lat,
+        longitude: course.lng,
+        latitudeDelta: SEARCH_FOCUS_DELTA,
+        longitudeDelta: SEARCH_FOCUS_DELTA,
+      };
+      setRegionState(nextRegion);
+      setFocusRegion({ ...nextRegion, key: `feed-${course.id ?? course.name}-${routeTimestamp}` });
+      handleSelectCourse(course);
+    })();
+
+    return () => {
+      cancelled = true;
     };
-    setRegionState(nextRegion);
-    setFocusRegion({ ...nextRegion, key: `${routeState}-${routeTimestamp}` });
-    lastFetchedCenterRef.current = { latitude: center.lat, longitude: center.lng };
-    runDiscovery(center.lat, center.lng);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeState, routeTimestamp]);
+  }, [routeFocusCourse, routeTimestamp]);
+
+  const currentStateCourses = useMemo(
+    () => (currentStateAbbr ? stateCourseCache[currentStateAbbr]?.courses ?? [] : []),
+    [currentStateAbbr, stateCourseCache]
+  );
+
+  const visibleCourses = useMemo(() => {
+    let base;
+    if (filter === MAP_FILTERS.PLAYED) {
+      base = myCoursesList;
+    } else if (zoomLevel === ZOOM_LEVEL.COUNTRY) {
+      base = [];
+    } else if (zoomLevel === ZOOM_LEVEL.STATE) {
+      base = currentStateCourses;
+    } else {
+      base = coursesInBounds(currentStateCourses, region);
+    }
+
+    // Always keep the selected/focused course pinned and visible — a search
+    // result or a course opened from the feed may sit outside the currently
+    // loaded state's course list or the culled viewport.
+    if (selectedCourse && filter !== MAP_FILTERS.PLAYED && !base.some((c) => c.id === selectedCourse.id)) {
+      base = [...base, selectedCourse];
+    }
+    return base;
+  }, [filter, myCoursesList, zoomLevel, currentStateCourses, region, selectedCourse]);
+
+  const handleSelectStateMarker = useCallback(
+    (abbr) => {
+      const center = stateCenters[abbr];
+      if (!center) return;
+      const nextRegion = {
+        latitude: center.lat,
+        longitude: center.lng,
+        latitudeDelta: STATE_FOCUS_DELTA,
+        longitudeDelta: STATE_FOCUS_DELTA,
+      };
+      setRegionState(nextRegion);
+      setFocusRegion({ ...nextRegion, key: `state-${abbr}-${Date.now()}` });
+      loadStateAndAnnounce(abbr);
+    },
+    [loadStateAndAnnounce]
+  );
 
   const setRegion = useCallback((nextRegion) => {
     setRegionState(nextRegion);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    const last = lastFetchedCenterRef.current;
-    if (last && distance(last, nextRegion) < MIN_REFETCH_DISTANCE) return;
-
-    debounceRef.current = setTimeout(() => {
-      lastFetchedCenterRef.current = { latitude: nextRegion.latitude, longitude: nextRegion.longitude };
-      runDiscovery(nextRegion.latitude, nextRegion.longitude);
-    }, PAN_DISCOVERY_DEBOUNCE_MS);
-  }, [runDiscovery]);
+  }, []);
 
   const handleSelectCourse = useCallback((course) => {
     setSelectedCourse(course);
@@ -354,7 +428,6 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp, userI
   const handleSelectSearchResult = useCallback((course) => {
     clearSearch();
     if (course.lat != null && course.lng != null) {
-      mergeCourses([course]);
       const nextRegion = {
         latitude: course.lat,
         longitude: course.lng,
@@ -363,10 +436,9 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp, userI
       };
       setRegionState(nextRegion);
       setFocusRegion({ ...nextRegion, key: `search-${course.id}-${Date.now()}` });
-      lastFetchedCenterRef.current = { latitude: course.lat, longitude: course.lng };
     }
     handleSelectCourse(course);
-  }, [clearSearch, mergeCourses, handleSelectCourse]);
+  }, [clearSearch, handleSelectCourse]);
 
   const goToCourseDetail = useCallback(() => {
     if (!selectedCourse || !navigation) return;
@@ -384,10 +456,14 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp, userI
     region,
     setRegion,
     focusRegion,
-    visibleStates,
+    zoomLevel,
+    stateMarkers,
+    currentStateAbbr,
+    currentStateName: currentStateAbbr ? stateCenters[currentStateAbbr].name : null,
+    currentStateLoading,
+    countBanner,
+    handleSelectStateMarker,
     visibleCourses,
-    geocodingStates,
-    discovering,
     quotaExceeded,
     locationDenied,
     selectedCourse,
