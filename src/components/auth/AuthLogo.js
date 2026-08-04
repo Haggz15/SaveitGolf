@@ -1,21 +1,21 @@
 import { View, Text, StyleSheet } from 'react-native';
-import Svg, {
-  Circle,
-  Ellipse,
-  Polygon,
-  Rect,
-  Defs,
-  RadialGradient,
-  Stop,
-  Text as SvgText,
-} from 'react-native-svg';
+import Svg, { Circle, Ellipse, Polygon, Rect, Defs, RadialGradient, Stop } from 'react-native-svg';
+import { useFonts } from 'expo-font';
+import DancingScriptBold from '../../../assets/fonts/DancingScript-Bold.ttf';
 
-// Native SVG coordinate space — text is authored at its true size (46 / 52)
-// in this space, then the whole mark is scaled down to LOGO_DISPLAY_WIDTH
-// when rendered so it reads correctly at auth-screen scale.
+// The "Save it" / "Golf" wordmark is rendered as RN <Text> (below), not SVG
+// <Text>, and the font is bundled locally and loaded via expo-font here —
+// rather than relying on the app-wide @expo-google-fonts Google Fonts
+// loader — so it renders correctly on web regardless of network conditions.
+const SCRIPT_FONT = 'DancingScript-Bold';
+
+// Native SVG coordinate space — the ball art is authored in this space, then
+// scaled down to LOGO_DISPLAY_WIDTH when rendered so it reads correctly at
+// auth-screen scale. The wordmark overlay (below) is sized directly in
+// display pixels to match the requested fontSize/color spec.
 const LOGO_WIDTH = 304;
 const LOGO_HEIGHT = 441;
-const LOGO_DISPLAY_WIDTH = 130;
+const LOGO_DISPLAY_WIDTH = 250;
 const LOGO_DISPLAY_HEIGHT = Math.round(LOGO_HEIGHT * (LOGO_DISPLAY_WIDTH / LOGO_WIDTH));
 
 const BALL_CX = 152;
@@ -75,30 +75,6 @@ function GolfBallMark() {
       {/* Radial gradient shine overlay */}
       <Circle cx={BALL_CX} cy={BALL_CY} r={BALL_R} fill="url(#ballShine)" />
 
-      {/* "Save it" — upper half of the ball */}
-      <SvgText
-        x={BALL_CX}
-        y={110}
-        fontFamily="DancingScript_700Bold"
-        fontSize={46}
-        fill="#0d1f3c"
-        textAnchor="middle"
-      >
-        Save it
-      </SvgText>
-
-      {/* "Golf" — lower half of the ball */}
-      <SvgText
-        x={BALL_CX}
-        y={209}
-        fontFamily="DancingScript_700Bold"
-        fontSize={52}
-        fill="#c0001a"
-        textAnchor="middle"
-      >
-        Golf
-      </SvgText>
-
       {/* Push pin — round dome cap */}
       <Ellipse cx={BALL_CX} cy={315} rx={57} ry={38} fill={PIN_GREEN} stroke={PIN_GREEN_DARK} strokeWidth={1} />
 
@@ -125,9 +101,18 @@ function GolfBallMark() {
 // tagline underneath. Sized to read as the app's mark at the top of the
 // Login and Sign Up screens.
 export default function AuthLogo() {
+  const [fontsLoaded] = useFonts({ [SCRIPT_FONT]: DancingScriptBold });
+  // Falls back to the system font for one frame while the local TTF loads,
+  // rather than hiding the whole logo — the swap to script is unnoticeable.
+  const scriptFont = fontsLoaded ? SCRIPT_FONT : undefined;
+
   return (
     <View style={styles.container}>
-      <GolfBallMark />
+      <View style={styles.ballWrap}>
+        <GolfBallMark />
+        <Text style={[styles.saveIt, scriptFont && { fontFamily: scriptFont }]}>Save it</Text>
+        <Text style={[styles.golf, scriptFont && { fontFamily: scriptFont }]}>Golf</Text>
+      </View>
       <Text style={styles.tagline}>DISCOVER · PLAY · SAVE IT</Text>
     </View>
   );
@@ -137,6 +122,32 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  ballWrap: {
+    width: LOGO_DISPLAY_WIDTH,
+    height: LOGO_DISPLAY_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveIt: {
+    position: 'absolute',
+    top: 60,
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    fontSize: 38,
+    lineHeight: 46,
+    color: '#0d1f3c',
+  },
+  golf: {
+    position: 'absolute',
+    top: 136,
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    fontSize: 44,
+    lineHeight: 52,
+    color: '#c0001a',
   },
   tagline: {
     fontFamily: 'Cinzel_700Bold',

@@ -8,6 +8,8 @@ import FriendSearchBar from '../components/map/FriendSearchBar';
 import FilterPills from '../components/map/FilterPills';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
+import MapErrorBoundary from '../components/map/MapErrorBoundary';
+import SilentMarkerBoundary from '../components/map/SilentMarkerBoundary';
 import { MapWarningBanner, MapLoadingBanner, MapSuccessBanner } from '../components/map/MapMessageBanner';
 import colors from '../theme/colors';
 import { darkSlateMapStyle } from '../theme/mapStyle';
@@ -20,9 +22,33 @@ import {
 } from '../hooks/useCourseMapData';
 import { useAuth } from '../context/AuthContext';
 import { getFriendPlayedCourses } from '../services/friendMap';
+import { filterCoursesWithValidCoordinates } from '../utils/mapCoords';
 
 const ZOOM_MIN_DELTA = 0.01;
 const ZOOM_MAX_DELTA = MAX_MAP_DELTA;
+
+// react-native-maps fires marker/map event handlers outside a normal React
+// render pass — an error thrown inside one can leave the native map view in
+// a broken state rather than being caught the usual way. Catching and
+// logging here keeps a bad tap from freezing the map.
+function guard(fn) {
+  return (...args) => {
+    try {
+      return fn(...args);
+    } catch (err) {
+      console.error('[MapScreen] map event handler threw:', err);
+    }
+  };
+}
+
+// A course with no (or invalid) coordinates can't be placed as a marker —
+// rendering one with a null/NaN/out-of-range lat/lng crashes the map, so
+// it's filtered out here as a last line of defense and logged (courses are
+// already filtered when loaded in useCourseMapData, but this keeps the map
+// safe against any other source of course data too, e.g. friendFilter).
+function withCoords(courses, context) {
+  return filterCoursesWithValidCoordinates(courses, context);
+}
 
 function CourseMarker({ course, highlighted, onPress }) {
   return (
@@ -219,31 +245,36 @@ export default function MapScreen({ navigation, route }) {
       )}
 
       <View style={styles.mapContainer}>
-        <MapView
-          ref={mapRef}
-          style={styles.map}
-          provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-          userInterfaceStyle="dark"
-          customMapStyle={Platform.OS === 'android' ? darkSlateMapStyle : undefined}
-          initialRegion={US_INITIAL_REGION}
-          showsUserLocation={!locationDenied}
-          onRegionChangeComplete={setRegion}
-        >
-          {!friendFilter && filter !== MAP_FILTERS.PLAYED && zoomLevel === ZOOM_LEVEL.COUNTRY
-            ? stateMarkers.map((state) => (
-                <StateMarker key={state.abbr} state={state} onPress={handleSelectStateMarker} />
-              ))
-            : (friendFilter ? friendFilter.courses : visibleCourses).map((course) => (
-                <CourseMarker
-                  key={course.id}
-                  course={course}
-                  highlighted={selectedCourse?.id === course.id}
-                  onPress={handleSelectCourse}
-                />
-              ))}
-        </MapView>
+        <MapErrorBoundary>
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+            userInterfaceStyle="dark"
+            customMapStyle={Platform.OS === 'android' ? darkSlateMapStyle : undefined}
+            initialRegion={US_INITIAL_REGION}
+            showsUserLocation={!locationDenied}
+            onRegionChangeComplete={guard(setRegion)}
+          >
+            {!friendFilter && filter !== MAP_FILTERS.PLAYED && zoomLevel === ZOOM_LEVEL.COUNTRY
+              ? stateMarkers.map((state) => (
+                  <SilentMarkerBoundary key={state.abbr}>
+                    <StateMarker state={state} onPress={guard(handleSelectStateMarker)} />
+                  </SilentMarkerBoundary>
+                ))
+              : withCoords(friendFilter ? friendFilter.courses : visibleCourses, 'render markers').map((course) => (
+                  <SilentMarkerBoundary key={course.id}>
+                    <CourseMarker
+                      course={course}
+                      highlighted={selectedCourse?.id === course.id}
+                      onPress={guard(handleSelectCourse)}
+                    />
+                  </SilentMarkerBoundary>
+                ))}
+          </MapView>
+        </MapErrorBoundary>
 
-        <ZoomControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} />
+        <ZoomControls onZoomIn={guard(handleZoomIn)} onZoomOut={guard(handleZoomOut)} />
 
         {filter === MAP_FILTERS.PLAYED ? (
           myCoursesLoading && <MapLoadingBanner>Loading your courses…</MapLoadingBanner>

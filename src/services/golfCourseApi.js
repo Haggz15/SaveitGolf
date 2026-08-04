@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { hasValidCoordinates } from '../utils/mapCoords';
 
 const API_KEY = Constants.expoConfig?.extra?.golfCourseApiKey;
 const BASE_URL = 'https://api.golfcourseapi.com/v1';
@@ -93,7 +94,7 @@ async function apiFetch(path) {
 
 export async function searchCourses(query) {
   const data = await apiFetch(`/search?search_query=${encodeURIComponent(query)}`);
-  return (data.courses ?? []).map(normalizeCourse);
+  return (data?.courses ?? []).map(normalizeCourse);
 }
 
 // Course detail lookups are cached in memory for the life of the app — the
@@ -107,25 +108,52 @@ export async function getCourseById(id) {
     return courseDetailCache.get(key);
   }
   const data = await apiFetch(`/courses/${key}`);
+  if (!data?.course) {
+    throw new Error(`golfcourseapi.com returned no course for id ${key}`);
+  }
   const course = normalizeCourse(data.course);
   courseDetailCache.set(key, course);
   return course;
 }
 
+// True for exactly one course object, the first one this session sees, so
+// engineers can check devtools for the exact field names golfcourseapi.com
+// is sending without wading through a full response dump on every request.
+let loggedSampleCourse = false;
+
 // The API has no public/private field, so that's deliberately absent here
 // rather than guessed (see CoursePopupCard's name-based estimate instead).
-// It does return location.latitude/longitude directly, so those are used
-// as-is — no need to re-geocode API-sourced courses via geocoding.js.
+// Coordinates are documented as location.latitude/location.longitude, but
+// golfcourseapi.com (a) frequently omits them for a course entirely and (b)
+// isn't contractually guaranteed to always nest them under `location` —
+// course.latitude/course.longitude and course.lat/course.lng are checked as
+// fallbacks in case the shape varies by endpoint or account tier.
 function normalizeCourse(course) {
+  if (!loggedSampleCourse && course) {
+    loggedSampleCourse = true;
+    console.log('[golfcourseapi] sample raw course object (field names):', JSON.stringify(course));
+  }
+
+  const rawLat = course?.location?.latitude ?? course?.latitude ?? course?.lat ?? null;
+  const rawLng = course?.location?.longitude ?? course?.longitude ?? course?.lng ?? null;
+  const validCoords = hasValidCoordinates(rawLat, rawLng);
+  if (rawLat != null && rawLng != null && !validCoords) {
+    console.warn(
+      `[golfcourseapi] course "${course?.club_name || course?.course_name || course?.id}" has out-of-range or non-numeric coordinates:`,
+      rawLat,
+      rawLng
+    );
+  }
+
   return {
-    id: String(course.id),
-    name: course.club_name || course.course_name,
-    address: course.location?.address ?? null,
-    city: course.location?.city ?? null,
-    state: course.location?.state ?? null,
-    country: course.location?.country ?? null,
-    lat: course.location?.latitude ?? null,
-    lng: course.location?.longitude ?? null,
-    tees: course.tees ?? null,
+    id: String(course?.id),
+    name: course?.club_name || course?.course_name,
+    address: course?.location?.address ?? null,
+    city: course?.location?.city ?? null,
+    state: course?.location?.state ?? null,
+    country: course?.location?.country ?? null,
+    lat: validCoords ? Number(rawLat) : null,
+    lng: validCoords ? Number(rawLng) : null,
+    tees: course?.tees ?? null,
   };
 }

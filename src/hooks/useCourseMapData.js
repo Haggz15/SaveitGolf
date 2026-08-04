@@ -4,6 +4,7 @@ import { stateCenters, allStateAbbreviations } from '../data/courses';
 import { getCourseById, searchCourses, RateLimitError } from '../services/golfCourseApi';
 import { getCachedStateCourses, persistStateCourses } from '../services/stateCourses';
 import { getMyCourses } from '../services/myCourses';
+import { courseHasValidCoordinates, filterCoursesWithValidCoordinates } from '../utils/mapCoords';
 
 // Zoomed-out default view — the whole contiguous US, so the map opens on the
 // Level 1 "50 state pins, no course data" view described in the map's
@@ -70,7 +71,8 @@ function coursesInBounds(courses, region) {
   const lngMin = region.longitude - region.longitudeDelta / 2;
   const lngMax = region.longitude + region.longitudeDelta / 2;
   return courses.filter(
-    (c) => c.lat != null && c.lat >= latMin && c.lat <= latMax && c.lng >= lngMin && c.lng <= lngMax
+    (c) =>
+      courseHasValidCoordinates(c) && c.lat >= latMin && c.lat <= latMax && c.lng >= lngMin && c.lng <= lngMax
   );
 }
 
@@ -100,6 +102,7 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef(null);
   const searchRequestIdRef = useRef(0);
+  const courseDetailRequestIdRef = useRef(0);
   // "Courses I've Played" pulls from the user's own my_courses table rather
   // than the zoom-level course cache — it's a distinct, user-curated list
   // that may include courses never surfaced by state search, and it
@@ -196,7 +199,13 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
 
         const stateName = stateCenters[abbr].name;
         const results = await searchCourses(stateName);
-        const matches = results.filter((c) => c.state?.toUpperCase() === abbr);
+        const stateMatches = results.filter((c) => c.state?.toUpperCase() === abbr);
+        // The API doesn't always return location.latitude/longitude for a
+        // course — a course with no (or invalid) coordinates can't be placed
+        // as a map marker, and passing null/NaN/out-of-range through to
+        // react-native-maps / react-leaflet crashes the whole map (they
+        // don't guard against it).
+        const matches = filterCoursesWithValidCoordinates(stateMatches, `${abbr} state load`);
         console.log(`[useCourseMapData] ${abbr}: ${matches.length} of ${results.length} search("${stateName}") result(s) matched`);
 
         await persistStateCourses(abbr, matches);
@@ -283,13 +292,14 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
 
     (async () => {
       let course = routeFocusCourse;
-      if (course.lat == null || course.lng == null) {
+      if (!courseHasValidCoordinates(course)) {
         try {
           const results = await searchCourses(course.name);
+          const validResults = results.filter(courseHasValidCoordinates);
           const match =
-            results.find(
-              (c) => c.state && course.state && c.state.toUpperCase() === course.state.toUpperCase() && c.lat != null
-            ) ?? results.find((c) => c.lat != null && c.lng != null);
+            validResults.find(
+              (c) => c.state && course.state && c.state.toUpperCase() === course.state.toUpperCase()
+            ) ?? validResults[0];
           if (match) {
             course = { ...match, id: course.id ?? match.id, name: course.name || match.name };
           }
@@ -297,7 +307,7 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
           console.error(`[useCourseMapData] course lookup failed for "${course.name}":`, err.message);
         }
       }
-      if (cancelled || course.lat == null || course.lng == null) return;
+      if (cancelled || !courseHasValidCoordinates(course)) return;
 
       const nextRegion = {
         latitude: course.lat,
@@ -335,8 +345,15 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
 
     // Always keep the selected/focused course pinned and visible — a search
     // result or a course opened from the feed may sit outside the currently
-    // loaded state's course list or the culled viewport.
-    if (selectedCourse && filter !== MAP_FILTERS.PLAYED && !base.some((c) => c.id === selectedCourse.id)) {
+    // loaded state's course list or the culled viewport. Skip courses with
+    // no coordinates — they can't be placed as a marker and would crash the
+    // underlying map (react-native-maps / react-leaflet don't guard this).
+    if (
+      selectedCourse &&
+      courseHasValidCoordinates(selectedCourse) &&
+      filter !== MAP_FILTERS.PLAYED &&
+      !base.some((c) => c.id === selectedCourse.id)
+    ) {
       base = [...base, selectedCourse];
     }
     return base;
@@ -364,10 +381,14 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
   }, []);
 
   const handleSelectCourse = useCallback((course) => {
+    // Guards against rapid successive marker taps firing overlapping detail
+    // requests — only the latest tap's response is applied.
+    const requestId = ++courseDetailRequestIdRef.current;
     setSelectedCourse(course);
     setSelectedDetail({ loading: true });
     getCourseById(course.id)
       .then((detail) => {
+        if (requestId !== courseDetailRequestIdRef.current) return;
         const primaryTee = detail.tees?.male?.[0] ?? detail.tees?.female?.[0] ?? null;
         setSelectedDetail({
           loading: false,
@@ -376,12 +397,14 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
         });
       })
       .catch((err) => {
+        if (requestId !== courseDetailRequestIdRef.current) return;
         const message = err instanceof RateLimitError ? 'Daily limit reached' : 'Unavailable';
         setSelectedDetail({ loading: false, error: message });
       });
   }, []);
 
   const clearSelectedCourse = useCallback(() => {
+    courseDetailRequestIdRef.current += 1;
     setSelectedCourse(null);
     setSelectedDetail(null);
   }, []);

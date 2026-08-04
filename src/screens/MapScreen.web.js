@@ -10,11 +10,14 @@ import FriendSearchBar from '../components/map/FriendSearchBar';
 import FilterPills from '../components/map/FilterPills';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
+import MapErrorBoundary from '../components/map/MapErrorBoundary';
+import SilentMarkerBoundary from '../components/map/SilentMarkerBoundary';
 import { MapWarningBanner, MapLoadingBanner, MapSuccessBanner } from '../components/map/MapMessageBanner';
 import colors from '../theme/colors';
 import { useCourseMapData, US_INITIAL_REGION, MAP_FILTERS, ZOOM_LEVEL } from '../hooks/useCourseMapData';
 import { useAuth } from '../context/AuthContext';
 import { getFriendPlayedCourses } from '../services/friendMap';
+import { filterCoursesWithValidCoordinates, hasValidCoordinates } from '../utils/mapCoords';
 
 // react-native-maps has no web renderer, so web gets its own map surface here
 // (react-leaflet + dark CARTO tiles) driven by the same useCourseMapData hook
@@ -66,6 +69,29 @@ function buildStateFlagIcon(abbr) {
     iconSize: [STATE_PIN_WIDTH, STATE_PIN_HEIGHT],
     iconAnchor: [8, STATE_PIN_HEIGHT - 4],
   });
+}
+
+// Leaflet fires marker/map event handlers outside React's render cycle —
+// an error thrown inside one doesn't hit a React error boundary the normal
+// way and can leave Leaflet's internal event dispatch in a broken state.
+// Catching and logging here keeps a bad tap from freezing the map.
+function guard(fn) {
+  return (...args) => {
+    try {
+      return fn(...args);
+    } catch (err) {
+      console.error('[MapScreen] map event handler threw:', err);
+    }
+  };
+}
+
+// A course with no (or invalid) coordinates can't be placed as a marker —
+// rendering one with a null/NaN/out-of-range position crashes react-leaflet,
+// so it's filtered out here as a last line of defense and logged (courses
+// are already filtered when loaded in useCourseMapData, but this keeps the
+// map safe against any other source of course data too, e.g. friendFilter).
+function withCoords(courses, context) {
+  return filterCoursesWithValidCoordinates(courses, context);
 }
 
 function regionToZoom(latitudeDelta) {
@@ -149,7 +175,19 @@ export default function MapScreen({ navigation, route }) {
 
   const initialZoom = useMemo(() => regionToZoom(US_INITIAL_REGION.latitudeDelta), []);
   const stateIcons = useMemo(
-    () => Object.fromEntries(stateMarkers.map((state) => [state.abbr, buildStateFlagIcon(state.abbr)])),
+    () =>
+      Object.fromEntries(
+        stateMarkers
+          .map((state) => {
+            try {
+              return [state.abbr, buildStateFlagIcon(state.abbr)];
+            } catch (err) {
+              console.error(`[MapScreen] failed to build pin icon for state "${state.abbr}":`, err);
+              return null;
+            }
+          })
+          .filter(Boolean)
+      ),
     [stateMarkers]
   );
 
@@ -242,57 +280,61 @@ export default function MapScreen({ navigation, route }) {
       )}
 
       <View style={styles.mapContainer}>
-        <MapContainer
-          center={[US_INITIAL_REGION.latitude, US_INITIAL_REGION.longitude]}
-          zoom={initialZoom}
-          zoomControl={false}
-          style={styles.map}
-        >
-          <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            subdomains="abcd"
-            maxZoom={20}
-            attribution='&copy; <a href="https://carto.com/attributions">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          />
+        <MapErrorBoundary>
+          <MapContainer
+            center={[US_INITIAL_REGION.latitude, US_INITIAL_REGION.longitude]}
+            zoom={initialZoom}
+            zoomControl={false}
+            style={styles.map}
+          >
+            <TileLayer
+              url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+              subdomains="abcd"
+              maxZoom={20}
+              attribution='&copy; <a href="https://carto.com/attributions">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            />
 
-          <MapSync mapInstanceRef={mapInstanceRef} onRegionChange={setRegion} focusRegion={focusRegion} />
+            <MapSync mapInstanceRef={mapInstanceRef} onRegionChange={guard(setRegion)} focusRegion={focusRegion} />
 
-          {!friendFilter && filter !== MAP_FILTERS.PLAYED && zoomLevel === ZOOM_LEVEL.COUNTRY
-            ? stateMarkers.map((state) => (
-                <Marker
-                  key={state.abbr}
-                  position={[state.lat, state.lng]}
-                  icon={stateIcons[state.abbr]}
-                  eventHandlers={{ click: () => handleSelectStateMarker(state.abbr) }}
+            {!friendFilter && filter !== MAP_FILTERS.PLAYED && zoomLevel === ZOOM_LEVEL.COUNTRY
+              ? stateMarkers.map((state) => (
+                  <SilentMarkerBoundary key={state.abbr}>
+                    <Marker
+                      position={[state.lat, state.lng]}
+                      icon={stateIcons[state.abbr]}
+                      eventHandlers={{ click: guard(() => handleSelectStateMarker(state.abbr)) }}
+                    />
+                  </SilentMarkerBoundary>
+                ))
+              : withCoords(friendFilter ? friendFilter.courses : visibleCourses, 'render markers').map((course) => (
+                  <SilentMarkerBoundary key={course.id}>
+                    <Marker
+                      position={[course.lat, course.lng]}
+                      icon={selectedCourse?.id === course.id ? highlightedCourseIcon : courseIcon}
+                      zIndexOffset={selectedCourse?.id === course.id ? 1000 : 0}
+                      eventHandlers={{ click: guard(() => handleSelectCourse(course)) }}
+                    />
+                  </SilentMarkerBoundary>
+                ))}
+
+            {userLocation && hasValidCoordinates(userLocation.latitude, userLocation.longitude) && (
+              <>
+                <CircleMarker
+                  center={[userLocation.latitude, userLocation.longitude]}
+                  radius={14}
+                  pathOptions={{ color: 'transparent', fillColor: '#4A90E2', fillOpacity: 0.2 }}
                 />
-              ))
-            : (friendFilter ? friendFilter.courses : visibleCourses).map((course) => (
-                <Marker
-                  key={course.id}
-                  position={[course.lat, course.lng]}
-                  icon={selectedCourse?.id === course.id ? highlightedCourseIcon : courseIcon}
-                  zIndexOffset={selectedCourse?.id === course.id ? 1000 : 0}
-                  eventHandlers={{ click: () => handleSelectCourse(course) }}
+                <CircleMarker
+                  center={[userLocation.latitude, userLocation.longitude]}
+                  radius={7}
+                  pathOptions={{ color: '#ffffff', weight: 2, fillColor: '#4A90E2', fillOpacity: 1 }}
                 />
-              ))}
+              </>
+            )}
+          </MapContainer>
+        </MapErrorBoundary>
 
-          {userLocation && (
-            <>
-              <CircleMarker
-                center={[userLocation.latitude, userLocation.longitude]}
-                radius={14}
-                pathOptions={{ color: 'transparent', fillColor: '#4A90E2', fillOpacity: 0.2 }}
-              />
-              <CircleMarker
-                center={[userLocation.latitude, userLocation.longitude]}
-                radius={7}
-                pathOptions={{ color: '#ffffff', weight: 2, fillColor: '#4A90E2', fillOpacity: 1 }}
-              />
-            </>
-          )}
-        </MapContainer>
-
-        <ZoomControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} />
+        <ZoomControls onZoomIn={guard(handleZoomIn)} onZoomOut={guard(handleZoomOut)} />
 
         {filter === MAP_FILTERS.PLAYED ? (
           myCoursesLoading && <MapLoadingBanner>Loading your courses…</MapLoadingBanner>
