@@ -196,9 +196,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   columnLabel: {
-    color: colors.muted,
-    fontSize: 10,
+    color: '#6a8ab0',
+    fontSize: 11,
     fontWeight: '700',
+    textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 6,
   },
@@ -210,7 +211,7 @@ const styles = StyleSheet.create({
   },
   holeNumber: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   columnTotalRow: {
@@ -223,24 +224,27 @@ const styles = StyleSheet.create({
     borderTopColor: colors.navyBorder,
   },
   columnTotalLabel: {
-    color: colors.muted,
-    fontSize: 10,
+    color: '#6a8ab0',
+    fontSize: 11,
     fontWeight: '700',
+    textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   columnTotalValue: {
     color: colors.white,
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
   },
   scoreBadge: {
     alignItems: 'center',
     justifyContent: 'center',
   },
   scoreNumber: {
-    fontSize: 18,
-    fontWeight: '800',
-    minWidth: 18,
+    fontSize: 16,
+    fontWeight: '700',
+    width: 24,
+    height: 24,
+    lineHeight: 24,
     textAlign: 'center',
   },
   circleRing: {
@@ -281,14 +285,14 @@ const styles = StyleSheet.create({
   },
   totalScore: {
     color: colors.white,
-    fontSize: 56,
-    fontWeight: '900',
-    lineHeight: 58,
+    fontSize: 32,
+    fontWeight: '700',
+    lineHeight: 34,
   },
   totalDiff: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
-    marginBottom: 8,
+    marginBottom: 5,
   },
   watermarkWrap: {
     position: 'absolute',

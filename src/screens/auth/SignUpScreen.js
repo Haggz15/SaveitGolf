@@ -75,6 +75,7 @@ export default function SignUpScreen({ navigation }) {
             keyboardType="email-address"
             textContentType="emailAddress"
             error={errors.email}
+            fieldStyle={styles.inputField}
           />
           <AuthTextField
             placeholder="Password"
@@ -83,6 +84,7 @@ export default function SignUpScreen({ navigation }) {
             secureTextEntry
             textContentType="newPassword"
             error={errors.password}
+            fieldStyle={styles.inputField}
           />
           <AuthTextField
             placeholder="Confirm password"
@@ -91,6 +93,7 @@ export default function SignUpScreen({ navigation }) {
             secureTextEntry
             textContentType="newPassword"
             error={errors.confirmPassword}
+            fieldStyle={styles.inputField}
           />
 
           {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}
@@ -131,7 +134,7 @@ export default function SignUpScreen({ navigation }) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.navy,
+    backgroundColor: '#111111',
   },
   content: {
     flexGrow: 1,
@@ -142,18 +145,22 @@ const styles = StyleSheet.create({
   },
   headline: {
     color: colors.white,
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: 20,
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
   },
   subtext: {
-    color: colors.muted,
+    color: '#636366',
     fontSize: 12,
-    marginTop: 4,
+    marginTop: 12,
     marginBottom: 28,
   },
   section: {
     width: '100%',
+  },
+  inputField: {
+    backgroundColor: '#1c1c1e',
+    borderColor: '#2c2c2e',
   },
   formError: {
     color: colors.red,
@@ -178,7 +185,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   legal: {
-    color: colors.muted,
+    color: '#636366',
     fontSize: 11,
     textAlign: 'center',
     marginTop: 14,
@@ -193,7 +200,7 @@ const styles = StyleSheet.create({
     marginTop: 32,
   },
   footerText: {
-    color: colors.muted,
+    color: '#636366',
     fontSize: 13,
   },
   footerLink: {

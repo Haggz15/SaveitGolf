@@ -8,13 +8,14 @@ export default function AuthTextField({
   error,
   secureTextEntry,
   containerStyle,
+  fieldStyle,
   ...inputProps
 }) {
   const [hidden, setHidden] = useState(!!secureTextEntry);
 
   return (
     <View style={[styles.wrapper, containerStyle]}>
-      <View style={[styles.container, error && styles.containerError]}>
+      <View style={[styles.container, fieldStyle, error && styles.containerError]}>
         {prefix ? <Text style={styles.prefix}>{prefix}</Text> : null}
         <TextInput
           style={styles.input}

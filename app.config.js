@@ -69,7 +69,12 @@ module.exports = {
       [
         'expo-image-picker',
         {
-          photosPermission: 'SaveitGolf uses your photo library so you can add a photo to your scorecard.',
+          photosPermission:
+            'SaveitGolf uses your photo library so you can add a photo or video to your scorecard and posts.',
+          cameraPermission:
+            'SaveitGolf uses your camera so you can take a new photo or video to share on your scorecard and posts.',
+          microphonePermission:
+            'SaveitGolf uses your microphone to record sound when you take a new video.',
         },
       ],
       'expo-video',

@@ -14,12 +14,36 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import Header from '../components/Header';
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { createPost } from '../services/posts';
 import { searchCourses } from '../services/golfCourseApi';
 import { notifyFollowersOfPost } from '../services/notifications';
+
+// Static (paused) preview of the picked video with a play-button overlay —
+// the player never calls .play(), so the first frame doubles as a thumbnail.
+function VideoThumbnail({ uri }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.muted = true;
+  });
+
+  return (
+    <View style={styles.photoPreview}>
+      <VideoView
+        player={player}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        nativeControls={false}
+        fullscreenOptions={{ enable: false }}
+      />
+      <View style={styles.playButtonOverlay}>
+        <Ionicons name="play" size={26} color={colors.white} />
+      </View>
+    </View>
+  );
+}
 
 const SEARCH_DEBOUNCE_MS = 400;
 
@@ -67,11 +91,44 @@ export default function PostScreen({ navigation }) {
     setCourseResults([]);
   };
 
-  async function handlePickMedia() {
-    if (Platform.OS === 'web') {
-      Alert.alert('Not available', 'Adding a photo or video is only available in the mobile app.');
-      return;
+  function handlePickMediaWeb() {
+    // Created on demand rather than kept mounted: an <input type="file">
+    // opens the native file/camera-roll picker on .click() whether or not
+    // it's attached to the DOM, so there's nothing to render or clean up.
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*,video/*';
+    input.onchange = (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const uri = URL.createObjectURL(file);
+      setMedia({ uri, type: file.type.startsWith('video') ? 'video' : 'photo' });
+    };
+    input.click();
+  }
+
+  async function handleTakeMedia() {
+    try {
+      const ImagePicker = require('expo-image-picker');
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow camera access to take a photo or video.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        quality: 0.9,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        setMedia({ uri: asset.uri, type: asset.type === 'video' ? 'video' : 'photo' });
+      }
+    } catch (err) {
+      Alert.alert('Something went wrong', 'Could not open your camera. Please try again.');
     }
+  }
+
+  async function handleChooseFromLibrary() {
     try {
       const ImagePicker = require('expo-image-picker');
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -80,8 +137,7 @@ export default function PostScreen({ navigation }) {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images', 'videos'],
-        allowsEditing: false,
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
         quality: 0.9,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -91,6 +147,18 @@ export default function PostScreen({ navigation }) {
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not open your photo library. Please try again.');
     }
+  }
+
+  function handlePickMedia() {
+    if (Platform.OS === 'web') {
+      handlePickMediaWeb();
+      return;
+    }
+    Alert.alert('Add photo or video', undefined, [
+      { text: 'Take Photo/Video', onPress: handleTakeMedia },
+      { text: 'Choose from Library', onPress: handleChooseFromLibrary },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   }
 
   async function handleSharePost() {
@@ -150,10 +218,7 @@ export default function PostScreen({ navigation }) {
         <TouchableOpacity style={styles.photoUpload} onPress={handlePickMedia} activeOpacity={0.85}>
           {media ? (
             media.type === 'video' ? (
-              <View style={styles.videoPreview}>
-                <Ionicons name="videocam" size={28} color={colors.white} />
-                <Text style={styles.videoPreviewText}>Video selected</Text>
-              </View>
+              <VideoThumbnail uri={media.uri} />
             ) : (
               <Image source={{ uri: media.uri }} style={styles.photoPreview} resizeMode="cover" />
             )
@@ -290,15 +355,11 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  videoPreview: {
+  playButtonOverlay: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  videoPreviewText: {
-    color: colors.white,
-    marginTop: 8,
-    fontSize: 13,
-    fontWeight: '600',
+    backgroundColor: 'rgba(6, 14, 26, 0.35)',
   },
   label: {
     color: colors.muted,

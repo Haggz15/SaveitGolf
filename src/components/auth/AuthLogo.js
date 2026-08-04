@@ -10,12 +10,17 @@ import Svg, {
   Text as SvgText,
 } from 'react-native-svg';
 
-const LOGO_WIDTH = 160;
-const LOGO_HEIGHT = 232;
+// Native SVG coordinate space — text is authored at its true size (46 / 52)
+// in this space, then the whole mark is scaled down to LOGO_DISPLAY_WIDTH
+// when rendered so it reads correctly at auth-screen scale.
+const LOGO_WIDTH = 304;
+const LOGO_HEIGHT = 441;
+const LOGO_DISPLAY_WIDTH = 130;
+const LOGO_DISPLAY_HEIGHT = Math.round(LOGO_HEIGHT * (LOGO_DISPLAY_WIDTH / LOGO_WIDTH));
 
-const BALL_CX = 80;
-const BALL_CY = 76;
-const BALL_R = 64;
+const BALL_CX = 152;
+const BALL_CY = 144;
+const BALL_R = 122;
 
 const PIN_GREEN = '#4dd860';
 const PIN_GREEN_LIGHT = '#8bf09a';
@@ -46,7 +51,11 @@ const DIMPLES = generateDimples(BALL_CX, BALL_CY, BALL_R);
 
 function GolfBallMark() {
   return (
-    <Svg width={LOGO_WIDTH} height={LOGO_HEIGHT} viewBox={`0 0 ${LOGO_WIDTH} ${LOGO_HEIGHT}`}>
+    <Svg
+      width={LOGO_DISPLAY_WIDTH}
+      height={LOGO_DISPLAY_HEIGHT}
+      viewBox={`0 0 ${LOGO_WIDTH} ${LOGO_HEIGHT}`}
+    >
       <Defs>
         <RadialGradient id="ballShine" cx="34%" cy="28%" r="70%">
           <Stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
@@ -69,9 +78,9 @@ function GolfBallMark() {
       {/* "Save it" — upper half of the ball */}
       <SvgText
         x={BALL_CX}
-        y={58}
+        y={110}
         fontFamily="DancingScript_700Bold"
-        fontSize={24}
+        fontSize={46}
         fill="#0d1f3c"
         textAnchor="middle"
       >
@@ -81,20 +90,32 @@ function GolfBallMark() {
       {/* "Golf" — lower half of the ball */}
       <SvgText
         x={BALL_CX}
-        y={110}
+        y={209}
         fontFamily="DancingScript_700Bold"
-        fontSize={28}
+        fontSize={52}
         fill="#c0001a"
         textAnchor="middle"
       >
         Golf
       </SvgText>
 
-      {/* Push pin */}
-      <Ellipse cx={BALL_CX} cy={166} rx={30} ry={20} fill={PIN_GREEN} stroke={PIN_GREEN_DARK} strokeWidth={1} />
-      <Ellipse cx={70} cy={159} rx={10} ry={7} fill={PIN_GREEN_LIGHT} opacity={0.6} />
-      <Rect x={70} y={182} width={20} height={14} fill={PIN_GREEN_DARK} />
-      <Polygon points="70,196 90,196 80,222" fill={NEEDLE_COLOR} />
+      {/* Push pin — round dome cap */}
+      <Ellipse cx={BALL_CX} cy={315} rx={57} ry={38} fill={PIN_GREEN} stroke={PIN_GREEN_DARK} strokeWidth={1} />
+
+      {/* Subtle shadow where the dome meets the neck */}
+      <Ellipse cx={BALL_CX} cy={349} rx={48} ry={8} fill="#1a1a1a" opacity={0.18} />
+
+      {/* Upper-left highlight on the dome */}
+      <Ellipse cx={133} cy={302} rx={19} ry={13} fill={PIN_GREEN_LIGHT} opacity={0.6} />
+
+      {/* Neck */}
+      <Rect x={133} y={346} width={38} height={27} rx={4} ry={4} fill={PIN_GREEN_DARK} />
+
+      {/* Thin dark rect behind the needle for depth */}
+      <Rect x={148} y={372} width={8} height={54} fill={NEEDLE_COLOR} opacity={0.35} />
+
+      {/* Needle point */}
+      <Polygon points="133,372 171,372 152,422" fill={NEEDLE_COLOR} />
     </Svg>
   );
 }

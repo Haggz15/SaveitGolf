@@ -74,6 +74,7 @@ export default function LogInScreen({ navigation }) {
             onChangeText={setEmail}
             keyboardType="email-address"
             textContentType="emailAddress"
+            fieldStyle={styles.inputField}
           />
           <AuthTextField
             placeholder="Password"
@@ -81,6 +82,7 @@ export default function LogInScreen({ navigation }) {
             onChangeText={setPassword}
             secureTextEntry
             textContentType="password"
+            fieldStyle={styles.inputField}
           />
 
           {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}
@@ -119,7 +121,7 @@ export default function LogInScreen({ navigation }) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.navy,
+    backgroundColor: '#111111',
   },
   content: {
     flexGrow: 1,
@@ -130,18 +132,22 @@ const styles = StyleSheet.create({
   },
   headline: {
     color: colors.white,
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: 20,
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
   },
   subtext: {
-    color: colors.muted,
+    color: '#636366',
     fontSize: 12,
-    marginTop: 4,
+    marginTop: 12,
     marginBottom: 28,
   },
   section: {
     width: '100%',
+  },
+  inputField: {
+    backgroundColor: '#1c1c1e',
+    borderColor: '#2c2c2e',
   },
   formError: {
     color: colors.red,
@@ -170,7 +176,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   forgotLink: {
-    color: colors.blue,
+    color: '#0a84ff',
     fontSize: 13,
     fontWeight: '600',
   },
@@ -183,10 +189,10 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: colors.navyBorder,
+    backgroundColor: '#2c2c2e',
   },
   dividerText: {
-    color: colors.muted,
+    color: '#636366',
     fontSize: 12,
     marginHorizontal: 10,
   },
@@ -195,7 +201,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   footerText: {
-    color: colors.muted,
+    color: '#636366',
     fontSize: 13,
   },
   footerLink: {
