@@ -165,22 +165,22 @@ function PostSlide({
         <TouchableOpacity style={styles.railButton} onPress={toggleLike}>
           <Ionicons
             name={liked ? 'heart' : 'heart-outline'}
-            size={20}
+            size={24}
             color={liked ? colors.red : 'rgba(255,255,255,0.85)'}
           />
           <Text style={styles.railText}>{likeCount}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.railButton} onPress={() => onCommentPress(post)}>
-          <Ionicons name="chatbubble-outline" size={20} color="rgba(255,255,255,0.85)" />
+          <Ionicons name="chatbubble-outline" size={24} color="rgba(255,255,255,0.85)" />
           <Text style={styles.railText}>{post.comments}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.railButton} onPress={handleShare}>
-          <Ionicons name="share-outline" size={20} color="rgba(255,255,255,0.85)" />
+          <Ionicons name="share-outline" size={24} color="rgba(255,255,255,0.85)" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.railButton} onPress={handleToggleSave}>
           <Ionicons
             name={saved ? 'bookmark' : 'bookmark-outline'}
-            size={20}
+            size={24}
             color={saved ? colors.gold : 'rgba(255,255,255,0.85)'}
           />
         </TouchableOpacity>
@@ -218,7 +218,7 @@ function PostSlide({
 
 export default function FeedScreen({ navigation }) {
   const { user } = useAuth();
-  const [activeFilter, setActiveFilter] = useState('Following');
+  const [activeFilter, setActiveFilter] = useState('Nearby');
   const [posts, setPosts] = useState([]);
   const [likedPostIds, setLikedPostIds] = useState(new Set());
   const [savedPostIds, setSavedPostIds] = useState(new Set());
@@ -559,11 +559,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 12,
     left: 14,
-    maxWidth: 170,
+    maxWidth: 175,
   },
   topLeftCourseName: {
     fontFamily: 'Cinzel_700Bold',
-    fontSize: 13,
+    fontSize: 15,
     color: colors.white,
     textShadowColor: 'rgba(0, 0, 0, 0.7)',
     textShadowOffset: { width: 0, height: 1 },
@@ -603,7 +603,7 @@ const styles = StyleSheet.create({
   },
   railText: {
     color: 'rgba(255,255,255,0.85)',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
     marginTop: 3,
   },

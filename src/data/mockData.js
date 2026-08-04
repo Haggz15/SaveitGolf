@@ -161,13 +161,6 @@ export const scorecard = {
   ],
 };
 
-export const wantToPlay = [
-  { id: 'w1', name: 'Augusta National', location: 'Augusta, GA' },
-  { id: 'w2', name: 'Cypress Point', location: 'Pebble Beach, CA' },
-  { id: 'w3', name: 'St Andrews (Old Course)', location: 'Scotland' },
-  { id: 'w4', name: 'Shinnecock Hills', location: 'Southampton, NY' },
-];
-
 export const postFilters = ['All', 'Pictures', 'Videos', 'Swings'];
 
 export const courseDetail = {

@@ -12,7 +12,7 @@ import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
 import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessageBanner';
 import colors from '../theme/colors';
-import { useCourseMapData, NORTHEAST_US_INITIAL_REGION } from '../hooks/useCourseMapData';
+import { useCourseMapData, NORTHEAST_US_INITIAL_REGION, MAP_FILTERS } from '../hooks/useCourseMapData';
 import { useAuth } from '../context/AuthContext';
 import { getFriendPlayedCourses } from '../services/friendMap';
 
@@ -107,6 +107,9 @@ export default function MapScreen({ navigation, route }) {
     goToCourseDetail,
     filter,
     setFilter,
+    clearPlayedFilter,
+    myCoursesLoading,
+    myCoursesLoaded,
     userLocation,
     searchQuery,
     searchResults,
@@ -118,6 +121,7 @@ export default function MapScreen({ navigation, route }) {
     navigation,
     routeState: route?.params?.state,
     routeTimestamp: route?.params?.timestamp,
+    userId: user?.id,
   });
 
   const initialZoom = useMemo(() => regionToZoom(NORTHEAST_US_INITIAL_REGION.latitudeDelta), []);
@@ -132,6 +136,15 @@ export default function MapScreen({ navigation, route }) {
     const bounds = friendFilter.courses.map((c) => [c.lat, c.lng]);
     map.fitBounds(bounds, { padding: [60, 60] });
   }, [friendFilter]);
+
+  useEffect(() => {
+    if (filter !== MAP_FILTERS.PLAYED || myCoursesLoading || visibleCourses.length === 0) return;
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const bounds = visibleCourses.map((c) => [c.lat, c.lng]);
+    map.fitBounds(bounds, { padding: [60, 60] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, myCoursesLoading, visibleCourses]);
 
   const handleSelectFriend = async (profile) => {
     clearSelectedCourse();
@@ -176,6 +189,16 @@ export default function MapScreen({ navigation, route }) {
           </Text>
           <TouchableOpacity onPress={handleClearFriendFilter} style={styles.friendBannerClear}>
             <Text style={styles.friendBannerClearText}>Clear</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {filter === MAP_FILTERS.PLAYED && (
+        <View style={styles.myCoursesBanner}>
+          <Ionicons name="flag" size={16} color={colors.white} />
+          <Text style={styles.myCoursesBannerText}>Showing My Courses</Text>
+          <TouchableOpacity onPress={clearPlayedFilter} style={styles.myCoursesBannerClear}>
+            <Text style={styles.myCoursesBannerClearText}>Clear</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -235,8 +258,17 @@ export default function MapScreen({ navigation, route }) {
 
         <ZoomControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} />
 
-        {(discovering || visibleStates.some((abbr) => geocodingStates[abbr])) && (
-          <MapLoadingBanner>Finding courses…</MapLoadingBanner>
+        {filter === MAP_FILTERS.PLAYED
+          ? myCoursesLoading && <MapLoadingBanner>Loading your courses…</MapLoadingBanner>
+          : (discovering || visibleStates.some((abbr) => geocodingStates[abbr])) && (
+              <MapLoadingBanner>Finding courses…</MapLoadingBanner>
+            )}
+
+        {filter === MAP_FILTERS.PLAYED && myCoursesLoaded && !myCoursesLoading && visibleCourses.length === 0 && (
+          <View style={styles.emptyMyCoursesCard} pointerEvents="none">
+            <Ionicons name="flag-outline" size={22} color={colors.muted} />
+            <Text style={styles.emptyMyCoursesText}>Add courses to your profile to see them here</Text>
+          </View>
         )}
 
         {selectedCourse && (
@@ -289,6 +321,56 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 12,
     fontWeight: '700',
+  },
+  myCoursesBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.red,
+    gap: 8,
+  },
+  myCoursesBannerText: {
+    flex: 1,
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  myCoursesBannerClear: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: colors.red,
+  },
+  myCoursesBannerClearText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  emptyMyCoursesCard: {
+    position: 'absolute',
+    top: '40%',
+    alignSelf: 'center',
+    zIndex: 1000,
+    maxWidth: 260,
+    alignItems: 'center',
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  emptyMyCoursesText: {
+    color: colors.muted,
+    fontSize: 13,
+    textAlign: 'center',
   },
   map: {
     flex: 1,

@@ -601,3 +601,37 @@ begin
     raise notice 'pg_cron extension not installed -- enable it (Database > Extensions) then re-run this file to schedule the weekly Shot of the Week job.';
   end if;
 end $$;
+
+-- My Courses: a user's personal course wishlist, shown in the Profile
+-- screen's My Courses tab and used by the Map's "Courses I've Played"
+-- filter to drop pins at each saved course's stored coordinates.
+create table if not exists public.my_courses (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  course_id text,
+  course_name text not null,
+  city text,
+  state text,
+  latitude double precision,
+  longitude double precision,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists my_courses_user_id_idx on public.my_courses (user_id);
+
+alter table public.my_courses enable row level security;
+
+drop policy if exists "My courses are viewable by everyone" on public.my_courses;
+create policy "My courses are viewable by everyone"
+  on public.my_courses for select
+  using (true);
+
+drop policy if exists "Users can add their own courses" on public.my_courses;
+create policy "Users can add their own courses"
+  on public.my_courses for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can remove their own courses" on public.my_courses;
+create policy "Users can remove their own courses"
+  on public.my_courses for delete
+  using (auth.uid() = user_id);

@@ -13,16 +13,17 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
 import colors from '../theme/colors';
-import { wantToPlay } from '../data/mockData';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import HandicapInputModal from '../components/profile/HandicapInputModal';
 import CourseRankingModal from '../components/profile/CourseRankingModal';
+import CourseSearchModal from '../components/profile/CourseSearchModal';
 import { uploadAvatar } from '../services/profiles';
 import { getCourseRankings, addCourseRanking, updateCourseRanking } from '../services/courseRankings';
+import { getMyCourses, addMyCourse, removeMyCourse } from '../services/myCourses';
 import { getUserPosts } from '../services/posts';
 
-const TABS = ['Course Rankings', 'Want to Play', 'Uploads'];
+const TABS = ['Course Rankings', 'My Courses', 'Uploads'];
 
 function RankingsList({ rankings, loading, onUpdate, onAdd }) {
   return (
@@ -56,18 +57,45 @@ function RankingsList({ rankings, loading, onUpdate, onAdd }) {
   );
 }
 
-function WantToPlayList() {
+function MyCoursesList({ courses, loading, editMode, onToggleEdit, onAdd, onRemove }) {
   return (
     <View>
-      {wantToPlay.map((item) => (
-        <View key={item.id} style={styles.listRow}>
-          <Ionicons name="flag-outline" size={18} color={colors.red} style={{ marginRight: 12 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.listRowTitle}>{item.name}</Text>
-            <Text style={styles.listRowSubtitle}>{item.location}</Text>
+      <View style={styles.myCoursesHeaderRow}>
+        <TouchableOpacity style={styles.addCourseButton} onPress={onAdd} activeOpacity={0.8}>
+          <Ionicons name="add" size={16} color={colors.white} />
+          <Text style={styles.addCourseButtonText}>Add Course</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.editCoursesButton, editMode && styles.editCoursesButtonActive]}
+          onPress={onToggleEdit}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.editCoursesButtonText}>{editMode ? 'Done' : 'Edit'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {loading ? (
+        <ActivityIndicator color={colors.red} style={{ marginTop: 16 }} />
+      ) : courses.length === 0 ? (
+        <Text style={styles.emptyText}>You haven't added any courses yet.</Text>
+      ) : (
+        courses.map((item) => (
+          <View key={item.id} style={styles.listRow}>
+            <Ionicons name="flag-outline" size={18} color={colors.red} style={{ marginRight: 12 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.listRowTitle}>{item.courseName}</Text>
+              <Text style={styles.listRowSubtitle}>
+                {[item.city, item.state].filter(Boolean).join(', ') || 'Location unknown'}
+              </Text>
+            </View>
+            {editMode && (
+              <TouchableOpacity onPress={() => onRemove(item)} hitSlop={8} style={styles.removeCourseButton}>
+                <Ionicons name="close-circle" size={22} color={colors.red} />
+              </TouchableOpacity>
+            )}
           </View>
-        </View>
-      ))}
+        ))
+      )}
     </View>
   );
 }
@@ -139,6 +167,63 @@ export default function ProfileScreen({ navigation }) {
   const [editingRanking, setEditingRanking] = useState(null);
   const [uploadPosts, setUploadPosts] = useState([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
+  const [myCourses, setMyCourses] = useState([]);
+  const [myCoursesLoading, setMyCoursesLoading] = useState(true);
+  const [myCoursesEditMode, setMyCoursesEditMode] = useState(false);
+  const [courseSearchVisible, setCourseSearchVisible] = useState(false);
+
+  const loadMyCourses = useCallback(async () => {
+    if (!user?.id) return;
+    setMyCoursesLoading(true);
+    try {
+      setMyCourses(await getMyCourses(user.id));
+    } catch (err) {
+      console.error('Failed to load my courses:', err);
+    } finally {
+      setMyCoursesLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadMyCourses();
+  }, [loadMyCourses]);
+
+  async function handleAddMyCourse(course) {
+    if (!user?.id) return;
+    try {
+      const created = await addMyCourse(user.id, {
+        courseId: course.id,
+        courseName: course.name,
+        city: course.city,
+        state: course.state,
+        latitude: course.lat,
+        longitude: course.lng,
+      });
+      setMyCourses((prev) => [created, ...prev]);
+    } catch (err) {
+      console.error('Failed to add course:', err);
+      Alert.alert('Something went wrong', 'Could not add this course. Please try again.');
+    }
+  }
+
+  function handleRemoveMyCourse(course) {
+    Alert.alert('Remove course?', `Remove ${course.courseName} from My Courses?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await removeMyCourse(course.id);
+            setMyCourses((prev) => prev.filter((c) => c.id !== course.id));
+          } catch (err) {
+            console.error('Failed to remove course:', err);
+            Alert.alert('Something went wrong', 'Could not remove this course. Please try again.');
+          }
+        },
+      },
+    ]);
+  }
 
   const loadRankings = useCallback(async () => {
     if (!user?.id) return;
@@ -408,7 +493,16 @@ export default function ProfileScreen({ navigation }) {
               onAdd={handleOpenAddRanking}
             />
           )}
-          {activeTab === 'Want to Play' && <WantToPlayList />}
+          {activeTab === 'My Courses' && (
+            <MyCoursesList
+              courses={myCourses}
+              loading={myCoursesLoading}
+              editMode={myCoursesEditMode}
+              onToggleEdit={() => setMyCoursesEditMode((prev) => !prev)}
+              onAdd={() => setCourseSearchVisible(true)}
+              onRemove={handleRemoveMyCourse}
+            />
+          )}
           {activeTab === 'Uploads' && <UploadsGrid posts={uploadPosts} loading={uploadsLoading} />}
         </View>
       </ScrollView>
@@ -418,6 +512,12 @@ export default function ProfileScreen({ navigation }) {
         initialRanking={editingRanking}
         onClose={() => setRankingModalVisible(false)}
         onSave={handleSaveRanking}
+      />
+
+      <CourseSearchModal
+        visible={courseSearchVisible}
+        onClose={() => setCourseSearchVisible(false)}
+        onAddCourse={handleAddMyCourse}
       />
     </View>
   );
@@ -690,6 +790,47 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 13,
     fontWeight: '700',
+  },
+  myCoursesHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+  },
+  addCourseButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.red,
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  addCourseButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  editCoursesButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+  },
+  editCoursesButtonActive: {
+    backgroundColor: colors.navy,
+    borderColor: colors.red,
+  },
+  editCoursesButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  removeCourseButton: {
+    marginLeft: 8,
   },
   uploadTile: {
     flex: 1 / 3,

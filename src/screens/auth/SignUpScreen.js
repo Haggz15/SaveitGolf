@@ -13,8 +13,8 @@ import {
 import colors from '../../theme/colors';
 import AuthLogo from '../../components/auth/AuthLogo';
 import AuthTextField from '../../components/auth/AuthTextField';
-import { signUpWithEmail } from '../../services/auth';
-import { friendlyAuthError } from '../../services/authErrors';
+import { signUpWithEmail, signInWithEmail } from '../../services/auth';
+import { friendlyAuthError, isEmailNotConfirmedError } from '../../services/authErrors';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -41,15 +41,25 @@ export default function SignUpScreen({ navigation }) {
     try {
       const data = await signUpWithEmail(email.trim(), password);
       if (!data.session) {
-        Alert.alert(
-          'Check your email',
-          'We sent you a confirmation link. Confirm your email, then log in to continue.'
-        );
-        navigation.navigate('LogIn');
+        // Email confirmation is disabled project-wide, so a session should
+        // come back immediately — sign in explicitly as a fallback so the
+        // user is never stuck waiting on a confirmation email.
+        await signInWithEmail(email.trim(), password);
       }
-      // If a session came back immediately, AuthContext picks it up and
-      // RootNavigator routes to Profile Setup automatically.
+      // AuthContext picks up the session and RootNavigator routes straight
+      // to Profile Setup.
     } catch (err) {
+      if (isEmailNotConfirmedError(err)) {
+        // Stale unconfirmed flag on an account created before email
+        // confirmation was disabled — retry once silently rather than
+        // showing a "verify your email" message.
+        try {
+          await signInWithEmail(email.trim(), password);
+          return;
+        } catch (retryErr) {
+          console.warn('[signup] silent email-not-confirmed retry failed:', retryErr);
+        }
+      }
       setErrors({ form: friendlyAuthError(err) });
     } finally {
       setLoading(false);

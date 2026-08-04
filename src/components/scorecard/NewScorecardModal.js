@@ -10,6 +10,7 @@ import {
   Modal,
   Alert,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   StyleSheet,
 } from 'react-native';
@@ -23,6 +24,7 @@ import { searchCourses, getCourseById } from '../../services/golfCourseApi';
 const DEFAULT_HOLE_PATTERN = [4, 4, 3, 5, 4, 4, 3, 5, 4, 4, 4, 3, 5, 4, 4, 4, 3, 5];
 
 const SEARCH_DEBOUNCE_MS = 400;
+const AUTO_ADVANCE_DELAY_MS = 500;
 
 async function resolveHolePars(course, holesCount) {
   if (course?.id) {
@@ -63,11 +65,23 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
   const insets = useSafeAreaInsets();
   const [state, setState] = useState(INITIAL_STATE);
   const searchTimer = useRef(null);
+  // Per-hole auto-advance timers, score input refs, and measured row
+  // offsets (from onLayout, relative to the entry ScrollView's content) —
+  // together these drive "confirm a score -> focus + center the next hole".
+  const advanceTimers = useRef({});
+  const scoreInputRefs = useRef({});
+  const rowLayouts = useRef({});
+  const entryScrollRef = useRef(null);
+  const entryViewportHeight = useRef(0);
 
   useEffect(() => {
     if (!visible) {
       setState(INITIAL_STATE);
       if (searchTimer.current) clearTimeout(searchTimer.current);
+      Object.values(advanceTimers.current).forEach(clearTimeout);
+      advanceTimers.current = {};
+      scoreInputRefs.current = {};
+      rowLayouts.current = {};
     }
   }, [visible]);
 
@@ -114,6 +128,46 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
   function handleScoreChange(hole, text) {
     const digits = text.replace(/[^0-9]/g, '').slice(0, 2);
     setState((prev) => ({ ...prev, scores: { ...prev.scores, [hole]: digits } }));
+
+    if (advanceTimers.current[hole]) {
+      clearTimeout(advanceTimers.current[hole]);
+      delete advanceTimers.current[hole];
+    }
+    // A confirmed score auto-advances shortly after the user stops typing;
+    // each keystroke resets this timer so a two-digit score (e.g. "12")
+    // doesn't jump ahead after just the first digit.
+    if (digits) {
+      advanceTimers.current[hole] = setTimeout(() => {
+        delete advanceTimers.current[hole];
+        advanceFromHole(hole);
+      }, AUTO_ADVANCE_DELAY_MS);
+    }
+  }
+
+  function scrollToHole(hole) {
+    const layout = rowLayouts.current[hole];
+    if (!layout || !entryScrollRef.current) return;
+    const target = Math.max(0, layout.y - entryViewportHeight.current / 2 + layout.height / 2);
+    entryScrollRef.current.scrollTo({ y: target, animated: true });
+  }
+
+  function focusHole(hole) {
+    scoreInputRefs.current[hole]?.focus();
+    scrollToHole(hole);
+  }
+
+  function advanceFromHole(hole) {
+    if (advanceTimers.current[hole]) {
+      clearTimeout(advanceTimers.current[hole]);
+      delete advanceTimers.current[hole];
+    }
+    const holeNumbers = state.holesCount ? Array.from({ length: state.holesCount }, (_, i) => i + 1) : [];
+    const next = holeNumbers[holeNumbers.indexOf(hole) + 1];
+    if (next) {
+      focusHole(next);
+    } else {
+      Keyboard.dismiss();
+    }
   }
 
   function handleRequestClose() {
@@ -279,21 +333,76 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
               </View>
             ) : (
               <>
-                <ScrollView style={styles.entryScroll} keyboardShouldPersistTaps="handled">
-                  {holeNumbers.map((hole) => (
-                    <View key={hole} style={styles.holeRow}>
-                      <Text style={styles.holeRowNumber}>Hole {hole}</Text>
-                      <TextInput
-                        style={styles.scoreInput}
-                        value={state.scores[hole] ?? ''}
-                        onChangeText={(text) => handleScoreChange(hole, text)}
-                        keyboardType="number-pad"
-                        maxLength={2}
-                        placeholder="-"
-                        placeholderTextColor={colors.muted}
-                      />
-                    </View>
-                  ))}
+                <View style={styles.progressRow}>
+                  <Text style={styles.progressText}>
+                    {holeNumbers.filter((h) => state.scores[h]).length} of {holeNumbers.length} holes
+                  </Text>
+                  <View style={styles.progressBarTrack}>
+                    <View
+                      style={[
+                        styles.progressBarFill,
+                        {
+                          width: `${
+                            (holeNumbers.filter((h) => state.scores[h]).length / holeNumbers.length) * 100
+                          }%`,
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+
+                <ScrollView
+                  ref={entryScrollRef}
+                  style={styles.entryScroll}
+                  keyboardShouldPersistTaps="handled"
+                  onLayout={(e) => {
+                    entryViewportHeight.current = e.nativeEvent.layout.height;
+                  }}
+                >
+                  {holeNumbers.map((hole) => {
+                    const isLast = hole === holeNumbers[holeNumbers.length - 1];
+                    return (
+                      <View
+                        key={hole}
+                        style={styles.holeRow}
+                        onLayout={(e) => {
+                          rowLayouts.current[hole] = {
+                            y: e.nativeEvent.layout.y,
+                            height: e.nativeEvent.layout.height,
+                          };
+                        }}
+                      >
+                        <Text style={styles.holeRowNumber}>Hole {hole}</Text>
+                        <View style={styles.holeRowControls}>
+                          <TextInput
+                            ref={(node) => {
+                              scoreInputRefs.current[hole] = node;
+                            }}
+                            style={styles.scoreInput}
+                            value={state.scores[hole] ?? ''}
+                            onChangeText={(text) => handleScoreChange(hole, text)}
+                            keyboardType="number-pad"
+                            maxLength={2}
+                            placeholder="-"
+                            placeholderTextColor={colors.muted}
+                            returnKeyType={isLast ? 'done' : 'next'}
+                            onSubmitEditing={() => advanceFromHole(hole)}
+                          />
+                          <TouchableOpacity
+                            style={styles.nextButton}
+                            onPress={() => advanceFromHole(hole)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Ionicons
+                              name={isLast ? 'checkmark-circle' : 'arrow-forward-circle'}
+                              size={26}
+                              color={isLast ? colors.green : colors.red}
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })}
                   <View style={{ height: 12 }} />
                 </ScrollView>
 
@@ -484,6 +593,27 @@ const styles = StyleSheet.create({
     marginTop: 2,
     marginBottom: 14,
   },
+  progressRow: {
+    marginBottom: 14,
+  },
+  progressText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    marginBottom: 6,
+  },
+  progressBarTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.navyBorder,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.red,
+  },
   entryScroll: {
     flex: 1,
   },
@@ -500,6 +630,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
+  holeRowControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   scoreInput: {
     width: 60,
     height: 44,
@@ -511,6 +646,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  nextButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   totalsRow: {
     flexDirection: 'row',

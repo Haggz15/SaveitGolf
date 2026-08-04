@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Location from 'expo-location';
 import { seedCoursesByState, stateCenters, allStateAbbreviations } from '../data/courses';
-import { isCoursePlayed } from '../data/playedCourses';
 import { geocodeCourse, getCachedGeocode } from '../services/geocoding';
 import { discoverCoursesNear, getAllDiscoveredCourses } from '../services/courseDiscovery';
 import { getCourseById, searchCourses, RateLimitError } from '../services/golfCourseApi';
+import { getMyCourses } from '../services/myCourses';
 
 // Northeast US (New England down through the NY/NJ/PA corridor) — where the
 // map view starts on load.
@@ -64,7 +64,7 @@ function distance(a, b) {
 // live discovery, course selection, played-courses filter). Both MapScreen.js
 // (react-native-maps) and MapScreen.web.js (react-leaflet) drive this same
 // hook and only differ in how they render the map surface and markers.
-export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}) {
+export function useCourseMapData({ navigation, routeState, routeTimestamp, userId } = {}) {
   const debounceRef = useRef(null);
   const lastFetchedCenterRef = useRef(null);
   const [region, setRegionState] = useState(NORTHEAST_US_INITIAL_REGION);
@@ -86,16 +86,60 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef(null);
   const searchRequestIdRef = useRef(0);
+  // "Courses I've Played" pulls from the user's own my_courses table rather
+  // than filtering the discovered/geocoded `courses` map — it's a distinct,
+  // user-curated list that may include courses never surfaced by discovery.
+  const [myCoursesList, setMyCoursesList] = useState([]);
+  const [myCoursesLoading, setMyCoursesLoading] = useState(false);
+  const [myCoursesLoaded, setMyCoursesLoaded] = useState(false);
+
+  useEffect(() => {
+    if (filter !== MAP_FILTERS.PLAYED) return;
+    if (!userId) {
+      setMyCoursesList([]);
+      setMyCoursesLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    setMyCoursesLoading(true);
+    getMyCourses(userId)
+      .then((rows) => {
+        if (cancelled) return;
+        setMyCoursesList(
+          rows
+            .filter((r) => r.latitude != null && r.longitude != null)
+            .map((r) => ({
+              id: r.courseId || r.id,
+              name: r.courseName,
+              city: r.city,
+              state: r.state,
+              lat: r.latitude,
+              lng: r.longitude,
+            }))
+        );
+      })
+      .catch((err) => {
+        console.error('[useCourseMapData] failed to load my courses:', err.message);
+        if (!cancelled) setMyCoursesList([]);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setMyCoursesLoading(false);
+          setMyCoursesLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [filter, userId]);
 
   const visibleStates = useMemo(() => statesInBounds(region), [region]);
   const courseList = useMemo(() => Object.values(courses), [courses]);
-  const filteredCourseList = useMemo(
-    () => (filter === MAP_FILTERS.PLAYED ? courseList.filter((c) => isCoursePlayed(c.id)) : courseList),
-    [courseList, filter]
-  );
+  // Played-course pins aren't bounds-filtered — a saved course off in
+  // another state should still show up rather than silently disappear.
   const visibleCourses = useMemo(
-    () => coursesInBounds(filteredCourseList, region),
-    [filteredCourseList, region]
+    () => (filter === MAP_FILTERS.PLAYED ? myCoursesList : coursesInBounds(courseList, region)),
+    [filter, myCoursesList, courseList, region]
   );
 
   const mergeCourses = useCallback((list) => {
@@ -268,6 +312,11 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
     setSelectedDetail(null);
   }, []);
 
+  const clearPlayedFilter = useCallback(() => {
+    setFilter(MAP_FILTERS.ALL);
+    setMyCoursesLoaded(false);
+  }, []);
+
   const handleSearchQueryChange = useCallback((text) => {
     setSearchQuery(text);
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -348,6 +397,9 @@ export function useCourseMapData({ navigation, routeState, routeTimestamp } = {}
     goToCourseDetail,
     filter,
     setFilter,
+    clearPlayedFilter,
+    myCoursesLoading,
+    myCoursesLoaded,
     userLocation,
     searchQuery,
     searchResults,

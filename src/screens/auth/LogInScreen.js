@@ -14,7 +14,7 @@ import colors from '../../theme/colors';
 import AuthLogo from '../../components/auth/AuthLogo';
 import AuthTextField from '../../components/auth/AuthTextField';
 import { signInWithEmail } from '../../services/auth';
-import { friendlyAuthError } from '../../services/authErrors';
+import { friendlyAuthError, isEmailNotConfirmedError } from '../../services/authErrors';
 import { supabase } from '../../services/supabase';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -36,6 +36,17 @@ export default function LogInScreen({ navigation }) {
       await signInWithEmail(email.trim(), password);
       // AuthContext picks up the new session and RootNavigator routes on.
     } catch (err) {
+      if (isEmailNotConfirmedError(err)) {
+        // Stale unconfirmed flag on an account created before email
+        // confirmation was disabled — retry once silently rather than
+        // showing a "verify your email" message.
+        try {
+          await signInWithEmail(email.trim(), password);
+          return;
+        } catch (retryErr) {
+          console.warn('[login] silent email-not-confirmed retry failed:', retryErr);
+        }
+      }
       setErrors({ form: friendlyAuthError(err) });
     } finally {
       setLoading(false);
