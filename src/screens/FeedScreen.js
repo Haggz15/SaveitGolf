@@ -218,7 +218,7 @@ function PostSlide({
 
 export default function FeedScreen({ navigation }) {
   const { user } = useAuth();
-  const [activeFilter, setActiveFilter] = useState('Nearby');
+  const [activeFilter, setActiveFilter] = useState('Feed');
   const [posts, setPosts] = useState([]);
   const [likedPostIds, setLikedPostIds] = useState(new Set());
   const [savedPostIds, setSavedPostIds] = useState(new Set());

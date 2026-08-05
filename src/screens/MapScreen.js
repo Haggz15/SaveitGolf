@@ -6,13 +6,12 @@ import Header from '../components/Header';
 import CourseSearchBar from '../components/map/CourseSearchBar';
 import FriendSearchBar from '../components/map/FriendSearchBar';
 import FilterPills from '../components/map/FilterPills';
-import BrowseAllButton from '../components/map/BrowseAllButton';
 import StatePushPin from '../components/map/StatePushPin';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
 import MapErrorBoundary from '../components/map/MapErrorBoundary';
 import SilentMarkerBoundary from '../components/map/SilentMarkerBoundary';
-import { MapWarningBanner, MapLoadingBanner, MapSuccessBanner } from '../components/map/MapMessageBanner';
+import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessageBanner';
 import colors from '../theme/colors';
 import { darkSlateMapStyle } from '../theme/mapStyle';
 import {
@@ -72,9 +71,10 @@ function CourseMarker({ course, highlighted, onPress }) {
 }
 
 // Level 1 (zoomed-out full-US) pin — one per state, centered on that state's
-// centroid. No course data is loaded for these; tapping one only zooms in
-// smoothly (see useCourseMapData.handleSelectStateMarker) — course loading
-// for the state is a separate, explicit opt-in via the Browse All button.
+// centroid. Tapping one zooms in and resets the search bar so the user can
+// look up a course by name (see useCourseMapData.handleSelectStateMarker) —
+// golfcourseapi.com can't be searched reliably by state name, so there's no
+// bulk course load here.
 function StateMarker({ state, onPress }) {
   return (
     <Marker
@@ -83,7 +83,7 @@ function StateMarker({ state, onPress }) {
       tracksViewChanges={false}
       zIndex={1}
     >
-      <StatePushPin abbr={state.abbr} browsed={state.browsed} />
+      <StatePushPin abbr={state.abbr} />
     </Marker>
   );
 }
@@ -99,10 +99,6 @@ export default function MapScreen({ navigation, route }) {
     zoomLevel,
     stateMarkers,
     currentStateName,
-    currentStateLoading,
-    currentStateBrowsed,
-    browseAllInState,
-    countBanner,
     handleSelectStateMarker,
     visibleCourses,
     quotaExceeded,
@@ -197,29 +193,21 @@ export default function MapScreen({ navigation, route }) {
     <View style={styles.screen}>
       <Header />
       {zoomLevel !== ZOOM_LEVEL.COUNTRY && (
-        <CourseSearchBar
-          query={searchQuery}
-          onChangeQuery={handleSearchQueryChange}
-          onClear={clearSearch}
-          results={searchResults}
-          searching={searching}
-          onSelectResult={handleSelectSearchResult}
-          placeholder={`Search courses in ${currentStateName}`}
-        />
+        <>
+          <Text style={styles.searchHeading}>Search courses in {currentStateName}</Text>
+          <CourseSearchBar
+            query={searchQuery}
+            onChangeQuery={handleSearchQueryChange}
+            onClear={clearSearch}
+            results={searchResults}
+            searching={searching}
+            onSelectResult={handleSelectSearchResult}
+            placeholder={`Search courses in ${currentStateName}`}
+          />
+        </>
       )}
       <FriendSearchBar currentUserId={user?.id} onSelectFriend={handleSelectFriend} />
       <FilterPills value={filter} onChange={setFilter} />
-
-      {zoomLevel !== ZOOM_LEVEL.COUNTRY &&
-        !friendFilter &&
-        filter !== MAP_FILTERS.PLAYED &&
-        !currentStateBrowsed && (
-          <BrowseAllButton
-            stateName={currentStateName}
-            loading={currentStateLoading}
-            onPress={guard(browseAllInState)}
-          />
-        )}
 
       {friendFilter && (
         <View style={styles.friendBanner}>
@@ -290,17 +278,8 @@ export default function MapScreen({ navigation, route }) {
 
         <ZoomControls onZoomIn={guard(handleZoomIn)} onZoomOut={guard(handleZoomOut)} />
 
-        {filter === MAP_FILTERS.PLAYED ? (
-          myCoursesLoading && <MapLoadingBanner>Loading your courses…</MapLoadingBanner>
-        ) : !friendFilter && currentStateLoading ? (
-          <MapLoadingBanner>Loading {currentStateName} courses…</MapLoadingBanner>
-        ) : (
-          !friendFilter &&
-          countBanner && (
-            <MapSuccessBanner>
-              {countBanner.count} courses in {countBanner.name}
-            </MapSuccessBanner>
-          )
+        {filter === MAP_FILTERS.PLAYED && myCoursesLoading && (
+          <MapLoadingBanner>Loading your courses…</MapLoadingBanner>
         )}
 
         {filter === MAP_FILTERS.PLAYED && myCoursesLoaded && !myCoursesLoading && visibleCourses.length === 0 && (
@@ -330,6 +309,13 @@ const styles = StyleSheet.create({
   },
   mapContainer: {
     flex: 1,
+  },
+  searchHeading: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '700',
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   friendBanner: {
     flexDirection: 'row',

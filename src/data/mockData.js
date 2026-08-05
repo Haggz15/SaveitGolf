@@ -4,7 +4,7 @@ export const currentUser = {
   username: 'owenhgolf',
 };
 
-export const filterPills = ['Nearby', 'Feed', 'Following'];
+export const filterPills = ['Feed', 'Nearby', 'Following'];
 
 export const feedPosts = [
   {

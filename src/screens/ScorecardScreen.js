@@ -2,11 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
+import { LinearGradient } from 'expo-linear-gradient';
 import Header from '../components/Header';
 import NewScorecardModal from '../components/scorecard/NewScorecardModal';
 import PastScorecardsList from '../components/scorecard/PastScorecardsList';
 import ScorecardDetailModal from '../components/scorecard/ScorecardDetailModal';
-import ScorecardCard, { NineColumn, GrandTotal, computeTotals } from '../components/scorecard/ScorecardCard';
+import ScorecardCard, { computeTotals } from '../components/scorecard/ScorecardCard';
+import {
+  NameSection,
+  ExportNineColumn,
+  ExportGrandTotal,
+  BallWatermark,
+  PillWatermark,
+} from '../components/scorecard/ScorecardExportCard';
 import PhotoCropBox from '../components/scorecard/PhotoCropBox';
 import CroppedPhoto from '../components/scorecard/CroppedPhoto';
 import colors from '../theme/colors';
@@ -15,8 +23,16 @@ import { getLatestScorecard, saveScorecard } from '../services/scorecards';
 import { notifyFollowersOfScorecard } from '../services/notifications';
 import { useAuth } from '../context/AuthContext';
 
+// Exported bitmap size for both share cards (a 9:16 "story" format). Both
+// hidden ViewShot templates below are laid out at 1/3.2 of this (337.5x600)
+// and captured up to the full size, so every font/spacing number in
+// ScorecardExportCard.js can be read as the actual on-screen-at-natural-scale
+// value rather than something pre-scaled for the final bitmap.
 const EXPORT_WIDTH = 1080;
 const EXPORT_HEIGHT = 1920;
+const EXPORT_SCALE = 3.2;
+const EXPORT_NATURAL_WIDTH = EXPORT_WIDTH / EXPORT_SCALE;
+const EXPORT_NATURAL_HEIGHT = EXPORT_HEIGHT / EXPORT_SCALE;
 const DEFAULT_CROP = { zoom: 1, panX: 0.5, panY: 0.5 };
 
 export default function ScorecardScreen() {
@@ -204,27 +220,33 @@ export default function ScorecardScreen() {
       </ScrollView>
 
       {/* Hidden off-screen templates captured for sharing. Both are laid out
-          at on-screen scale (matching ScorecardCard's own text sizes) and
-          then resized by ViewShot's capture options — the clean card to its
-          natural size, the with-photo card up to the required 1080x1920 —
-          so nothing needs re-tuning font sizes per export target. */}
+          at 1/3.2 natural scale (see EXPORT_SCALE above) and then upscaled by
+          ViewShot's capture options to the required 1080x1920, so every
+          font/spacing value in ScorecardExportCard.js reads as its literal
+          natural-scale number. */}
       <View style={styles.exportOffscreenWrap} pointerEvents="none">
-        <ViewShot ref={cleanViewShotRef} style={styles.cleanExportCard} options={{ format: 'png', quality: 1 }}>
-          <Text style={styles.userName}>{fullName}</Text>
-          <Text style={styles.courseNameText} numberOfLines={2}>
-            {activeScorecard.courseName}
-          </Text>
+        <ViewShot
+          ref={cleanViewShotRef}
+          style={styles.cleanExportCard}
+          options={{ format: 'png', quality: 1, width: EXPORT_WIDTH, height: EXPORT_HEIGHT }}
+        >
+          <NameSection fullName={fullName} courseName={activeScorecard.courseName} />
 
-          <View style={styles.scoresRow}>
-            <NineColumn holes={activeScorecard.front} label="FRONT" />
-            {!isNineHoleRound && <NineColumn holes={activeScorecard.back} label="BACK" />}
+          <View style={styles.cleanScoresRow}>
+            <ExportNineColumn holes={activeScorecard.front} label="FRONT" style={styles.cleanNineColumn} />
+            {!isNineHoleRound && (
+              <ExportNineColumn holes={activeScorecard.back} label="BACK" style={styles.cleanNineColumn} />
+            )}
           </View>
 
-          <GrandTotal totalScore={totalScore} diffLabel={diffLabel} diff={diff} />
-
-          <View style={styles.watermarkWrap}>
-            <Text style={styles.watermarkText}>SaveitGolf</Text>
-          </View>
+          <ExportGrandTotal
+            totalScore={totalScore}
+            diffLabel={diffLabel}
+            diff={diff}
+            style={styles.cleanTotalBlock}
+          >
+            <BallWatermark style={styles.cleanWatermark} />
+          </ExportGrandTotal>
         </ViewShot>
 
         {photo && (
@@ -233,29 +255,44 @@ export default function ScorecardScreen() {
             style={styles.photoExportCard}
             options={{ format: 'png', quality: 1, width: EXPORT_WIDTH, height: EXPORT_HEIGHT }}
           >
-            <View style={styles.exportRow}>
-              <View style={styles.exportLeftCol}>
-                <Text style={styles.userName}>{fullName}</Text>
-                <Text style={styles.courseNameText} numberOfLines={2}>
-                  {activeScorecard.courseName}
-                </Text>
-
-                <View style={styles.scoresRow}>
-                  <NineColumn holes={activeScorecard.front} label="FRONT" />
-                  {!isNineHoleRound && <NineColumn holes={activeScorecard.back} label="BACK" />}
+            <View style={styles.photoRow}>
+              <View style={styles.photoScoreCol}>
+                <View style={styles.photoScoresRow}>
+                  <ExportNineColumn holes={activeScorecard.front} label="FRONT" style={styles.photoNineColumn} />
+                  {!isNineHoleRound && (
+                    <ExportNineColumn holes={activeScorecard.back} label="BACK" style={styles.photoNineColumn} />
+                  )}
                 </View>
 
-                <GrandTotal totalScore={totalScore} diffLabel={diffLabel} diff={diff} />
+                <ExportGrandTotal
+                  totalScore={totalScore}
+                  diffLabel={diffLabel}
+                  diff={diff}
+                  style={styles.photoTotalBlock}
+                />
               </View>
 
-              <View style={styles.exportPhotoHalf}>
+              <View style={styles.photoHalf}>
                 <CroppedPhoto photo={photo} crop={crop} />
+                <View style={styles.photoPillWatermarkWrap} pointerEvents="none">
+                  <PillWatermark />
+                </View>
               </View>
             </View>
 
-            <View style={styles.watermarkWrap}>
-              <Text style={styles.watermarkText}>SaveitGolf</Text>
-            </View>
+            {/* Name banner: overlaid on top of both the scores and the photo,
+                full card width, with a dark gradient behind it so the name
+                reads over a bright photo. */}
+            <LinearGradient
+              colors={['rgba(0,0,0,0.82)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0)']}
+              style={styles.photoNameBannerGradient}
+              pointerEvents="none"
+            />
+            <NameSection
+              fullName={fullName}
+              courseName={activeScorecard.courseName}
+              style={styles.photoNameBanner}
+            />
           </ViewShot>
         )}
       </View>
@@ -322,76 +359,93 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 12,
   },
-  // Export-only styles below — deliberately at the same scale as
-  // ScorecardCard's own on-screen text. ViewShot resizes the captured
-  // bitmap to each template's target dimensions (natural size for the clean
-  // card, 1080x1920 for the with-photo card), so a uniform image upscale
-  // handles the rest without needing separately-tuned font sizes.
+  // Export-only styles below — laid out at 1/EXPORT_SCALE natural size (see
+  // the constant above) and upscaled to 1080x1920 by ViewShot's capture
+  // options, so every number here is the literal natural-scale value rather
+  // than something pre-scaled for the final bitmap.
   exportOffscreenWrap: {
     position: 'absolute',
     top: 0,
     left: -3000,
   },
   cleanExportCard: {
-    width: 380,
+    width: EXPORT_NATURAL_WIDTH,
+    height: EXPORT_NATURAL_HEIGHT,
     backgroundColor: colors.navy,
-    paddingTop: 22,
-    paddingHorizontal: 18,
-    paddingBottom: 40,
-    position: 'relative',
+    paddingTop: 26,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    justifyContent: 'space-between',
+  },
+  cleanScoresRow: {
+    flexDirection: 'row',
+    gap: 16,
+    justifyContent: 'center',
+  },
+  cleanNineColumn: {
+    width: 70,
+  },
+  cleanTotalBlock: {
+    paddingBottom: 26,
+  },
+  cleanWatermark: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
   },
   photoExportCard: {
-    width: 337.5,
-    height: 600,
+    width: EXPORT_NATURAL_WIDTH,
+    height: EXPORT_NATURAL_HEIGHT,
     backgroundColor: colors.navy,
     overflow: 'hidden',
     position: 'relative',
   },
-  exportRow: {
+  photoRow: {
     flex: 1,
     flexDirection: 'row',
   },
-  exportLeftCol: {
-    flex: 1,
-    paddingTop: 22,
+  photoScoreCol: {
+    width: '55%',
+    paddingTop: 78,
     paddingHorizontal: 14,
-    paddingBottom: 14,
+    paddingBottom: 16,
+    justifyContent: 'space-between',
   },
-  exportPhotoHalf: {
+  photoScoresRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  photoNineColumn: {
     flex: 1,
+  },
+  photoTotalBlock: {
+    marginTop: 10,
+  },
+  photoHalf: {
+    width: '45%',
     height: '100%',
     backgroundColor: colors.navyLight,
   },
-  userName: {
-    color: colors.white,
-    fontSize: 21,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-  courseNameText: {
-    fontFamily: 'Cinzel_700Bold',
-    color: colors.lightBlue,
-    fontSize: 12,
-    marginTop: 6,
-  },
-  scoresRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 18,
-  },
-  watermarkWrap: {
+  photoPillWatermarkWrap: {
     position: 'absolute',
+    left: 0,
+    right: 0,
     bottom: 10,
-    right: 14,
+    alignItems: 'center',
   },
-  watermarkText: {
-    fontFamily: 'DancingScript_700Bold',
-    fontSize: 14,
-    color: colors.white,
-    opacity: 0.9,
-    textShadowColor: 'rgba(0,0,0,0.6)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
+  photoNameBannerGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 96,
+  },
+  photoNameBanner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingTop: 16,
+    paddingHorizontal: 16,
   },
 });

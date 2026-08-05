@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Location from 'expo-location';
 import { stateCenters, allStateAbbreviations } from '../data/courses';
 import { getCourseById, searchCourses, RateLimitError } from '../services/golfCourseApi';
-import { getCachedStateCourses, persistStateCourses } from '../services/stateCourses';
+import { geocodeCourseCoordinates } from '../services/geocoding';
 import { getMyCourses } from '../services/myCourses';
-import { courseHasValidCoordinates, filterCoursesWithValidCoordinates } from '../utils/mapCoords';
+import { courseHasValidCoordinates } from '../utils/mapCoords';
 
 // Zoomed-out default view — the whole contiguous US, so the map opens on the
 // Level 1 "50 state pins, no course data" view described in the map's
@@ -21,26 +21,23 @@ export const MAX_MAP_DELTA = 45;
 
 export const USER_LOCATION_FOCUS_DELTA = 2;
 
-// How tight the map zooms in when a search result, feed course, or state pin
-// is selected/focused.
+// How tight the map zooms in when a search result or feed course is
+// focused/selected.
 export const SEARCH_FOCUS_DELTA = 0.02;
 export const STATE_FOCUS_DELTA = 4;
 const SEARCH_DEBOUNCE_MS = 400;
 
 export const MAP_FILTERS = { ALL: 'all', PLAYED: 'played' };
 
-// Three zoom tiers drive what gets fetched and rendered:
-//   COUNTRY — full US view: 50 one-per-state pins, no individual course data.
-//   STATE   — zoomed into one state: every course in that state, fetched (or
-//             read from cache) via a single search_query=<state name> call.
-//   REGION  — zoomed into a city: same state's courses, culled to what's
-//             actually inside the current viewport.
+// Two zoom tiers: COUNTRY (full US view — 50 one-per-state pins, no course
+// data) and everything more zoomed-in, where the search bar takes over.
+// golfcourseapi.com can't be searched reliably by state name (it returns
+// mismatched results), so there's no bulk "load every course in this state"
+// step anymore — courses only appear on the map via search or the "Played"
+// filter.
 export const ZOOM_LEVEL = { COUNTRY: 'country', STATE: 'state', REGION: 'region' };
 const COUNTRY_ZOOM_DELTA = 15;
 const STATE_ZOOM_DELTA = 1.2;
-
-// How long the "N courses in <State>" banner stays up after a state finishes loading.
-const COUNT_BANNER_MS = 3500;
 
 function getZoomLevel(region) {
   if (region.latitudeDelta >= COUNTRY_ZOOM_DELTA) return ZOOM_LEVEL.COUNTRY;
@@ -65,17 +62,6 @@ function nearestState(region) {
   return best;
 }
 
-function coursesInBounds(courses, region) {
-  const latMin = region.latitude - region.latitudeDelta / 2;
-  const latMax = region.latitude + region.latitudeDelta / 2;
-  const lngMin = region.longitude - region.longitudeDelta / 2;
-  const lngMax = region.longitude + region.longitudeDelta / 2;
-  return courses.filter(
-    (c) =>
-      courseHasValidCoordinates(c) && c.lat >= latMin && c.lat <= latMax && c.lng >= lngMin && c.lng <= lngMax
-  );
-}
-
 // Platform-agnostic course map state/logic (zoom-based state loading, course
 // selection, search, and the played-courses filter). Both MapScreen.js
 // (react-native-maps) and MapScreen.web.js (react-leaflet) drive this same
@@ -83,14 +69,10 @@ function coursesInBounds(courses, region) {
 export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp, userId } = {}) {
   const [region, setRegionState] = useState(US_INITIAL_REGION);
   // Set when the hook wants the map to jump somewhere outside of user
-  // panning (initial location fix, a state pin tap, or a feed course focus).
-  // Each platform watches this and drives its own map's recenter API off of it.
+  // panning (initial location fix, a state pin tap, a search result, or a
+  // feed course focus). Each platform watches this and drives its own map's
+  // recenter API off of it.
   const [focusRegion, setFocusRegion] = useState(null);
-  // abbr -> { courses, loading }
-  const [stateCourseCache, setStateCourseCache] = useState({});
-  const [countBanner, setCountBanner] = useState(null); // { abbr, count } | null
-  const countBannerTimeoutRef = useRef(null);
-  const stateFetchInFlight = useRef(new Set());
   const [quotaExceeded, setQuotaExceeded] = useState(false);
   const [locationDenied, setLocationDenied] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
@@ -156,19 +138,6 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     () => (zoomLevel === ZOOM_LEVEL.COUNTRY ? null : nearestState(region)),
     [zoomLevel, region]
   );
-  const currentStateLoading = currentStateAbbr ? !!stateCourseCache[currentStateAbbr]?.loading : false;
-  // A state counts as "browsed" once Browse All has been used for it (or it
-  // was loaded from a previous session's AsyncStorage cache) — used to shade
-  // its zoomed-out pin differently and to hide the Browse All button once
-  // there's nothing left to opt into.
-  const currentStateBrowsed = currentStateAbbr
-    ? !!stateCourseCache[currentStateAbbr] && !stateCourseCache[currentStateAbbr].loading
-    : false;
-
-  const browsedStateAbbrs = useMemo(
-    () => new Set(Object.keys(stateCourseCache).filter((abbr) => stateCourseCache[abbr] && !stateCourseCache[abbr].loading)),
-    [stateCourseCache]
-  );
 
   const stateMarkers = useMemo(
     () =>
@@ -177,92 +146,9 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
         name: stateCenters[abbr].name,
         lat: stateCenters[abbr].lat,
         lng: stateCenters[abbr].lng,
-        browsed: browsedStateAbbrs.has(abbr),
       })),
-    [browsedStateAbbrs]
+    []
   );
-
-  const announceCountBanner = useCallback((abbr, courseList) => {
-    if (countBannerTimeoutRef.current) clearTimeout(countBannerTimeoutRef.current);
-    setCountBanner({ abbr, name: stateCenters[abbr].name, count: courseList.length });
-    countBannerTimeoutRef.current = setTimeout(() => setCountBanner(null), COUNT_BANNER_MS);
-  }, []);
-
-  // Loads every course in a state (cache -> AsyncStorage -> live search),
-  // storing the result in stateCourseCache so re-entering the state later
-  // (this session or a future one) is instant. Returns the course list, or
-  // null if another call is already loading this state or the fetch failed.
-  const ensureStateCoursesLoaded = useCallback(
-    async (abbr) => {
-      if (!abbr) return null;
-      const existing = stateCourseCache[abbr];
-      if (existing && !existing.loading) return existing.courses;
-      if (stateFetchInFlight.current.has(abbr)) return null;
-
-      stateFetchInFlight.current.add(abbr);
-      setStateCourseCache((prev) => ({ ...prev, [abbr]: { courses: prev[abbr]?.courses ?? [], loading: true } }));
-
-      try {
-        const cached = await getCachedStateCourses(abbr);
-        if (cached) {
-          console.log(`[useCourseMapData] ${abbr}: ${cached.length} course(s) from cache`);
-          setStateCourseCache((prev) => ({ ...prev, [abbr]: { courses: cached, loading: false } }));
-          return cached;
-        }
-
-        const stateName = stateCenters[abbr].name;
-        const results = await searchCourses(stateName);
-        const stateMatches = results.filter((c) => c.state?.toUpperCase() === abbr);
-        // The API doesn't always return location.latitude/longitude for a
-        // course — a course with no (or invalid) coordinates can't be placed
-        // as a map marker, and passing null/NaN/out-of-range through to
-        // react-native-maps / react-leaflet crashes the whole map (they
-        // don't guard against it).
-        const matches = filterCoursesWithValidCoordinates(stateMatches, `${abbr} state load`);
-        console.log(`[useCourseMapData] ${abbr}: ${matches.length} of ${results.length} search("${stateName}") result(s) matched`);
-
-        await persistStateCourses(abbr, matches);
-        setStateCourseCache((prev) => ({ ...prev, [abbr]: { courses: matches, loading: false } }));
-        setQuotaExceeded(false);
-        return matches;
-      } catch (err) {
-        if (err instanceof RateLimitError) {
-          console.warn(`[useCourseMapData] rate limited loading ${abbr}`);
-          setQuotaExceeded(true);
-        } else {
-          console.error(`[useCourseMapData] failed to load courses for ${abbr}:`, err.message);
-        }
-        // Drop the in-progress entry entirely (rather than leaving it
-        // loading:false with no courses) so the state is retried on the next
-        // visit instead of being permanently treated as "loaded, empty".
-        setStateCourseCache((prev) => {
-          const next = { ...prev };
-          delete next[abbr];
-          return next;
-        });
-        return null;
-      } finally {
-        stateFetchInFlight.current.delete(abbr);
-      }
-    },
-    [stateCourseCache]
-  );
-
-  const loadStateAndAnnounce = useCallback(
-    async (abbr) => {
-      const result = await ensureStateCoursesLoaded(abbr);
-      if (result) announceCountBanner(abbr, result);
-    },
-    [ensureStateCoursesLoaded, announceCountBanner]
-  );
-
-  // Entering a state no longer auto-loads its courses — that's now an
-  // explicit opt-in via browseAllInState (the "Browse All" button), so a
-  // zoom/pan into a state never fires an API call on its own.
-  const browseAllInState = useCallback(() => {
-    if (!currentStateAbbr) return;
-    loadStateAndAnnounce(currentStateAbbr);
-  }, [currentStateAbbr, loadStateAndAnnounce]);
 
   // Try to recenter on the user's location (state-zoom) so the app opens
   // showing their own area's courses when permission is granted; otherwise
@@ -294,102 +180,6 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     })();
   }, []);
 
-  // Feed's per-post state badge navigates here with a course to focus on
-  // (see FeedScreen.handleStatePress). If the post didn't have stored
-  // coordinates, look the course up by name via the Golf Course API before
-  // dropping the pin.
-  useEffect(() => {
-    if (!routeFocusCourse) return;
-    let cancelled = false;
-
-    (async () => {
-      let course = routeFocusCourse;
-      if (!courseHasValidCoordinates(course)) {
-        try {
-          const results = await searchCourses(course.name);
-          const validResults = results.filter(courseHasValidCoordinates);
-          const match =
-            validResults.find(
-              (c) => c.state && course.state && c.state.toUpperCase() === course.state.toUpperCase()
-            ) ?? validResults[0];
-          if (match) {
-            course = { ...match, id: course.id ?? match.id, name: course.name || match.name };
-          }
-        } catch (err) {
-          console.error(`[useCourseMapData] course lookup failed for "${course.name}":`, err.message);
-        }
-      }
-      if (cancelled || !courseHasValidCoordinates(course)) return;
-
-      const nextRegion = {
-        latitude: course.lat,
-        longitude: course.lng,
-        latitudeDelta: SEARCH_FOCUS_DELTA,
-        longitudeDelta: SEARCH_FOCUS_DELTA,
-      };
-      setRegionState(nextRegion);
-      setFocusRegion({ ...nextRegion, key: `feed-${course.id ?? course.name}-${routeTimestamp}` });
-      handleSelectCourse(course);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeFocusCourse, routeTimestamp]);
-
-  const currentStateCourses = useMemo(
-    () => (currentStateAbbr ? stateCourseCache[currentStateAbbr]?.courses ?? [] : []),
-    [currentStateAbbr, stateCourseCache]
-  );
-
-  const visibleCourses = useMemo(() => {
-    let base;
-    if (filter === MAP_FILTERS.PLAYED) {
-      base = myCoursesList;
-    } else if (zoomLevel === ZOOM_LEVEL.COUNTRY) {
-      base = [];
-    } else if (zoomLevel === ZOOM_LEVEL.STATE) {
-      base = currentStateCourses;
-    } else {
-      base = coursesInBounds(currentStateCourses, region);
-    }
-
-    // Always keep the selected/focused course pinned and visible — a search
-    // result or a course opened from the feed may sit outside the currently
-    // loaded state's course list or the culled viewport. Skip courses with
-    // no coordinates — they can't be placed as a marker and would crash the
-    // underlying map (react-native-maps / react-leaflet don't guard this).
-    if (
-      selectedCourse &&
-      courseHasValidCoordinates(selectedCourse) &&
-      filter !== MAP_FILTERS.PLAYED &&
-      !base.some((c) => c.id === selectedCourse.id)
-    ) {
-      base = [...base, selectedCourse];
-    }
-    return base;
-  }, [filter, myCoursesList, zoomLevel, currentStateCourses, region, selectedCourse]);
-
-  // Tapping a state pin only zooms in smoothly — no course data is fetched
-  // until the user explicitly taps Browse All (see browseAllInState).
-  const handleSelectStateMarker = useCallback((abbr) => {
-    const center = stateCenters[abbr];
-    if (!center) return;
-    const nextRegion = {
-      latitude: center.lat,
-      longitude: center.lng,
-      latitudeDelta: STATE_FOCUS_DELTA,
-      longitudeDelta: STATE_FOCUS_DELTA,
-    };
-    setRegionState(nextRegion);
-    setFocusRegion({ ...nextRegion, key: `state-${abbr}-${Date.now()}` });
-  }, []);
-
-  const setRegion = useCallback((nextRegion) => {
-    setRegionState(nextRegion);
-  }, []);
-
   const handleSelectCourse = useCallback((course) => {
     // Guards against rapid successive marker taps firing overlapping detail
     // requests — only the latest tap's response is applied.
@@ -413,6 +203,120 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
       });
   }, []);
 
+  // The Golf Course API's search endpoint doesn't return usable coordinates,
+  // so a course picked from a search result (or matched from a feed post)
+  // needs to be geocoded via OpenStreetMap/Nominatim before the map can zoom
+  // to it and drop its pin. If geocoding comes up empty, the course is still
+  // selected (its detail popup has everything it needs without coordinates)
+  // — the map just doesn't move and no pin is placed.
+  const focusCourseWithCoordinates = useCallback(
+    async (course, regionKey) => {
+      let resolved = course;
+      if (!courseHasValidCoordinates(resolved)) {
+        const coords = await geocodeCourseCoordinates(resolved);
+        if (coords) resolved = { ...resolved, ...coords };
+      }
+      if (courseHasValidCoordinates(resolved)) {
+        const nextRegion = {
+          latitude: resolved.lat,
+          longitude: resolved.lng,
+          latitudeDelta: SEARCH_FOCUS_DELTA,
+          longitudeDelta: SEARCH_FOCUS_DELTA,
+        };
+        setRegionState(nextRegion);
+        setFocusRegion({ ...nextRegion, key: regionKey });
+      } else {
+        console.warn(`[useCourseMapData] no coordinates found for "${resolved.name}" — showing popup without moving the map`);
+      }
+      handleSelectCourse(resolved);
+    },
+    [handleSelectCourse]
+  );
+
+  // Feed's per-post state badge navigates here with a course to focus on
+  // (see FeedScreen.handleStatePress). If the post didn't have stored
+  // coordinates, look the course up by name via the Golf Course API and then
+  // geocode it before dropping the pin.
+  useEffect(() => {
+    if (!routeFocusCourse) return;
+    let cancelled = false;
+
+    (async () => {
+      let course = routeFocusCourse;
+      if (!courseHasValidCoordinates(course)) {
+        try {
+          const results = await searchCourses(course.name);
+          const match =
+            results.find(
+              (c) => c.state && course.state && c.state.toUpperCase() === course.state.toUpperCase()
+            ) ?? results[0];
+          if (match) {
+            course = { ...match, id: course.id ?? match.id, name: course.name || match.name };
+          }
+        } catch (err) {
+          console.error(`[useCourseMapData] course lookup failed for "${course.name}":`, err.message);
+        }
+      }
+      if (cancelled) return;
+      await focusCourseWithCoordinates(course, `feed-${course.id ?? course.name}-${routeTimestamp}`);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeFocusCourse, routeTimestamp]);
+
+  // The map no longer bulk-loads a full state's courses — golfcourseapi.com
+  // can't be searched reliably by state name. Course pins beyond a search
+  // result or a "Played" course come only from those two sources.
+  const visibleCourses = useMemo(() => {
+    let base = filter === MAP_FILTERS.PLAYED ? myCoursesList : [];
+
+    // Always keep the selected/focused course pinned and visible — a search
+    // result or a course opened from the feed may not be in `base` at all.
+    // Skip courses with no coordinates — they can't be placed as a marker
+    // and would crash the underlying map (react-native-maps / react-leaflet
+    // don't guard this).
+    if (
+      selectedCourse &&
+      courseHasValidCoordinates(selectedCourse) &&
+      filter !== MAP_FILTERS.PLAYED &&
+      !base.some((c) => c.id === selectedCourse.id)
+    ) {
+      base = [...base, selectedCourse];
+    }
+    return base;
+  }, [filter, myCoursesList, selectedCourse]);
+
+  // Tapping a state pin zooms in and resets the search bar to empty/ready
+  // for a course-name search — no course data is fetched.
+  const handleSelectStateMarker = useCallback((abbr) => {
+    const center = stateCenters[abbr];
+    if (!center) return;
+    const nextRegion = {
+      latitude: center.lat,
+      longitude: center.lng,
+      latitudeDelta: STATE_FOCUS_DELTA,
+      longitudeDelta: STATE_FOCUS_DELTA,
+    };
+    setRegionState(nextRegion);
+    setFocusRegion({ ...nextRegion, key: `state-${abbr}-${Date.now()}` });
+
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchRequestIdRef.current += 1;
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearching(false);
+    courseDetailRequestIdRef.current += 1;
+    setSelectedCourse(null);
+    setSelectedDetail(null);
+  }, []);
+
+  const setRegion = useCallback((nextRegion) => {
+    setRegionState(nextRegion);
+  }, []);
+
   const clearSelectedCourse = useCallback(() => {
     courseDetailRequestIdRef.current += 1;
     setSelectedCourse(null);
@@ -424,6 +328,8 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     setMyCoursesLoaded(false);
   }, []);
 
+  // Searches by course name only — the text the user typed is sent straight
+  // through as golfcourseapi.com's search_query, unscoped to any state.
   const handleSearchQueryChange = useCallback((text) => {
     setSearchQuery(text);
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -440,24 +346,21 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
       setSearching(true);
       try {
         const results = await searchCourses(trimmed);
-        const validResults = results.filter(courseHasValidCoordinates);
-        // Prefer matches in the state currently in view (the search bar
-        // reads "Search courses in <State>"), but fall back to the
-        // unscoped results rather than showing an empty dropdown.
-        const scoped = currentStateAbbr
-          ? validResults.filter((c) => c.state?.toUpperCase() === currentStateAbbr)
-          : validResults;
         if (requestId === searchRequestIdRef.current) {
-          setSearchResults(scoped.length > 0 ? scoped : validResults);
+          setSearchResults(results);
+          setQuotaExceeded(false);
         }
       } catch (err) {
         console.error('[useCourseMapData] search failed:', err.message);
-        if (requestId === searchRequestIdRef.current) setSearchResults([]);
+        if (requestId === searchRequestIdRef.current) {
+          setSearchResults([]);
+          if (err instanceof RateLimitError) setQuotaExceeded(true);
+        }
       } finally {
         if (requestId === searchRequestIdRef.current) setSearching(false);
       }
     }, SEARCH_DEBOUNCE_MS);
-  }, [currentStateAbbr]);
+  }, []);
 
   const clearSearch = useCallback(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -467,20 +370,13 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     setSearching(false);
   }, []);
 
-  const handleSelectSearchResult = useCallback((course) => {
-    clearSearch();
-    if (course.lat != null && course.lng != null) {
-      const nextRegion = {
-        latitude: course.lat,
-        longitude: course.lng,
-        latitudeDelta: SEARCH_FOCUS_DELTA,
-        longitudeDelta: SEARCH_FOCUS_DELTA,
-      };
-      setRegionState(nextRegion);
-      setFocusRegion({ ...nextRegion, key: `search-${course.id}-${Date.now()}` });
-    }
-    handleSelectCourse(course);
-  }, [clearSearch, handleSelectCourse]);
+  const handleSelectSearchResult = useCallback(
+    (course) => {
+      clearSearch();
+      focusCourseWithCoordinates(course, `search-${course.id}-${Date.now()}`);
+    },
+    [clearSearch, focusCourseWithCoordinates]
+  );
 
   const goToCourseDetail = useCallback(() => {
     if (!selectedCourse || !navigation) return;
@@ -502,10 +398,6 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     stateMarkers,
     currentStateAbbr,
     currentStateName: currentStateAbbr ? stateCenters[currentStateAbbr].name : null,
-    currentStateLoading,
-    currentStateBrowsed,
-    browseAllInState,
-    countBanner,
     handleSelectStateMarker,
     visibleCourses,
     quotaExceeded,

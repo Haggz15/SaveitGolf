@@ -8,12 +8,11 @@ import Header from '../components/Header';
 import CourseSearchBar from '../components/map/CourseSearchBar';
 import FriendSearchBar from '../components/map/FriendSearchBar';
 import FilterPills from '../components/map/FilterPills';
-import BrowseAllButton from '../components/map/BrowseAllButton';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
 import MapErrorBoundary from '../components/map/MapErrorBoundary';
 import SilentMarkerBoundary from '../components/map/SilentMarkerBoundary';
-import { MapWarningBanner, MapLoadingBanner, MapSuccessBanner } from '../components/map/MapMessageBanner';
+import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessageBanner';
 import colors from '../theme/colors';
 import { useCourseMapData, US_INITIAL_REGION, MAP_FILTERS, ZOOM_LEVEL } from '../hooks/useCourseMapData';
 import { useAuth } from '../context/AuthContext';
@@ -54,13 +53,11 @@ const highlightedCourseIcon = buildFlagIcon(colors.red, HIGHLIGHTED_PIN_SIZE, tr
 
 // Level 1 (zoomed-out full-US) pin — a green push pin, larger than a course
 // flag pin, with the state abbreviation on a small label underneath. Built
-// per-abbreviation (and per-browsed-state) since each needs its own text and
-// shade — `browsed` (courses already loaded via Browse All) draws a lighter
-// green so a previously-browsed state stands out at a glance.
+// once per abbreviation since Leaflet markers render outside React's tree.
 const STATE_PIN_WIDTH = 34;
 const STATE_PIN_HEIGHT = 50;
-function buildStatePushPinIcon(abbr, browsed) {
-  const fill = browsed ? colors.greenLight : colors.green;
+function buildStatePushPinIcon(abbr) {
+  const fill = colors.green;
   const svg = `<svg width="${STATE_PIN_WIDTH}" height="${STATE_PIN_HEIGHT}" viewBox="0 0 34 50" xmlns="http://www.w3.org/2000/svg">
     <path d="M17 2C7.6 2 0 9.6 0 19c0 12.75 17 25 17 25s17-12.25 17-25C34 9.6 26.4 2 17 2z" fill="${fill}" stroke="#ffffff" stroke-width="1.5"/>
     <circle cx="17" cy="19" r="6.5" fill="${colors.navy}"/>
@@ -147,10 +144,6 @@ export default function MapScreen({ navigation, route }) {
     zoomLevel,
     stateMarkers,
     currentStateName,
-    currentStateLoading,
-    currentStateBrowsed,
-    browseAllInState,
-    countBanner,
     handleSelectStateMarker,
     visibleCourses,
     quotaExceeded,
@@ -186,7 +179,7 @@ export default function MapScreen({ navigation, route }) {
         stateMarkers
           .map((state) => {
             try {
-              return [state.abbr, buildStatePushPinIcon(state.abbr, state.browsed)];
+              return [state.abbr, buildStatePushPinIcon(state.abbr)];
             } catch (err) {
               console.error(`[MapScreen] failed to build pin icon for state "${state.abbr}":`, err);
               return null;
@@ -238,29 +231,21 @@ export default function MapScreen({ navigation, route }) {
     <View style={styles.screen}>
       <Header />
       {zoomLevel !== ZOOM_LEVEL.COUNTRY && (
-        <CourseSearchBar
-          query={searchQuery}
-          onChangeQuery={handleSearchQueryChange}
-          onClear={clearSearch}
-          results={searchResults}
-          searching={searching}
-          onSelectResult={handleSelectSearchResult}
-          placeholder={`Search courses in ${currentStateName}`}
-        />
+        <>
+          <Text style={styles.searchHeading}>Search courses in {currentStateName}</Text>
+          <CourseSearchBar
+            query={searchQuery}
+            onChangeQuery={handleSearchQueryChange}
+            onClear={clearSearch}
+            results={searchResults}
+            searching={searching}
+            onSelectResult={handleSelectSearchResult}
+            placeholder={`Search courses in ${currentStateName}`}
+          />
+        </>
       )}
       <FriendSearchBar currentUserId={user?.id} onSelectFriend={handleSelectFriend} />
       <FilterPills value={filter} onChange={setFilter} />
-
-      {zoomLevel !== ZOOM_LEVEL.COUNTRY &&
-        !friendFilter &&
-        filter !== MAP_FILTERS.PLAYED &&
-        !currentStateBrowsed && (
-          <BrowseAllButton
-            stateName={currentStateName}
-            loading={currentStateLoading}
-            onPress={guard(browseAllInState)}
-          />
-        )}
 
       {friendFilter && (
         <View style={styles.friendBanner}>
@@ -356,17 +341,8 @@ export default function MapScreen({ navigation, route }) {
 
         <ZoomControls onZoomIn={guard(handleZoomIn)} onZoomOut={guard(handleZoomOut)} />
 
-        {filter === MAP_FILTERS.PLAYED ? (
-          myCoursesLoading && <MapLoadingBanner>Loading your courses…</MapLoadingBanner>
-        ) : !friendFilter && currentStateLoading ? (
-          <MapLoadingBanner>Loading {currentStateName} courses…</MapLoadingBanner>
-        ) : (
-          !friendFilter &&
-          countBanner && (
-            <MapSuccessBanner>
-              {countBanner.count} courses in {countBanner.name}
-            </MapSuccessBanner>
-          )
+        {filter === MAP_FILTERS.PLAYED && myCoursesLoading && (
+          <MapLoadingBanner>Loading your courses…</MapLoadingBanner>
         )}
 
         {filter === MAP_FILTERS.PLAYED && myCoursesLoaded && !myCoursesLoading && visibleCourses.length === 0 && (
@@ -396,6 +372,13 @@ const styles = StyleSheet.create({
   },
   mapContainer: {
     flex: 1,
+  },
+  searchHeading: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '700',
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   friendBanner: {
     flexDirection: 'row',

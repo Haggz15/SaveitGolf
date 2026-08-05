@@ -10,6 +10,7 @@ export const colors = {
   gold: '#d4af37',
   green: '#2e8b57',
   greenLight: '#6fbd94',
+  brightGreen: '#4dd860',
   blue: '#4a90e2',
   lightBlue: '#a8c0e0',
 };

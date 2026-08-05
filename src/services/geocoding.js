@@ -14,7 +14,8 @@ let requestChain = Promise.resolve();
 
 function throttledFetch(url) {
   const run = requestChain.then(async () => {
-    const res = await fetch(url, { headers: { 'Accept-Language': 'en-US' } });
+    // Nominatim's usage policy requires a real User-Agent identifying the app.
+    const res = await fetch(url, { headers: { 'Accept-Language': 'en-US', 'User-Agent': 'SaveitGolf/1.0' } });
     await new Promise((resolve) => setTimeout(resolve, MIN_REQUEST_INTERVAL_MS));
     return res;
   });
@@ -99,6 +100,22 @@ export async function geocodeCourse(courseId, address, { name, city, state } = {
 export async function getCachedGeocode(courseId) {
   const cache = await loadCache();
   return cache[courseId] ?? null;
+}
+
+// golfcourseapi.com's search endpoint doesn't return usable coordinates, so
+// the map geocodes a normalized course (id/name/address/city/state, as
+// produced by golfCourseApi.normalizeCourse) via Nominatim before placing
+// its pin. Returns null (rather than throwing) when no match is found, since
+// callers show the course either way and just skip the map pin.
+export async function geocodeCourseCoordinates(course) {
+  const address = course?.address || [course?.city, course?.state].filter(Boolean).join(', ');
+  if (!address || !course?.id) return null;
+  try {
+    return await geocodeCourse(course.id, address, { name: course.name, city: course.city, state: course.state });
+  } catch (err) {
+    console.warn(`[geocoding] could not geocode course "${course?.name}":`, err.message);
+    return null;
+  }
 }
 
 let reverseCachePromise = null;
