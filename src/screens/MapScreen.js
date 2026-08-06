@@ -51,7 +51,10 @@ function withCoords(courses, context) {
   return filterCoursesWithValidCoordinates(courses, context);
 }
 
-function CourseMarker({ course, highlighted, onPress }) {
+// `green` marks pins from the user's own My Courses list (the map's default
+// view) so they read distinctly from the red flag used for search results
+// and course-detail "View on Map" focus.
+function CourseMarker({ course, highlighted, green, onPress }) {
   return (
     <Marker
       coordinate={{ latitude: course.lat, longitude: course.lng }}
@@ -64,7 +67,7 @@ function CourseMarker({ course, highlighted, onPress }) {
           <Ionicons name="flag" size={36} color={colors.red} />
         </View>
       ) : (
-        <Ionicons name="flag" size={28} color={colors.red} />
+        <Ionicons name="location" size={28} color={green ? colors.green : colors.red} />
       )}
     </Marker>
   );
@@ -270,6 +273,7 @@ export default function MapScreen({ navigation, route }) {
                     <CourseMarker
                       course={course}
                       highlighted={selectedCourse?.id === course.id}
+                      green={!friendFilter && filter === MAP_FILTERS.PLAYED}
                       onPress={guard(handleSelectCourse)}
                     />
                   </SilentMarkerBoundary>

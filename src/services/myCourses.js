@@ -24,19 +24,26 @@ export async function getMyCourses(userId) {
 }
 
 export async function addMyCourse(userId, { courseId, courseName, city, state, latitude, longitude }) {
+  console.log('[myCourses] addMyCourse user_id:', userId);
+
   const { data, error } = await supabase
     .from('my_courses')
-    .insert({
-      user_id: userId,
-      course_id: courseId ?? null,
-      course_name: courseName,
-      city: city ?? null,
-      state: state ?? null,
-      latitude: latitude ?? null,
-      longitude: longitude ?? null,
-    })
+    .upsert(
+      {
+        user_id: userId,
+        course_id: courseId ?? null,
+        course_name: courseName,
+        city: city ?? null,
+        state: state ?? null,
+        latitude: latitude ?? null,
+        longitude: longitude ?? null,
+      },
+      { onConflict: 'user_id,course_id' }
+    )
     .select()
     .single();
+
+  console.log('[myCourses] addMyCourse response:', { data, error });
 
   if (error) throw error;
   return mapRow(data);

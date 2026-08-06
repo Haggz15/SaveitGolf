@@ -155,9 +155,7 @@ function PostSlide({
           onPress={() => onCoursePress(post)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={styles.topLeftCourseName} numberOfLines={2} ellipsizeMode="tail">
-            {post.course}
-          </Text>
+          <Text style={styles.topLeftCourseName}>{post.course}</Text>
         </TouchableOpacity>
         {post.hole != null && (
           <View style={styles.holeWrap}>
@@ -350,6 +348,8 @@ export default function FeedScreen({ navigation }) {
       courseName: post.course,
       city: post.city,
       state: post.state,
+      lat: post.lat ?? null,
+      lng: post.lng ?? null,
     });
   };
 
@@ -587,8 +587,7 @@ const styles = StyleSheet.create({
   topLeftCourseName: {
     fontFamily: 'Cinzel_700Bold',
     fontSize: 15,
-    color: colors.gold,
-    textDecorationLine: 'underline',
+    color: colors.white,
     textShadowColor: 'rgba(0, 0, 0, 0.7)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,

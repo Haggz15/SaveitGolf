@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
+import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -172,6 +173,7 @@ export default function ProfileScreen({ navigation }) {
   const [myCoursesLoading, setMyCoursesLoading] = useState(true);
   const [myCoursesEditMode, setMyCoursesEditMode] = useState(false);
   const [courseSearchVisible, setCourseSearchVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
 
   const loadMyCourses = useCallback(async () => {
     if (!user?.id) return;
@@ -190,7 +192,11 @@ export default function ProfileScreen({ navigation }) {
   }, [loadMyCourses]);
 
   async function handleAddMyCourse(course) {
-    if (!user?.id) return;
+    console.log('[ProfileScreen] handleAddMyCourse user_id:', user?.id);
+    if (!user?.id) {
+      Alert.alert('Not signed in', 'You need to be signed in to add a course.');
+      throw new Error('No user id available when saving course');
+    }
     try {
       // golfcourseapi.com search results frequently omit coordinates —
       // fall back to geocoding the course's address via Nominatim so it
@@ -213,10 +219,15 @@ export default function ProfileScreen({ navigation }) {
         latitude,
         longitude,
       });
-      setMyCourses((prev) => [created, ...prev]);
+      // The upsert may have updated an existing row for this course rather
+      // than inserted a new one — replace any existing entry so the list
+      // never shows the same course twice.
+      setMyCourses((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
+      setToastMessage('Course added to My Courses');
     } catch (err) {
       console.error('Failed to add course:', err);
-      Alert.alert('Something went wrong', 'Could not add this course. Please try again.');
+      Alert.alert('Could not save course', err.message ?? 'An unknown error occurred.');
+      throw err;
     }
   }
 
@@ -533,6 +544,8 @@ export default function ProfileScreen({ navigation }) {
         onClose={() => setCourseSearchVisible(false)}
         onAddCourse={handleAddMyCourse}
       />
+
+      <Toast message={toastMessage} onHide={() => setToastMessage(null)} />
     </View>
   );
 }

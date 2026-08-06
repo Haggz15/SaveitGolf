@@ -11,9 +11,6 @@ import { getAverageRatingForCourse } from '../services/courseRankings';
 import { getCoursePhoto } from '../data/coursePhotos';
 
 const TABS = ['All Posts', 'Hole by Hole', 'Scorecards'];
-// "Swings" has no distinct signal in the data today (no post category field)
-// — it filters to the same video posts as "Videos" until one exists.
-const POST_FILTERS = ['All', 'Pictures', 'Videos', 'Swings'];
 
 // Typical 18-hole par distribution, used whenever live tee data hasn't
 // loaded (or isn't available) so the Hole by Hole grid always has content.
@@ -23,14 +20,6 @@ function scoreDiffLabel(score, par) {
   const diff = score - par;
   if (diff === 0) return 'E';
   return diff > 0 ? `+${diff}` : `${diff}`;
-}
-
-function FilterPill({ label, active, onPress }) {
-  return (
-    <TouchableOpacity onPress={onPress} style={[styles.pill, active && styles.pillActive]}>
-      <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
-    </TouchableOpacity>
-  );
 }
 
 function PostTile({ post }) {
@@ -125,22 +114,26 @@ function BottomNavButton({ icon, iconFocused, label, focused, onPress }) {
 }
 
 export default function CourseDetailScreen({ route, navigation }) {
-  const { courseId, courseName, city, state } = route.params ?? {};
+  const { courseId, courseName, city, state, lat, lng } = route.params ?? {};
   const insets = useSafeAreaInsets();
   const [tees, setTees] = useState(null);
   const [activeTab, setActiveTab] = useState(TABS[0]);
-  const [activeFilter, setActiveFilter] = useState(POST_FILTERS[0]);
   const [selectedHole, setSelectedHole] = useState(null);
   const [coursePosts, setCoursePosts] = useState([]);
   const [scorecards, setScorecards] = useState([]);
   const [avgRating, setAvgRating] = useState(null);
+  const [courseCoords, setCourseCoords] = useState({ lat: lat ?? null, lng: lng ?? null });
 
   useEffect(() => {
     let cancelled = false;
     if (!courseId) return undefined;
     getCourseById(courseId)
       .then((course) => {
-        if (!cancelled) setTees(course.tees ?? null);
+        if (cancelled) return;
+        setTees(course.tees ?? null);
+        setCourseCoords((prev) =>
+          prev.lat != null && prev.lng != null ? prev : { lat: course.lat, lng: course.lng }
+        );
       })
       .catch(() => {});
     return () => {
@@ -198,23 +191,15 @@ export default function CourseDetailScreen({ route, navigation }) {
     [holes]
   );
 
+  // coursePosts is already sorted most-liked-first by getPostsForCourse.
   const filteredPosts = useMemo(() => {
-    let posts = coursePosts;
-    if (activeFilter === 'Pictures') posts = posts.filter((p) => !p.isVideo);
-    // "Swings" has no distinct data signal yet — same as "Videos" for now.
-    if (activeFilter === 'Videos' || activeFilter === 'Swings') posts = posts.filter((p) => p.isVideo);
-    if (selectedHole != null) posts = posts.filter((p) => p.hole === selectedHole);
-    return posts;
-  }, [activeFilter, coursePosts, selectedHole]);
+    if (selectedHole == null) return coursePosts;
+    return coursePosts.filter((p) => p.hole === selectedHole);
+  }, [coursePosts, selectedHole]);
 
   function handleSelectTab(tab) {
     setActiveTab(tab);
     if (tab !== 'All Posts') setSelectedHole(null);
-  }
-
-  function handleSelectFilter(filter) {
-    setActiveFilter(filter);
-    setSelectedHole(null);
   }
 
   function handleSelectHole(number) {
@@ -223,6 +208,23 @@ export default function CourseDetailScreen({ route, navigation }) {
   }
 
   const goToTab = (screen) => navigation.navigate('Tabs', { screen });
+
+  function handleViewOnMap() {
+    navigation.navigate('Tabs', {
+      screen: 'Map',
+      params: {
+        focusCourse: {
+          id: courseId ?? null,
+          name: courseName,
+          city: city ?? null,
+          state: state ?? null,
+          lat: courseCoords.lat,
+          lng: courseCoords.lng,
+        },
+        timestamp: Date.now(),
+      },
+    });
+  }
 
   return (
     <View style={styles.screen}>
@@ -252,6 +254,10 @@ export default function CourseDetailScreen({ route, navigation }) {
           <Text style={styles.courseName} numberOfLines={2}>
             {courseName ?? 'Course'}
           </Text>
+          <TouchableOpacity style={styles.viewOnMapButton} onPress={handleViewOnMap} activeOpacity={0.8}>
+            <Ionicons name="location" size={12} color="#0d1f3c" />
+            <Text style={styles.viewOnMapButtonText}>View on Map</Text>
+          </TouchableOpacity>
           <Text style={styles.courseMeta}>
             {city ? `${city}, ${state}` : state} · {holesCount} Holes · Par {parTotal}
           </Text>
@@ -285,16 +291,6 @@ export default function CourseDetailScreen({ route, navigation }) {
 
         {activeTab === 'All Posts' && (
           <View style={styles.tabContent}>
-            <View style={styles.filterRow}>
-              {POST_FILTERS.map((filter) => (
-                <FilterPill
-                  key={filter}
-                  label={filter}
-                  active={activeFilter === filter}
-                  onPress={() => handleSelectFilter(filter)}
-                />
-              ))}
-            </View>
             {selectedHole != null && (
               <TouchableOpacity style={styles.holeFilterBanner} onPress={() => setSelectedHole(null)}>
                 <Text style={styles.holeFilterBannerText}>Hole {selectedHole}</Text>
@@ -439,6 +435,22 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '800',
   },
+  viewOnMapButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    backgroundColor: '#a8c0e0',
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    marginTop: 8,
+  },
+  viewOnMapButtonText: {
+    color: '#0d1f3c',
+    fontSize: 11,
+    fontWeight: '700',
+  },
   courseMeta: {
     color: colors.offWhite,
     fontSize: 13,
@@ -500,31 +512,6 @@ const styles = StyleSheet.create({
   },
   tabContent: {
     padding: 16,
-  },
-  filterRow: {
-    flexDirection: 'row',
-    marginBottom: 14,
-  },
-  pill: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 18,
-    backgroundColor: colors.navyCard,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: colors.navyBorder,
-  },
-  pillActive: {
-    backgroundColor: colors.red,
-    borderColor: colors.red,
-  },
-  pillText: {
-    color: colors.muted,
-    fontWeight: '600',
-    fontSize: 12,
-  },
-  pillTextActive: {
-    color: colors.white,
   },
   holeFilterBanner: {
     flexDirection: 'row',

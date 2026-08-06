@@ -619,6 +619,13 @@ create table if not exists public.my_courses (
 
 create index if not exists my_courses_user_id_idx on public.my_courses (user_id);
 
+-- Lets the app upsert on (user_id, course_id) so re-adding the same course
+-- updates the existing row instead of creating a duplicate. Rows with a null
+-- course_id never collide (nulls are never equal in a unique index), so
+-- those always insert as new rows.
+create unique index if not exists my_courses_user_course_idx
+  on public.my_courses (user_id, course_id);
+
 alter table public.my_courses enable row level security;
 
 drop policy if exists "My courses are viewable by everyone" on public.my_courses;
@@ -629,6 +636,13 @@ create policy "My courses are viewable by everyone"
 drop policy if exists "Users can add their own courses" on public.my_courses;
 create policy "Users can add their own courses"
   on public.my_courses for insert
+  with check (auth.uid() = user_id);
+
+-- Needed for the upsert-on-conflict path (re-adding an already-saved course).
+drop policy if exists "Users can update their own courses" on public.my_courses;
+create policy "Users can update their own courses"
+  on public.my_courses for update
+  using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
 drop policy if exists "Users can remove their own courses" on public.my_courses;

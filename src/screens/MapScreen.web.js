@@ -51,6 +51,24 @@ function buildFlagIcon(color, size = PIN_SIZE, highlighted = false) {
 const courseIcon = buildFlagIcon(colors.red);
 const highlightedCourseIcon = buildFlagIcon(colors.red, HIGHLIGHTED_PIN_SIZE, true);
 
+// Teardrop push-pin (not a flag) used for the user's own My Courses list —
+// the map's default view — so those pins read distinctly from the red flag
+// used for search results and course-detail "View on Map" focus.
+function buildPushPinIcon(color, size = PIN_SIZE) {
+  const svg = `<svg width="${size}" height="${size}" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
+    <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="${color}" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="17" cy="17" r="6.5" fill="${colors.navy}"/>
+  </svg>`;
+  return L.divIcon({
+    html: svg,
+    className: 'saveitgolf-course-pin',
+    iconSize: [size, (size * 44) / 34],
+    iconAnchor: [size / 2, (size * 44) / 34],
+  });
+}
+
+const greenCourseIcon = buildPushPinIcon(colors.green);
+
 // Level 1 (zoomed-out full-US) pin — a green push pin, larger than a course
 // flag pin, with the state abbreviation on a small label underneath. Built
 // once per abbreviation since Leaflet markers render outside React's tree.
@@ -312,16 +330,20 @@ export default function MapScreen({ navigation, route }) {
                     />
                   </SilentMarkerBoundary>
                 ))
-              : withCoords(friendFilter ? friendFilter.courses : visibleCourses, 'render markers').map((course) => (
-                  <SilentMarkerBoundary key={course.id}>
-                    <Marker
-                      position={[course.lat, course.lng]}
-                      icon={selectedCourse?.id === course.id ? highlightedCourseIcon : courseIcon}
-                      zIndexOffset={selectedCourse?.id === course.id ? 1000 : 0}
-                      eventHandlers={{ click: guard(() => handleSelectCourse(course)) }}
-                    />
-                  </SilentMarkerBoundary>
-                ))}
+              : withCoords(friendFilter ? friendFilter.courses : visibleCourses, 'render markers').map((course) => {
+                  const isHighlighted = selectedCourse?.id === course.id;
+                  const isGreen = !friendFilter && filter === MAP_FILTERS.PLAYED;
+                  return (
+                    <SilentMarkerBoundary key={course.id}>
+                      <Marker
+                        position={[course.lat, course.lng]}
+                        icon={isHighlighted ? highlightedCourseIcon : isGreen ? greenCourseIcon : courseIcon}
+                        zIndexOffset={isHighlighted ? 1000 : 0}
+                        eventHandlers={{ click: guard(() => handleSelectCourse(course)) }}
+                      />
+                    </SilentMarkerBoundary>
+                  );
+                })}
 
             {userLocation && hasValidCoordinates(userLocation.latitude, userLocation.longitude) && (
               <>

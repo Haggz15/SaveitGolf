@@ -68,6 +68,9 @@ export default function CourseSearchModal({ visible, onClose, onAddCourse }) {
     try {
       await onAddCourse(course);
       onClose();
+    } catch (err) {
+      // Save failed — error is already surfaced to the user by onAddCourse.
+      // Keep the modal open so they can retry instead of losing their search.
     } finally {
       setAddingId(null);
     }
