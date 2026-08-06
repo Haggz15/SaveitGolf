@@ -104,13 +104,18 @@ function timeAgo(isoDate) {
 }
 
 // Real posts for the feed. `userIds`, when provided, scopes results to
-// those authors (used by the Following filter). `sort: 'top'` reorders the
-// page client-side by likes+comments (used by the Feed pill) instead of
-// the default newest-first ordering.
-export async function getFeedPosts({ userIds, sort } = {}) {
+// those authors (used by the Following filter). `excludeUserIds` drops posts
+// from anyone the current user has blocked (see services/moderation.js) —
+// filtered client-side, same as the `sort: 'top'` reorder below, rather than
+// as a query filter, since it's just a handful of ids at most. `sort: 'top'`
+// reorders the page client-side by likes+comments (used by the Feed pill)
+// instead of the default newest-first ordering. Posts auto-hidden by the
+// report threshold (posts.hidden) never come back from this query at all.
+export async function getFeedPosts({ userIds, excludeUserIds, sort } = {}) {
   let request = supabase
     .from('posts')
     .select('*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)')
+    .eq('hidden', false)
     .order('created_at', { ascending: false })
     .limit(50);
 
@@ -121,7 +126,11 @@ export async function getFeedPosts({ userIds, sort } = {}) {
 
   const { data, error } = await request;
   if (error) throw error;
-  const posts = (data ?? []).map(mapRow);
+  let posts = (data ?? []).map(mapRow);
+
+  if (excludeUserIds && excludeUserIds.size > 0) {
+    posts = posts.filter((post) => !excludeUserIds.has(post.userId));
+  }
 
   if (sort === 'top') {
     return posts.sort((a, b) => b.likes + b.comments - (a.likes + a.comments));
@@ -134,6 +143,7 @@ export async function getUserPosts(userId) {
     .from('posts')
     .select('*')
     .eq('user_id', userId)
+    .eq('hidden', false)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -165,7 +175,8 @@ export async function incrementShareCount(postId) {
 export async function getPostsForCourse({ courseId, courseName }) {
   let request = supabase
     .from('posts')
-    .select('*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)');
+    .select('*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)')
+    .eq('hidden', false);
 
   request = courseId ? request.eq('course_id', courseId) : request.ilike('course_name', courseName ?? '');
 

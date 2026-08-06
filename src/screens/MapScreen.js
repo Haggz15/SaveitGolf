@@ -11,7 +11,8 @@ import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
 import MapErrorBoundary from '../components/map/MapErrorBoundary';
 import SilentMarkerBoundary from '../components/map/SilentMarkerBoundary';
-import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessageBanner';
+import { MapWarningBanner } from '../components/map/MapMessageBanner';
+import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { darkSlateMapStyle } from '../theme/mapStyle';
 import {
@@ -73,6 +74,35 @@ function CourseMarker({ course, highlighted, green, onPress }) {
   );
 }
 
+// Standard marker icon size (see CourseMarker's non-highlighted case) — the
+// feed-focus pin below is sized relative to this.
+const NORMAL_MARKER_ICON_SIZE = 28;
+const FEED_FOCUS_ICON_SIZE = Math.round(NORMAL_MARKER_ICON_SIZE * 1.5);
+
+// The pin dropped when a course name is tapped from the feed (see
+// useCourseMapData's routeZoomToState handling) — a red flag, 1.5x the size
+// of a normal course pin, with the course name shown as a permanently
+// visible label underneath rather than a tap-to-reveal callout.
+function FeedFocusMarker({ pin }) {
+  return (
+    <Marker
+      coordinate={{ latitude: pin.lat, longitude: pin.lng }}
+      anchor={{ x: 0.5, y: 1 }}
+      tracksViewChanges={false}
+      zIndex={15}
+    >
+      <View style={styles.feedFocusMarker}>
+        <Ionicons name="flag" size={FEED_FOCUS_ICON_SIZE} color={colors.red} />
+        <View style={styles.feedFocusLabel}>
+          <Text style={styles.feedFocusLabelText} numberOfLines={1}>
+            {pin.name}
+          </Text>
+        </View>
+      </View>
+    </Marker>
+  );
+}
+
 // Level 1 (zoomed-out full-US) pin — one per state, centered on that state's
 // centroid. Tapping one zooms in and resets the search bar so the user can
 // look up a course by name (see useCourseMapData.handleSelectStateMarker) —
@@ -95,6 +125,8 @@ export default function MapScreen({ navigation, route }) {
   const { user } = useAuth();
   const mapRef = useRef(null);
   const [friendFilter, setFriendFilter] = useState(null); // { displayName, courses, loading }
+  const [emptyMyCoursesToast, setEmptyMyCoursesToast] = useState(null);
+  const playedEmptyToastShownRef = useRef(false);
   const {
     region,
     setRegion,
@@ -111,9 +143,9 @@ export default function MapScreen({ navigation, route }) {
     handleSelectCourse,
     clearSelectedCourse,
     goToCourseDetail,
+    feedFocusPin,
     filter,
     setFilter,
-    clearPlayedFilter,
     myCoursesLoading,
     myCoursesLoaded,
     searchQuery,
@@ -126,6 +158,8 @@ export default function MapScreen({ navigation, route }) {
     navigation,
     routeFocusCourse: route?.params?.focusCourse,
     routeTimestamp: route?.params?.timestamp,
+    routeZoomToState: route?.params?.zoomToState,
+    routeZoomToStateTimestamp: route?.params?.zoomToStateAt,
     userId: user?.id,
   });
 
@@ -152,6 +186,19 @@ export default function MapScreen({ navigation, route }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, myCoursesLoading, visibleCourses]);
+
+  // My Courses toggle drops pins silently — the only feedback for an empty
+  // list is this bottom toast, not a banner or inline card.
+  useEffect(() => {
+    if (filter !== MAP_FILTERS.PLAYED) {
+      playedEmptyToastShownRef.current = false;
+      return;
+    }
+    if (myCoursesLoading || !myCoursesLoaded || visibleCourses.length > 0) return;
+    if (playedEmptyToastShownRef.current) return;
+    playedEmptyToastShownRef.current = true;
+    setEmptyMyCoursesToast('Add courses in your profile to see them here');
+  }, [filter, myCoursesLoading, myCoursesLoaded, visibleCourses]);
 
   const handleSelectFriend = async (profile) => {
     clearSelectedCourse();
@@ -206,7 +253,7 @@ export default function MapScreen({ navigation, route }) {
             results={searchResults}
             searching={searching}
             onSelectResult={handleSelectSearchResult}
-            placeholder={`Search courses in ${currentStateName}`}
+            placeholder="Search for a course"
           />
         </>
       )}
@@ -225,16 +272,6 @@ export default function MapScreen({ navigation, route }) {
           </Text>
           <TouchableOpacity onPress={handleClearFriendFilter} style={styles.friendBannerClear}>
             <Text style={styles.friendBannerClearText}>Clear</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {filter === MAP_FILTERS.PLAYED && (
-        <View style={styles.myCoursesBanner}>
-          <Ionicons name="flag" size={16} color={colors.white} />
-          <Text style={styles.myCoursesBannerText}>Showing My Courses</Text>
-          <TouchableOpacity onPress={clearPlayedFilter} style={styles.myCoursesBannerClear}>
-            <Text style={styles.myCoursesBannerClearText}>Clear</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -278,21 +315,16 @@ export default function MapScreen({ navigation, route }) {
                     />
                   </SilentMarkerBoundary>
                 ))}
+
+            {feedFocusPin && (
+              <SilentMarkerBoundary>
+                <FeedFocusMarker pin={feedFocusPin} />
+              </SilentMarkerBoundary>
+            )}
           </MapView>
         </MapErrorBoundary>
 
         <ZoomControls onZoomIn={guard(handleZoomIn)} onZoomOut={guard(handleZoomOut)} />
-
-        {filter === MAP_FILTERS.PLAYED && myCoursesLoading && (
-          <MapLoadingBanner>Loading your courses…</MapLoadingBanner>
-        )}
-
-        {filter === MAP_FILTERS.PLAYED && myCoursesLoaded && !myCoursesLoading && visibleCourses.length === 0 && (
-          <View style={styles.emptyMyCoursesCard} pointerEvents="none">
-            <Ionicons name="flag-outline" size={22} color={colors.muted} />
-            <Text style={styles.emptyMyCoursesText}>Add courses to your profile to see them here</Text>
-          </View>
-        )}
 
         {selectedCourse && (
           <CoursePopupCard
@@ -303,6 +335,13 @@ export default function MapScreen({ navigation, route }) {
           />
         )}
       </View>
+
+      <Toast
+        message={emptyMyCoursesToast}
+        onHide={() => setEmptyMyCoursesToast(null)}
+        duration={3000}
+        bottom
+      />
     </View>
   );
 }
@@ -352,56 +391,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  myCoursesBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    backgroundColor: colors.navyCard,
-    borderWidth: 1,
-    borderColor: colors.red,
-    gap: 8,
-  },
-  myCoursesBannerText: {
-    flex: 1,
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  myCoursesBannerClear: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    backgroundColor: colors.red,
-  },
-  myCoursesBannerClearText: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  emptyMyCoursesCard: {
-    position: 'absolute',
-    top: '40%',
-    alignSelf: 'center',
-    zIndex: 1000,
-    maxWidth: 260,
-    alignItems: 'center',
-    backgroundColor: colors.navyCard,
-    borderWidth: 1,
-    borderColor: colors.navyBorder,
-    borderRadius: 14,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    gap: 8,
-  },
-  emptyMyCoursesText: {
-    color: colors.muted,
-    fontSize: 13,
-    textAlign: 'center',
-  },
   map: {
     flex: 1,
   },
@@ -414,5 +403,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(192, 0, 26, 0.18)',
     borderWidth: 2,
     borderColor: colors.red,
+  },
+  feedFocusMarker: {
+    alignItems: 'center',
+  },
+  feedFocusLabel: {
+    marginTop: -2,
+    maxWidth: 160,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.red,
+  },
+  feedFocusLabelText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

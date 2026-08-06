@@ -23,6 +23,7 @@ import { uploadAvatar } from '../services/profiles';
 import { getCourseRankings, addCourseRanking, updateCourseRanking } from '../services/courseRankings';
 import { getMyCourses, addMyCourse, removeMyCourse } from '../services/myCourses';
 import { geocodeCourseCoordinates } from '../services/geocoding';
+import { submitNewCourse } from '../services/golfCourseApi';
 import { getUserPosts } from '../services/posts';
 
 const TABS = ['Course Rankings', 'My Courses', 'Uploads'];
@@ -174,6 +175,7 @@ export default function ProfileScreen({ navigation }) {
   const [myCoursesEditMode, setMyCoursesEditMode] = useState(false);
   const [courseSearchVisible, setCourseSearchVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
+  const [toastType, setToastType] = useState(null);
 
   const loadMyCourses = useCallback(async () => {
     if (!user?.id) return;
@@ -194,13 +196,14 @@ export default function ProfileScreen({ navigation }) {
   async function handleAddMyCourse(course) {
     console.log('[ProfileScreen] handleAddMyCourse user_id:', user?.id);
     if (!user?.id) {
-      Alert.alert('Not signed in', 'You need to be signed in to add a course.');
+      setToastType('error');
+      setToastMessage('You need to be signed in to add a course.');
       throw new Error('No user id available when saving course');
     }
     try {
       // golfcourseapi.com search results frequently omit coordinates —
-      // fall back to geocoding the course's address via Nominatim so it
-      // still gets a valid map pin (getMyCourses skips rows with no lat/lng).
+      // geocode the course via Nominatim first so it still gets a valid map
+      // pin (getMyCourses skips rows with no lat/lng).
       let latitude = course.lat;
       let longitude = course.lng;
       if (latitude == null || longitude == null) {
@@ -223,10 +226,58 @@ export default function ProfileScreen({ navigation }) {
       // than inserted a new one — replace any existing entry so the list
       // never shows the same course twice.
       setMyCourses((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
-      setToastMessage('Course added to My Courses');
+      setToastType('success');
+      setToastMessage('Course added successfully');
     } catch (err) {
       console.error('Failed to add course:', err);
-      Alert.alert('Could not save course', err.message ?? 'An unknown error occurred.');
+      setToastType('error');
+      setToastMessage(err.message ?? 'An unknown error occurred.');
+      throw err;
+    }
+  }
+
+  // A course search came up empty in golfcourseapi.com, so the user typed
+  // it in themselves. The local my_courses save is what the UI (pin, list,
+  // toast) depends on and is awaited normally; submitting the course to
+  // golfcourseapi.com so it's findable for everyone else is fired off
+  // alongside it and never blocks or surfaces its own errors — the local
+  // save having worked is all the user needs to know.
+  async function handleAddManualCourse({ name, city, state }) {
+    console.log('[ProfileScreen] handleAddManualCourse user_id:', user?.id);
+    if (!user?.id) {
+      setToastType('error');
+      setToastMessage('You need to be signed in to add a course.');
+      throw new Error('No user id available when saving course');
+    }
+    try {
+      const coords = await geocodeCourseCoordinates({
+        id: `manual-${name}-${city}-${state}`,
+        name,
+        city,
+        state,
+      });
+      const latitude = coords?.lat ?? null;
+      const longitude = coords?.lng ?? null;
+
+      submitNewCourse({ name, city, state, lat: latitude, lng: longitude })
+        .then((result) => console.log('[golfcourseapi] submitted manually-added course:', result))
+        .catch((err) => console.error('[golfcourseapi] failed to submit manually-added course:', err.message));
+
+      const created = await addMyCourse(user.id, {
+        courseId: null,
+        courseName: name,
+        city,
+        state,
+        latitude,
+        longitude,
+      });
+      setMyCourses((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
+      setToastType('success');
+      setToastMessage('Course added successfully');
+    } catch (err) {
+      console.error('Failed to add manual course:', err);
+      setToastType('error');
+      setToastMessage(err.message ?? 'An unknown error occurred.');
       throw err;
     }
   }
@@ -543,9 +594,10 @@ export default function ProfileScreen({ navigation }) {
         visible={courseSearchVisible}
         onClose={() => setCourseSearchVisible(false)}
         onAddCourse={handleAddMyCourse}
+        onAddManualCourse={handleAddManualCourse}
       />
 
-      <Toast message={toastMessage} onHide={() => setToastMessage(null)} />
+      <Toast message={toastMessage} type={toastType} onHide={() => setToastMessage(null)} />
     </View>
   );
 }

@@ -649,3 +649,109 @@ drop policy if exists "Users can remove their own courses" on public.my_courses;
 create policy "Users can remove their own courses"
   on public.my_courses for delete
   using (auth.uid() = user_id);
+
+-- Content moderation: reports_count is kept in sync by the trigger below
+-- (same denormalized-counter pattern as likes_count/comments_count), and
+-- hidden flips true the moment a post crosses 5 reports so the app can just
+-- filter `hidden = false` instead of counting reports itself on every read.
+alter table public.posts add column if not exists reports_count integer not null default 0;
+alter table public.posts add column if not exists hidden boolean not null default false;
+
+-- Reports: one row per (post, reporter) so the same user can't inflate a
+-- post's count by reporting it repeatedly. No update/delete policy for
+-- regular users — status (pending/reviewed/dismissed/removed) is triaged by
+-- the admin directly in the Supabase table editor using the service role,
+-- which bypasses RLS entirely.
+create table if not exists public.reports (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.posts (id) on delete cascade,
+  reporter_id uuid not null references auth.users (id) on delete cascade,
+  reason text not null check (
+    reason in ('Inappropriate content', 'Spam', 'Harassment', 'Underage user', 'Other')
+  ),
+  status text not null default 'pending' check (
+    status in ('pending', 'reviewed', 'dismissed', 'removed')
+  ),
+  created_at timestamptz not null default now(),
+  constraint reports_unique unique (post_id, reporter_id)
+);
+
+create index if not exists reports_post_id_idx on public.reports (post_id);
+create index if not exists reports_reporter_id_idx on public.reports (reporter_id);
+create index if not exists reports_status_idx on public.reports (status);
+
+alter table public.reports enable row level security;
+
+drop policy if exists "Users can view their own reports" on public.reports;
+create policy "Users can view their own reports"
+  on public.reports for select
+  using (auth.uid() = reporter_id);
+
+drop policy if exists "Users can report posts as themselves" on public.reports;
+create policy "Users can report posts as themselves"
+  on public.reports for insert
+  with check (auth.uid() = reporter_id);
+
+-- Keeps posts.reports_count in sync and auto-hides a post the moment its
+-- report count reaches 5 (mirrors handle_post_likes_count_change). Deleting
+-- a report only decrements the counter — it never un-hides a post, since an
+-- admin who wants a wrongly-hidden post back should do so deliberately
+-- (updating posts.hidden directly) rather than have it flip back silently.
+create or replace function public.handle_post_reports_count_change()
+returns trigger as $$
+begin
+  if (tg_op = 'INSERT') then
+    update public.posts
+      set reports_count = reports_count + 1,
+          hidden = hidden or (reports_count + 1) >= 5
+      where id = new.post_id;
+    return new;
+  elsif (tg_op = 'DELETE') then
+    update public.posts set reports_count = greatest(reports_count - 1, 0) where id = old.post_id;
+    return old;
+  end if;
+  return null;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists reports_count_after_insert on public.reports;
+create trigger reports_count_after_insert
+  after insert on public.reports
+  for each row execute function public.handle_post_reports_count_change();
+
+drop trigger if exists reports_count_after_delete on public.reports;
+create trigger reports_count_after_delete
+  after delete on public.reports
+  for each row execute function public.handle_post_reports_count_change();
+
+-- Blocked users: mirrors followers' shape (blocker_id/blocked_id instead of
+-- follower_id/following_id), but who-blocked-whom is private — unlike
+-- followers, there's no "viewable by everyone" select policy.
+create table if not exists public.blocked_users (
+  id uuid primary key default gen_random_uuid(),
+  blocker_id uuid not null references auth.users (id) on delete cascade,
+  blocked_id uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  constraint blocked_users_no_self_block check (blocker_id <> blocked_id),
+  constraint blocked_users_unique unique (blocker_id, blocked_id)
+);
+
+create index if not exists blocked_users_blocker_id_idx on public.blocked_users (blocker_id);
+create index if not exists blocked_users_blocked_id_idx on public.blocked_users (blocked_id);
+
+alter table public.blocked_users enable row level security;
+
+drop policy if exists "Users can view their own blocks" on public.blocked_users;
+create policy "Users can view their own blocks"
+  on public.blocked_users for select
+  using (auth.uid() = blocker_id);
+
+drop policy if exists "Users can block as themselves" on public.blocked_users;
+create policy "Users can block as themselves"
+  on public.blocked_users for insert
+  with check (auth.uid() = blocker_id);
+
+drop policy if exists "Users can unblock their own blocks" on public.blocked_users;
+create policy "Users can unblock their own blocks"
+  on public.blocked_users for delete
+  using (auth.uid() = blocker_id);

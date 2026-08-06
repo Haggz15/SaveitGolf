@@ -21,6 +21,7 @@ import AddFriendsModal from '../components/social/AddFriendsModal';
 import CommentSheet from '../components/feed/CommentSheet';
 import NotificationPanel from '../components/feed/NotificationPanel';
 import ShotOfWeekBanner from '../components/feed/ShotOfWeekBanner';
+import PostActionsSheet from '../components/feed/PostActionsSheet';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { feedPosts as mockFeedPosts, filterPills } from '../data/mockData';
@@ -32,6 +33,7 @@ import { likePost, unlikePost, getLikedPostIds } from '../services/likes';
 import { createNotification, getUnreadNotificationCount } from '../services/notifications';
 import { getCurrentShotOfWeek } from '../services/shotOfWeek';
 import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
+import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
 import { saveMediaToDevice } from '../utils/saveMedia';
 import { haversineMiles } from '../utils/distance';
 
@@ -59,6 +61,7 @@ function PostSlide({
   onUserPress,
   onCommentPress,
   onSaveToast,
+  onMorePress,
 }) {
   const [liked, setLiked] = useState(initiallyLiked);
   const [likeCount, setLikeCount] = useState(post.likes);
@@ -188,6 +191,13 @@ function PostSlide({
             color={saved ? colors.gold : 'rgba(255,255,255,0.85)'}
           />
         </TouchableOpacity>
+        {/* Demo/mock posts have no real userId — nothing in the database to
+            report or block, so the option doesn't render for them. */}
+        {post.userId && (
+          <TouchableOpacity style={styles.railButton} onPress={() => onMorePress(post)}>
+            <Ionicons name="ellipsis-horizontal" size={24} color="rgba(255,255,255,0.85)" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {isShotOfWeek && <ShotOfWeekBanner />}
@@ -221,7 +231,7 @@ function PostSlide({
 }
 
 export default function FeedScreen({ navigation }) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [activeFilter, setActiveFilter] = useState('Feed');
   const [posts, setPosts] = useState([]);
   const [likedPostIds, setLikedPostIds] = useState(new Set());
@@ -234,6 +244,7 @@ export default function FeedScreen({ navigation }) {
   const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [commentPost, setCommentPost] = useState(null);
+  const [actionsSheetPost, setActionsSheetPost] = useState(null);
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const containerHeight =
@@ -242,14 +253,17 @@ export default function FeedScreen({ navigation }) {
   const loadFeed = useCallback(async () => {
     setLoadingFeed(true);
     try {
+      const blockedIds = user?.id ? await getBlockedUserIds(user.id) : [];
+      const excludeUserIds = new Set(blockedIds);
+
       let realPosts;
       if (activeFilter === 'Following') {
         setShotOfWeekPostId(null);
         const followingIds = user?.id ? await getFollowingIds(user.id) : [];
-        realPosts = await getFeedPosts({ userIds: followingIds });
+        realPosts = await getFeedPosts({ userIds: followingIds, excludeUserIds });
         setPosts(realPosts);
       } else if (activeFilter === 'Feed') {
-        realPosts = await getFeedPosts({ sort: 'top' });
+        realPosts = await getFeedPosts({ sort: 'top', excludeUserIds });
 
         // Pin the current Shot of the Week to the top of this pill only —
         // pinning it into "Following" could surface a post from someone the
@@ -274,7 +288,7 @@ export default function FeedScreen({ navigation }) {
         setShotOfWeekPostId(null);
         // Nearby: sort by distance from the device's current location when
         // permission is granted; otherwise fall back to newest-first.
-        realPosts = await getFeedPosts();
+        realPosts = await getFeedPosts({ excludeUserIds });
         let sorted = realPosts;
         if (Platform.OS !== 'web') {
           try {
@@ -343,13 +357,14 @@ export default function FeedScreen({ navigation }) {
   };
 
   const handleCoursePress = (post) => {
-    navigation.navigate('CourseDetail', {
-      courseId: post.courseId,
-      courseName: post.course,
-      city: post.city,
-      state: post.state,
-      lat: post.lat ?? null,
-      lng: post.lng ?? null,
+    navigation.navigate('Map', {
+      zoomToState: {
+        courseName: post.course,
+        state: post.state ?? null,
+        lat: post.lat ?? null,
+        lng: post.lng ?? null,
+      },
+      zoomToStateAt: Date.now(),
     });
   };
 
@@ -360,6 +375,41 @@ export default function FeedScreen({ navigation }) {
 
   const handleCommentPosted = (postId) => {
     setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, comments: p.comments + 1 } : p)));
+  };
+
+  const handleReportPost = async (post, reason) => {
+    if (!user?.id) return;
+    try {
+      const { autoHidden } = await reportPost(user.id, {
+        postId: post.id,
+        reason,
+        reporterUsername: profile?.username ?? user.email ?? 'a golfer',
+        mediaUrl: post.mediaUrl,
+      });
+      setToastMessage(
+        autoHidden ? 'Post reported and removed from the feed' : 'Post reported. Thanks for letting us know.'
+      );
+      if (autoHidden) {
+        setPosts((prev) => prev.filter((p) => p.id !== post.id));
+      }
+    } catch (err) {
+      console.error('Failed to report post:', err);
+      setToastMessage(
+        err.code === '23505' ? "You've already reported this post." : 'Could not report this post. Please try again.'
+      );
+    }
+  };
+
+  const handleBlockUser = async (post) => {
+    if (!user?.id || !post.userId) return;
+    try {
+      await blockUser(user.id, post.userId);
+      setPosts((prev) => prev.filter((p) => p.userId !== post.userId));
+      setToastMessage(`Blocked @${post.user}`);
+    } catch (err) {
+      console.error('Failed to block user:', err);
+      setToastMessage('Could not block this user. Please try again.');
+    }
   };
 
   // Equivalent of an Intersection Observer for React Native: fires whenever
@@ -441,6 +491,7 @@ export default function FeedScreen({ navigation }) {
                   onUserPress={handleUserPress}
                   onCommentPress={setCommentPost}
                   onSaveToast={setToastMessage}
+                  onMorePress={setActionsSheetPost}
                 />
               )}
               pagingEnabled
@@ -484,6 +535,14 @@ export default function FeedScreen({ navigation }) {
         post={commentPost}
         currentUserId={user?.id}
         onCommentPosted={handleCommentPosted}
+      />
+
+      <PostActionsSheet
+        visible={Boolean(actionsSheetPost)}
+        post={actionsSheetPost}
+        onClose={() => setActionsSheetPost(null)}
+        onReport={handleReportPost}
+        onBlock={handleBlockUser}
       />
 
       <Toast message={toastMessage} onHide={() => setToastMessage(null)} />

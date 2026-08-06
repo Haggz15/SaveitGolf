@@ -3,9 +3,10 @@ import * as Location from 'expo-location';
 import { stateCenters, allStateAbbreviations } from '../data/courses';
 import { getCourseById, searchCourses, RateLimitError } from '../services/golfCourseApi';
 import { geocodeCourseCoordinates } from '../services/geocoding';
-import { getMyCourses } from '../services/myCourses';
+import { getMyCourses, updateMyCourseCoordinates } from '../services/myCourses';
 import { getAllCoursesInState } from '../services/stateCourses';
 import { courseHasValidCoordinates } from '../utils/mapCoords';
+import { getStateZoomCenter, zoomLevelToDelta, STATE_ZOOM_LEVEL } from '../utils/stateZoomCenters';
 
 // Zoomed-out default view — the whole contiguous US, so the map opens on the
 // Level 1 "50 state pins, no course data" view described in the map's
@@ -67,7 +68,14 @@ function nearestState(region) {
 // selection, search, and the played-courses filter). Both MapScreen.js
 // (react-native-maps) and MapScreen.web.js (react-leaflet) drive this same
 // hook and only differ in how they render the map surface and markers.
-export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp, userId } = {}) {
+export function useCourseMapData({
+  navigation,
+  routeFocusCourse,
+  routeTimestamp,
+  routeZoomToState,
+  routeZoomToStateTimestamp,
+  userId,
+} = {}) {
   const [region, setRegionState] = useState(US_INITIAL_REGION);
   // Set when the hook wants the map to jump somewhere outside of user
   // panning (initial location fix, a state pin tap, a search result, or a
@@ -78,6 +86,10 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
   const [locationDenied, setLocationDenied] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [selectedDetail, setSelectedDetail] = useState(null); // { holes, loading, error }
+  // The pin dropped when a course name is tapped from the feed — separate
+  // from selectedCourse since it's a passive labeled pin (no detail fetch,
+  // no popup card), shown alongside whatever the current filter renders.
+  const [feedFocusPin, setFeedFocusPin] = useState(null);
   // Defaults to the user's saved courses (My Courses) — the map opens
   // showing only those pins rather than an empty "All Courses" view.
   const [filter, setFilter] = useState(MAP_FILTERS.PLAYED);
@@ -106,20 +118,35 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     let cancelled = false;
     setMyCoursesLoading(true);
     getMyCourses(userId)
-      .then((rows) => {
+      .then(async (rows) => {
         if (cancelled) return;
-        setMyCoursesList(
-          rows
-            .filter((r) => r.latitude != null && r.longitude != null)
-            .map((r) => ({
+        // Rows saved before they had coordinates (or whose address didn't
+        // geocode at save time) still need a pin — geocode them now via
+        // Nominatim and persist the result so this only happens once.
+        const withCoords = [];
+        for (const r of rows) {
+          let lat = r.latitude;
+          let lng = r.longitude;
+          if (lat == null || lng == null) {
+            const coords = await geocodeCourseCoordinates({
               id: r.courseId || r.id,
               name: r.courseName,
               city: r.city,
               state: r.state,
-              lat: r.latitude,
-              lng: r.longitude,
-            }))
-        );
+            });
+            if (coords) {
+              lat = coords.lat;
+              lng = coords.lng;
+              updateMyCourseCoordinates(r.id, { latitude: lat, longitude: lng }).catch((err) =>
+                console.error(`[useCourseMapData] failed to persist geocoded coordinates for "${r.courseName}":`, err.message)
+              );
+            }
+          }
+          if (lat != null && lng != null) {
+            withCoords.push({ id: r.courseId || r.id, name: r.courseName, city: r.city, state: r.state, lat, lng });
+          }
+        }
+        if (!cancelled) setMyCoursesList(withCoords);
       })
       .catch((err) => {
         console.error('[useCourseMapData] failed to load my courses:', err.message);
@@ -295,6 +322,58 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeFocusCourse, routeTimestamp]);
 
+  // Feed's course-name tap (see FeedScreen.handleCoursePress) zooms out to
+  // show the course's whole state — using a small set of specified centers
+  // for a few states and each other state's capital otherwise (see
+  // stateZoomCenters) — rather than zooming tight on the course itself, and
+  // drops a labeled pin at the course's exact coordinates alongside it.
+  useEffect(() => {
+    if (!routeZoomToState) return;
+    let cancelled = false;
+
+    const center = getStateZoomCenter(routeZoomToState.state);
+    if (center) {
+      const delta = zoomLevelToDelta(STATE_ZOOM_LEVEL);
+      const nextRegion = {
+        latitude: center.lat,
+        longitude: center.lng,
+        latitudeDelta: delta,
+        longitudeDelta: delta,
+      };
+      setRegionState(nextRegion);
+      setFocusRegion({ ...nextRegion, key: `feed-state-${routeZoomToState.state}-${routeZoomToStateTimestamp}` });
+    } else {
+      console.warn(`[useCourseMapData] no zoom center found for state "${routeZoomToState.state}"`);
+    }
+
+    (async () => {
+      let { lat, lng } = routeZoomToState;
+      // Feed posts don't always carry stored coordinates — geocode the
+      // course via Nominatim so the pin can still be placed exactly.
+      if (!courseHasValidCoordinates({ lat, lng }) && routeZoomToState.courseName) {
+        const coords = await geocodeCourseCoordinates({
+          id: `${routeZoomToState.courseName}-${routeZoomToState.state}`,
+          name: routeZoomToState.courseName,
+          state: routeZoomToState.state,
+        });
+        if (coords) {
+          lat = coords.lat;
+          lng = coords.lng;
+        }
+      }
+      if (cancelled) return;
+      if (courseHasValidCoordinates({ lat, lng })) {
+        setFeedFocusPin({ name: routeZoomToState.courseName, lat, lng });
+      } else {
+        setFeedFocusPin(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routeZoomToState, routeZoomToStateTimestamp]);
+
   // Course pins come from the active filter — the user's own My Courses list,
   // or (for "All Courses" zoomed into a state) every course this app knows
   // about in that state (see getAllCoursesInState; golfcourseapi.com can't be
@@ -444,6 +523,7 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     handleSelectCourse,
     clearSelectedCourse,
     goToCourseDetail,
+    feedFocusPin,
     filter,
     setFilter,
     clearPlayedFilter,

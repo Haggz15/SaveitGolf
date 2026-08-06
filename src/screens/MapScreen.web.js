@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { MapContainer, TileLayer, Marker, CircleMarker, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, CircleMarker, Tooltip, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,7 +12,8 @@ import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
 import MapErrorBoundary from '../components/map/MapErrorBoundary';
 import SilentMarkerBoundary from '../components/map/SilentMarkerBoundary';
-import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessageBanner';
+import { MapWarningBanner } from '../components/map/MapMessageBanner';
+import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { useCourseMapData, US_INITIAL_REGION, MAP_FILTERS, ZOOM_LEVEL } from '../hooks/useCourseMapData';
 import { useAuth } from '../context/AuthContext';
@@ -50,6 +51,12 @@ function buildFlagIcon(color, size = PIN_SIZE, highlighted = false) {
 
 const courseIcon = buildFlagIcon(colors.red);
 const highlightedCourseIcon = buildFlagIcon(colors.red, HIGHLIGHTED_PIN_SIZE, true);
+// The pin dropped when a course name is tapped from the feed (see
+// useCourseMapData's routeZoomToState handling) — 1.5x a normal course pin,
+// with the course name shown via Leaflet's permanent Tooltip so it's always
+// visible rather than needing a click to reveal.
+const FEED_FOCUS_PIN_SIZE = Math.round(PIN_SIZE * 1.5);
+const feedFocusIcon = buildFlagIcon(colors.red, FEED_FOCUS_PIN_SIZE);
 
 // Teardrop push-pin (not a flag) used for the user's own My Courses list —
 // the map's default view — so those pins read distinctly from the red flag
@@ -156,6 +163,8 @@ export default function MapScreen({ navigation, route }) {
   const { user } = useAuth();
   const mapInstanceRef = useRef(null);
   const [friendFilter, setFriendFilter] = useState(null); // { displayName, courses, loading }
+  const [emptyMyCoursesToast, setEmptyMyCoursesToast] = useState(null);
+  const playedEmptyToastShownRef = useRef(false);
   const {
     setRegion,
     focusRegion,
@@ -171,9 +180,9 @@ export default function MapScreen({ navigation, route }) {
     handleSelectCourse,
     clearSelectedCourse,
     goToCourseDetail,
+    feedFocusPin,
     filter,
     setFilter,
-    clearPlayedFilter,
     myCoursesLoading,
     myCoursesLoaded,
     userLocation,
@@ -187,6 +196,8 @@ export default function MapScreen({ navigation, route }) {
     navigation,
     routeFocusCourse: route?.params?.focusCourse,
     routeTimestamp: route?.params?.timestamp,
+    routeZoomToState: route?.params?.zoomToState,
+    routeZoomToStateTimestamp: route?.params?.zoomToStateAt,
     userId: user?.id,
   });
 
@@ -228,6 +239,19 @@ export default function MapScreen({ navigation, route }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, myCoursesLoading, visibleCourses]);
 
+  // My Courses toggle drops pins silently — the only feedback for an empty
+  // list is this bottom toast, not a banner or inline card.
+  useEffect(() => {
+    if (filter !== MAP_FILTERS.PLAYED) {
+      playedEmptyToastShownRef.current = false;
+      return;
+    }
+    if (myCoursesLoading || !myCoursesLoaded || visibleCourses.length > 0) return;
+    if (playedEmptyToastShownRef.current) return;
+    playedEmptyToastShownRef.current = true;
+    setEmptyMyCoursesToast('Add courses in your profile to see them here');
+  }, [filter, myCoursesLoading, myCoursesLoaded, visibleCourses]);
+
   const handleSelectFriend = async (profile) => {
     clearSelectedCourse();
     const displayName = profile.full_name || profile.username || 'this golfer';
@@ -259,7 +283,7 @@ export default function MapScreen({ navigation, route }) {
             results={searchResults}
             searching={searching}
             onSelectResult={handleSelectSearchResult}
-            placeholder={`Search courses in ${currentStateName}`}
+            placeholder="Search for a course"
           />
         </>
       )}
@@ -282,16 +306,6 @@ export default function MapScreen({ navigation, route }) {
         </View>
       )}
 
-      {filter === MAP_FILTERS.PLAYED && (
-        <View style={styles.myCoursesBanner}>
-          <Ionicons name="flag" size={16} color={colors.white} />
-          <Text style={styles.myCoursesBannerText}>Showing My Courses</Text>
-          <TouchableOpacity onPress={clearPlayedFilter} style={styles.myCoursesBannerClear}>
-            <Text style={styles.myCoursesBannerClearText}>Clear</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
       {locationDenied && (
         <MapWarningBanner icon="location-outline">
           Location permission denied — tap a state to browse its courses.
@@ -302,6 +316,22 @@ export default function MapScreen({ navigation, route }) {
           Daily course search limit reached — showing previously found courses only.
         </MapWarningBanner>
       )}
+
+      <style>{`
+        .saveitgolf-feed-focus-tooltip {
+          background: ${colors.navyCard};
+          color: ${colors.white};
+          border: 1px solid ${colors.red};
+          border-radius: 8px;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 3px 8px;
+          box-shadow: none;
+        }
+        .saveitgolf-feed-focus-tooltip::before {
+          border-top-color: ${colors.red};
+        }
+      `}</style>
 
       <View style={styles.mapContainer}>
         <MapErrorBoundary>
@@ -345,6 +375,16 @@ export default function MapScreen({ navigation, route }) {
                   );
                 })}
 
+            {feedFocusPin && (
+              <SilentMarkerBoundary>
+                <Marker position={[feedFocusPin.lat, feedFocusPin.lng]} icon={feedFocusIcon} zIndexOffset={1500}>
+                  <Tooltip permanent direction="top" offset={[0, -FEED_FOCUS_PIN_SIZE + 4]} className="saveitgolf-feed-focus-tooltip">
+                    {feedFocusPin.name}
+                  </Tooltip>
+                </Marker>
+              </SilentMarkerBoundary>
+            )}
+
             {userLocation && hasValidCoordinates(userLocation.latitude, userLocation.longitude) && (
               <>
                 <CircleMarker
@@ -364,17 +404,6 @@ export default function MapScreen({ navigation, route }) {
 
         <ZoomControls onZoomIn={guard(handleZoomIn)} onZoomOut={guard(handleZoomOut)} />
 
-        {filter === MAP_FILTERS.PLAYED && myCoursesLoading && (
-          <MapLoadingBanner>Loading your courses…</MapLoadingBanner>
-        )}
-
-        {filter === MAP_FILTERS.PLAYED && myCoursesLoaded && !myCoursesLoading && visibleCourses.length === 0 && (
-          <View style={styles.emptyMyCoursesCard} pointerEvents="none">
-            <Ionicons name="flag-outline" size={22} color={colors.muted} />
-            <Text style={styles.emptyMyCoursesText}>Add courses to your profile to see them here</Text>
-          </View>
-        )}
-
         {selectedCourse && (
           <CoursePopupCard
             course={selectedCourse}
@@ -384,6 +413,13 @@ export default function MapScreen({ navigation, route }) {
           />
         )}
       </View>
+
+      <Toast
+        message={emptyMyCoursesToast}
+        onHide={() => setEmptyMyCoursesToast(null)}
+        duration={3000}
+        bottom
+      />
     </View>
   );
 }
@@ -432,56 +468,6 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 12,
     fontWeight: '700',
-  },
-  myCoursesBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    backgroundColor: colors.navyCard,
-    borderWidth: 1,
-    borderColor: colors.red,
-    gap: 8,
-  },
-  myCoursesBannerText: {
-    flex: 1,
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  myCoursesBannerClear: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    backgroundColor: colors.red,
-  },
-  myCoursesBannerClearText: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  emptyMyCoursesCard: {
-    position: 'absolute',
-    top: '40%',
-    alignSelf: 'center',
-    zIndex: 1000,
-    maxWidth: 260,
-    alignItems: 'center',
-    backgroundColor: colors.navyCard,
-    borderWidth: 1,
-    borderColor: colors.navyBorder,
-    borderRadius: 14,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    gap: 8,
-  },
-  emptyMyCoursesText: {
-    color: colors.muted,
-    fontSize: 13,
-    textAlign: 'center',
   },
   map: {
     flex: 1,

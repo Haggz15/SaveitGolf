@@ -53,3 +53,11 @@ export async function removeMyCourse(id) {
   const { error } = await supabase.from('my_courses').delete().eq('id', id);
   if (error) throw error;
 }
+
+// Backfills lat/lng on a row that was saved before it had coordinates (or
+// whose address couldn't be geocoded at save time) so the map only has to
+// geocode it once — subsequent loads read the stored value straight away.
+export async function updateMyCourseCoordinates(id, { latitude, longitude }) {
+  const { error } = await supabase.from('my_courses').update({ latitude, longitude }).eq('id', id);
+  if (error) throw error;
+}

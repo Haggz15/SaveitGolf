@@ -97,6 +97,45 @@ export async function searchCourses(query) {
   return (data?.courses ?? []).map(normalizeCourse);
 }
 
+// Submits a course golfcourseapi.com doesn't know about yet (added manually
+// from My Courses because search came up empty) so it becomes findable for
+// everyone, not just the user who added it. Mirrors the club_name/location
+// shape normalizeCourse reads back — the API's write schema isn't documented
+// anywhere in this repo, so this is the best-known match for its read shape.
+// Callers treat this as fire-and-forget: the local my_courses save is what
+// the user's pin/UI depends on, so a failure here is only ever logged.
+export async function submitNewCourse({ name, city, state, lat, lng }) {
+  if (!API_KEY) {
+    throw new Error('Missing GOLF_COURSE_API_KEY — add it to .env');
+  }
+  const url = `${BASE_URL}/courses`;
+  const body = {
+    club_name: name,
+    location: {
+      city: city ?? null,
+      state: state ?? null,
+      latitude: lat ?? null,
+      longitude: lng ?? null,
+    },
+  };
+  console.log('[golfcourseapi] POST', url, JSON.stringify(body));
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Key ${API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const responseBody = await res.json().catch(() => null);
+  console.log('[golfcourseapi] submit response', res.status, JSON.stringify(responseBody));
+
+  if (!res.ok) {
+    throw new Error(`golfcourseapi.com course submission failed: HTTP ${res.status}`);
+  }
+  return responseBody;
+}
+
 // Course detail lookups are cached in memory for the life of the app — the
 // map popup and the Course Detail screen both want the same data, and this
 // keeps a marker tap + "View holes & shots" from costing two requests.
