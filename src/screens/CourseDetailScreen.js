@@ -5,10 +5,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
 import { getCourseById } from '../services/golfCourseApi';
-import { courseDetail, postFilters } from '../data/mockData';
-import { getCoursePhoto, getCoursePhotos } from '../data/coursePhotos';
+import { getPostsForCourse } from '../services/posts';
+import { getScorecardsForCourse } from '../services/scorecards';
+import { getAverageRatingForCourse } from '../services/courseRankings';
+import { getCoursePhoto } from '../data/coursePhotos';
 
 const TABS = ['All Posts', 'Hole by Hole', 'Scorecards'];
+// "Swings" has no distinct signal in the data today (no post category field)
+// — it filters to the same video posts as "Videos" until one exists.
+const POST_FILTERS = ['All', 'Pictures', 'Videos', 'Swings'];
 
 // Typical 18-hole par distribution, used whenever live tee data hasn't
 // loaded (or isn't available) so the Hole by Hole grid always has content.
@@ -29,28 +34,10 @@ function FilterPill({ label, active, onPress }) {
 }
 
 function PostTile({ post }) {
-  const isVideo = post.type === 'video';
-
-  if (post.image) {
-    return (
-      <View style={styles.postTile}>
-        <Image source={post.image} style={styles.postTileImage} resizeMode="cover" />
-        <View style={styles.tileLikeRow}>
-          <Ionicons name="heart" size={12} color={colors.white} />
-          <Text style={styles.tileLikeText}>{post.likes}</Text>
-        </View>
-      </View>
-    );
-  }
-
   return (
-    <View style={[styles.postTile, { backgroundColor: post.bg }]}>
-      <Ionicons
-        name={isVideo ? 'videocam-outline' : 'image-outline'}
-        size={22}
-        color={colors.muted}
-      />
-      {isVideo && (
+    <View style={styles.postTile}>
+      <Image source={{ uri: post.mediaUrl }} style={styles.postTileImage} resizeMode="cover" />
+      {post.isVideo && (
         <View style={styles.playButton}>
           <Ionicons name="play" size={9} color={colors.white} />
         </View>
@@ -142,7 +129,11 @@ export default function CourseDetailScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const [tees, setTees] = useState(null);
   const [activeTab, setActiveTab] = useState(TABS[0]);
-  const [activeFilter, setActiveFilter] = useState(postFilters[0]);
+  const [activeFilter, setActiveFilter] = useState(POST_FILTERS[0]);
+  const [selectedHole, setSelectedHole] = useState(null);
+  const [coursePosts, setCoursePosts] = useState([]);
+  const [scorecards, setScorecards] = useState([]);
+  const [avgRating, setAvgRating] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -157,6 +148,33 @@ export default function CourseDetailScreen({ route, navigation }) {
     };
   }, [courseId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!courseId && !courseName) return undefined;
+
+    getPostsForCourse({ courseId, courseName })
+      .then((posts) => {
+        if (!cancelled) setCoursePosts(posts);
+      })
+      .catch((err) => console.error('Failed to load course posts:', err));
+
+    getScorecardsForCourse({ courseId, courseName })
+      .then((rows) => {
+        if (!cancelled) setScorecards(rows);
+      })
+      .catch((err) => console.error('Failed to load course scorecards:', err));
+
+    getAverageRatingForCourse({ courseId, courseName })
+      .then((rating) => {
+        if (!cancelled) setAvgRating(rating);
+      })
+      .catch((err) => console.error('Failed to load course rating:', err));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId, courseName]);
+
   const primaryTee = tees?.male?.[0] ?? tees?.female?.[0] ?? null;
   const holesCount = primaryTee?.holes?.length ?? 18;
   const parTotal = primaryTee?.par_total ?? 72;
@@ -169,35 +187,40 @@ export default function CourseDetailScreen({ route, navigation }) {
         number,
         par: liveHole?.par ?? DEFAULT_HOLE_PATTERN[index % DEFAULT_HOLE_PATTERN.length],
         yardage: liveHole?.yardage ?? null,
-        postCount: courseDetail.holePostCounts[index % courseDetail.holePostCounts.length],
+        postCount: coursePosts.filter((p) => p.hole === number).length,
         image: getCoursePhoto(courseName, number),
       };
     });
-  }, [primaryTee, holesCount, courseName]);
+  }, [primaryTee, holesCount, courseName, coursePosts]);
 
   const mostPopularHole = useMemo(
     () => holes.reduce((max, hole) => (hole.postCount > max.postCount ? hole : max), holes[0]),
     [holes]
   );
 
-  const realPosts = useMemo(
-    () =>
-      getCoursePhotos(courseName).map((photo) => ({
-        id: photo.id,
-        type: 'photo',
-        likes: photo.likes,
-        image: photo.image,
-      })),
-    [courseName]
-  );
-
   const filteredPosts = useMemo(() => {
-    const allPosts = [...realPosts, ...courseDetail.posts];
-    if (activeFilter === 'Pictures') return allPosts.filter((p) => p.type === 'photo');
-    if (activeFilter === 'Videos') return allPosts.filter((p) => p.type === 'video');
-    if (activeFilter === 'Swings') return allPosts.filter((p) => p.category === 'swing');
-    return allPosts;
-  }, [activeFilter, realPosts]);
+    let posts = coursePosts;
+    if (activeFilter === 'Pictures') posts = posts.filter((p) => !p.isVideo);
+    // "Swings" has no distinct data signal yet — same as "Videos" for now.
+    if (activeFilter === 'Videos' || activeFilter === 'Swings') posts = posts.filter((p) => p.isVideo);
+    if (selectedHole != null) posts = posts.filter((p) => p.hole === selectedHole);
+    return posts;
+  }, [activeFilter, coursePosts, selectedHole]);
+
+  function handleSelectTab(tab) {
+    setActiveTab(tab);
+    if (tab !== 'All Posts') setSelectedHole(null);
+  }
+
+  function handleSelectFilter(filter) {
+    setActiveFilter(filter);
+    setSelectedHole(null);
+  }
+
+  function handleSelectHole(number) {
+    setSelectedHole(number);
+    setActiveTab('All Posts');
+  }
 
   const goToTab = (screen) => navigation.navigate('Tabs', { screen });
 
@@ -232,29 +255,28 @@ export default function CourseDetailScreen({ route, navigation }) {
           <Text style={styles.courseMeta}>
             {city ? `${city}, ${state}` : state} · {holesCount} Holes · Par {parTotal}
           </Text>
-          <View style={[styles.publicBadge, !courseDetail.isPublic && styles.privateBadge]}>
-            <Text style={styles.publicBadgeText}>
-              {courseDetail.isPublic ? 'Public' : 'Private'}
-            </Text>
-          </View>
         </LinearGradient>
 
         <View style={styles.statsBar}>
+          {avgRating != null && (
+            <>
+              <View style={styles.statHalf}>
+                <Ionicons name="star" size={15} color={colors.gold} style={{ marginRight: 6 }} />
+                <Text style={styles.statValue}>{avgRating.toFixed(1)}</Text>
+                <Text style={styles.statLabel}>Rating</Text>
+              </View>
+              <View style={styles.statDivider} />
+            </>
+          )}
           <View style={styles.statHalf}>
-            <Ionicons name="star" size={15} color={colors.gold} style={{ marginRight: 6 }} />
-            <Text style={styles.statValue}>{courseDetail.rating}</Text>
-            <Text style={styles.statLabel}>Rating</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statHalf}>
-            <Text style={styles.statValue}>{courseDetail.postsCount}</Text>
+            <Text style={styles.statValue}>{coursePosts.length}</Text>
             <Text style={styles.statLabel}>Posts</Text>
           </View>
         </View>
 
         <View style={styles.tabRow}>
           {TABS.map((tab) => (
-            <TouchableOpacity key={tab} style={styles.tabButton} onPress={() => setActiveTab(tab)}>
+            <TouchableOpacity key={tab} style={styles.tabButton} onPress={() => handleSelectTab(tab)}>
               <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
               {activeTab === tab && <View style={styles.tabIndicator} />}
             </TouchableOpacity>
@@ -264,20 +286,30 @@ export default function CourseDetailScreen({ route, navigation }) {
         {activeTab === 'All Posts' && (
           <View style={styles.tabContent}>
             <View style={styles.filterRow}>
-              {postFilters.map((filter) => (
+              {POST_FILTERS.map((filter) => (
                 <FilterPill
                   key={filter}
                   label={filter}
                   active={activeFilter === filter}
-                  onPress={() => setActiveFilter(filter)}
+                  onPress={() => handleSelectFilter(filter)}
                 />
               ))}
             </View>
-            <View style={styles.postsGrid}>
-              {filteredPosts.map((post) => (
-                <PostTile key={post.id} post={post} />
-              ))}
-            </View>
+            {selectedHole != null && (
+              <TouchableOpacity style={styles.holeFilterBanner} onPress={() => setSelectedHole(null)}>
+                <Text style={styles.holeFilterBannerText}>Hole {selectedHole}</Text>
+                <Ionicons name="close-circle" size={16} color={colors.muted} />
+              </TouchableOpacity>
+            )}
+            {filteredPosts.length === 0 ? (
+              <Text style={styles.helperText}>No posts here yet.</Text>
+            ) : (
+              <View style={styles.postsGrid}>
+                {filteredPosts.map((post) => (
+                  <PostTile key={post.id} post={post} />
+                ))}
+              </View>
+            )}
           </View>
         )}
 
@@ -294,7 +326,7 @@ export default function CourseDetailScreen({ route, navigation }) {
                   postCount={hole.postCount}
                   isMostPopular={hole.number === mostPopularHole.number}
                   image={hole.image}
-                  onPress={() => setActiveTab('All Posts')}
+                  onPress={() => handleSelectHole(hole.number)}
                 />
               ))}
             </View>
@@ -303,9 +335,11 @@ export default function CourseDetailScreen({ route, navigation }) {
 
         {activeTab === 'Scorecards' && (
           <View style={styles.tabContent}>
-            {courseDetail.scorecards.map((entry) => (
-              <ScorecardRow key={entry.id} entry={entry} />
-            ))}
+            {scorecards.length === 0 ? (
+              <Text style={styles.helperText}>No scorecards logged at this course yet.</Text>
+            ) : (
+              scorecards.map((entry) => <ScorecardRow key={entry.id} entry={entry} />)
+            )}
           </View>
         )}
       </ScrollView>
@@ -410,23 +444,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 6,
   },
-  publicBadge: {
-    alignSelf: 'flex-start',
-    borderWidth: 1.5,
-    borderColor: colors.red,
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    marginTop: 12,
-  },
-  privateBadge: {
-    borderColor: colors.red,
-  },
-  publicBadgeText: {
-    color: colors.red,
-    fontSize: 12,
-    fontWeight: '700',
-  },
   statsBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -508,6 +525,24 @@ const styles = StyleSheet.create({
   },
   pillTextActive: {
     color: colors.white,
+  },
+  holeFilterBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 14,
+  },
+  holeFilterBannerText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '700',
   },
   postsGrid: {
     flexDirection: 'row',

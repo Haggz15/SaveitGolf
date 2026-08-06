@@ -158,14 +158,18 @@ export async function incrementShareCount(postId) {
   if (error) throw error;
 }
 
-// Distinct courses a user has posted to — used by the Map's "Search Friends" pins.
-export async function getCoursesPostedByUser(userId) {
-  const { data, error } = await supabase
+// All posts at a given course, sorted most-liked first — used by the Course
+// Detail screen's All Posts tab. Matches by course_id when the post was
+// logged against a golfcourseapi.com course; falls back to a case-insensitive
+// name match for posts logged with a free-typed course name (course_id null).
+export async function getPostsForCourse({ courseId, courseName }) {
+  let request = supabase
     .from('posts')
-    .select('course_id, course_name, city, state, lat, lng')
-    .eq('user_id', userId)
-    .not('lat', 'is', null);
+    .select('*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)');
 
+  request = courseId ? request.eq('course_id', courseId) : request.ilike('course_name', courseName ?? '');
+
+  const { data, error } = await request;
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).map(mapRow).sort((a, b) => b.likes - a.likes);
 }

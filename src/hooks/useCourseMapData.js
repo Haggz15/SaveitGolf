@@ -4,6 +4,7 @@ import { stateCenters, allStateAbbreviations } from '../data/courses';
 import { getCourseById, searchCourses, RateLimitError } from '../services/golfCourseApi';
 import { geocodeCourseCoordinates } from '../services/geocoding';
 import { getMyCourses } from '../services/myCourses';
+import { getAllCoursesInState } from '../services/stateCourses';
 import { courseHasValidCoordinates } from '../utils/mapCoords';
 
 // Zoomed-out default view — the whole contiguous US, so the map opens on the
@@ -77,7 +78,9 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
   const [locationDenied, setLocationDenied] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [selectedDetail, setSelectedDetail] = useState(null); // { holes, loading, error }
-  const [filter, setFilter] = useState(MAP_FILTERS.ALL);
+  // Defaults to the user's saved courses (My Courses) — the map opens
+  // showing only those pins rather than an empty "All Courses" view.
+  const [filter, setFilter] = useState(MAP_FILTERS.PLAYED);
   const [userLocation, setUserLocation] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -133,11 +136,36 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     };
   }, [filter, userId]);
 
+  // "All Courses" (zoomed into a state) — every course this app knows about
+  // in that state, aggregated from all users' my_courses/posts/scorecards
+  // (see getAllCoursesInState). Refetches whenever the nearest-state guess
+  // changes while panning.
+  const [allStateCoursesList, setAllStateCoursesList] = useState([]);
+
   const zoomLevel = useMemo(() => getZoomLevel(region), [region]);
   const currentStateAbbr = useMemo(
     () => (zoomLevel === ZOOM_LEVEL.COUNTRY ? null : nearestState(region)),
     [zoomLevel, region]
   );
+
+  useEffect(() => {
+    if (filter !== MAP_FILTERS.ALL || !currentStateAbbr) {
+      setAllStateCoursesList([]);
+      return;
+    }
+    let cancelled = false;
+    getAllCoursesInState(currentStateAbbr)
+      .then((courses) => {
+        if (!cancelled) setAllStateCoursesList(courses);
+      })
+      .catch((err) => {
+        console.error('[useCourseMapData] failed to load state courses:', err.message);
+        if (!cancelled) setAllStateCoursesList([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [filter, currentStateAbbr]);
 
   const stateMarkers = useMemo(
     () =>
@@ -267,27 +295,36 @@ export function useCourseMapData({ navigation, routeFocusCourse, routeTimestamp,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeFocusCourse, routeTimestamp]);
 
-  // The map no longer bulk-loads a full state's courses — golfcourseapi.com
-  // can't be searched reliably by state name. Course pins beyond a search
-  // result or a "Played" course come only from those two sources.
+  // Course pins come from the active filter — the user's own My Courses list,
+  // or (for "All Courses" zoomed into a state) every course this app knows
+  // about in that state (see getAllCoursesInState; golfcourseapi.com can't be
+  // searched reliably by state name, so this aggregates the app's own data
+  // instead of hitting that endpoint).
   const visibleCourses = useMemo(() => {
-    let base = filter === MAP_FILTERS.PLAYED ? myCoursesList : [];
+    let base;
+    if (filter === MAP_FILTERS.PLAYED) {
+      base = myCoursesList;
+    } else if (zoomLevel !== ZOOM_LEVEL.COUNTRY) {
+      base = allStateCoursesList;
+    } else {
+      base = [];
+    }
 
-    // Always keep the selected/focused course pinned and visible — a search
-    // result or a course opened from the feed may not be in `base` at all.
-    // Skip courses with no coordinates — they can't be placed as a marker
-    // and would crash the underlying map (react-native-maps / react-leaflet
-    // don't guard this).
+    // Always keep the selected/focused course pinned and visible on top of
+    // whatever the current filter shows — a search result or a course
+    // opened from the feed may not be in `base` at all, and should still
+    // show as a temporary pin alongside it. Skip courses with no
+    // coordinates — they can't be placed as a marker and would crash the
+    // underlying map (react-native-maps / react-leaflet don't guard this).
     if (
       selectedCourse &&
       courseHasValidCoordinates(selectedCourse) &&
-      filter !== MAP_FILTERS.PLAYED &&
       !base.some((c) => c.id === selectedCourse.id)
     ) {
       base = [...base, selectedCourse];
     }
     return base;
-  }, [filter, myCoursesList, selectedCourse]);
+  }, [filter, myCoursesList, allStateCoursesList, zoomLevel, selectedCourse]);
 
   // Tapping a state pin zooms in and resets the search bar to empty/ready
   // for a course-name search — no course data is fetched.

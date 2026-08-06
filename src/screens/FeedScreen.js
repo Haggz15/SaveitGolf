@@ -55,6 +55,7 @@ function PostSlide({
   initiallySaved,
   isShotOfWeek,
   onStatePress,
+  onCoursePress,
   onUserPress,
   onCommentPress,
   onSaveToast,
@@ -149,10 +150,15 @@ function PostSlide({
         pointerEvents="none"
       />
 
-      <View style={styles.topLeftStack} pointerEvents="none">
-        <Text style={styles.topLeftCourseName} numberOfLines={2} ellipsizeMode="tail">
-          {post.course}
-        </Text>
+      <View style={styles.topLeftStack} pointerEvents="box-none">
+        <TouchableOpacity
+          onPress={() => onCoursePress(post)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={styles.topLeftCourseName} numberOfLines={2} ellipsizeMode="tail">
+            {post.course}
+          </Text>
+        </TouchableOpacity>
         {post.hole != null && (
           <View style={styles.holeWrap}>
             <Text style={styles.holeLabel}>Hole</Text>
@@ -338,6 +344,15 @@ export default function FeedScreen({ navigation }) {
     });
   };
 
+  const handleCoursePress = (post) => {
+    navigation.navigate('CourseDetail', {
+      courseId: post.courseId,
+      courseName: post.course,
+      city: post.city,
+      state: post.state,
+    });
+  };
+
   const handleUserPress = (post) => {
     if (!post.user) return;
     navigation.navigate('UserProfile', { username: post.user });
@@ -422,6 +437,7 @@ export default function FeedScreen({ navigation }) {
                   initiallySaved={savedPostIds.has(item.id)}
                   isShotOfWeek={activeFilter === 'Feed' && item.id === shotOfWeekPostId}
                   onStatePress={handleStatePress}
+                  onCoursePress={handleCoursePress}
                   onUserPress={handleUserPress}
                   onCommentPress={setCommentPost}
                   onSaveToast={setToastMessage}
@@ -571,7 +587,8 @@ const styles = StyleSheet.create({
   topLeftCourseName: {
     fontFamily: 'Cinzel_700Bold',
     fontSize: 15,
-    color: colors.white,
+    color: colors.gold,
+    textDecorationLine: 'underline',
     textShadowColor: 'rgba(0, 0, 0, 0.7)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,

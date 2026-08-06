@@ -1,29 +1,19 @@
-import { getCoursesPostedByUser } from './posts';
-import { getCoursesLoggedByUser } from './scorecards';
+import { getMyCourses } from './myCourses';
 
-// Distinct courses a user has either posted content to or logged a
-// scorecard at — used to drop pins on the Map's "Search Friends" view.
-export async function getFriendPlayedCourses(userId) {
-  const [posted, logged] = await Promise.all([
-    getCoursesPostedByUser(userId),
-    getCoursesLoggedByUser(userId),
-  ]);
-
-  const byKey = new Map();
-  for (const row of [...posted, ...logged]) {
-    if (row.lat == null || row.lng == null) continue;
-    const key = row.course_id || row.course_name;
-    if (!byKey.has(key)) {
-      byKey.set(key, {
-        id: row.course_id || `course-${key}`,
-        name: row.course_name,
-        city: row.city,
-        state: row.state,
-        lat: row.lat,
-        lng: row.lng,
-      });
-    }
-  }
-
-  return Array.from(byKey.values());
+// A friend's own My Courses list (my_courses is publicly selectable via
+// RLS, so this works for any userId) — used by the Map's friend view, which
+// shows only the courses a friend has explicitly saved, not every course
+// they've posted to or logged a score at.
+export async function getFriendMyCourses(userId) {
+  const rows = await getMyCourses(userId);
+  return rows
+    .filter((r) => r.latitude != null && r.longitude != null)
+    .map((r) => ({
+      id: r.courseId || r.id,
+      name: r.courseName,
+      city: r.city,
+      state: r.state,
+      lat: r.latitude,
+      lng: r.longitude,
+    }));
 }

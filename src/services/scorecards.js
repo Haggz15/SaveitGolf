@@ -81,6 +81,53 @@ export async function saveScorecard(userId, scorecard) {
   return mapRow(data);
 }
 
+// All scorecards logged at a given course, across every user, sorted lowest
+// score first — used by the Course Detail screen's Scorecards tab. Matches
+// by course_id when available, otherwise a case-insensitive course_name
+// match (scorecards.user_id has no FK to profiles, so names/avatars are
+// fetched in a second query and merged in client-side).
+export async function getScorecardsForCourse({ courseId, courseName }) {
+  let request = supabase.from('scorecards').select('*');
+  request = courseId ? request.eq('course_id', courseId) : request.ilike('course_name', courseName ?? '');
+  request = request.order('total_score', { ascending: true });
+
+  const { data, error } = await request;
+  if (error) throw error;
+  const rows = data ?? [];
+
+  const userIds = [...new Set(rows.map((r) => r.user_id))];
+  let profilesById = {};
+  if (userIds.length) {
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('user_id, username, full_name, avatar_url')
+      .in('user_id', userIds);
+    if (profilesError) throw profilesError;
+    profilesById = Object.fromEntries((profiles ?? []).map((p) => [p.user_id, p]));
+  }
+
+  return rows.map((row) => {
+    const profile = profilesById[row.user_id];
+    const name = profile?.full_name || profile?.username || 'Golfer';
+    return {
+      id: row.id,
+      userId: row.user_id,
+      name,
+      initials: name
+        .split(' ')
+        .map((part) => part[0])
+        .filter(Boolean)
+        .slice(0, 2)
+        .join('')
+        .toUpperCase(),
+      avatarUrl: profile?.avatar_url ?? null,
+      date: formatDate(row.played_at ?? row.created_at),
+      score: row.total_score,
+      par: row.total_par,
+    };
+  });
+}
+
 // Best (lowest) score per course, top 5 lowest scores — used by the Other
 // User Profile screen's "Top Courses" tab.
 export async function getTopCoursesForUser(userId) {
@@ -109,17 +156,4 @@ export async function getTopCoursesForUser(userId) {
     .sort((a, b) => (a.bestScore - a.par) - (b.bestScore - b.par) || a.bestScore - b.bestScore)
     .slice(0, 5)
     .map((entry, index) => ({ ...entry, rank: index + 1 }));
-}
-
-// Distinct courses a user has logged a scorecard at — used by the Map's
-// "Search Friends" pins.
-export async function getCoursesLoggedByUser(userId) {
-  const { data, error } = await supabase
-    .from('scorecards')
-    .select('course_id, course_name, city, state, lat, lng')
-    .eq('user_id', userId)
-    .not('lat', 'is', null);
-
-  if (error) throw error;
-  return data ?? [];
 }

@@ -21,6 +21,7 @@ import CourseSearchModal from '../components/profile/CourseSearchModal';
 import { uploadAvatar } from '../services/profiles';
 import { getCourseRankings, addCourseRanking, updateCourseRanking } from '../services/courseRankings';
 import { getMyCourses, addMyCourse, removeMyCourse } from '../services/myCourses';
+import { geocodeCourseCoordinates } from '../services/geocoding';
 import { getUserPosts } from '../services/posts';
 
 const TABS = ['Course Rankings', 'My Courses', 'Uploads'];
@@ -191,13 +192,26 @@ export default function ProfileScreen({ navigation }) {
   async function handleAddMyCourse(course) {
     if (!user?.id) return;
     try {
+      // golfcourseapi.com search results frequently omit coordinates —
+      // fall back to geocoding the course's address via Nominatim so it
+      // still gets a valid map pin (getMyCourses skips rows with no lat/lng).
+      let latitude = course.lat;
+      let longitude = course.lng;
+      if (latitude == null || longitude == null) {
+        const coords = await geocodeCourseCoordinates(course);
+        if (coords) {
+          latitude = coords.lat;
+          longitude = coords.lng;
+        }
+      }
+
       const created = await addMyCourse(user.id, {
         courseId: course.id,
         courseName: course.name,
         city: course.city,
         state: course.state,
-        latitude: course.lat,
-        longitude: course.lng,
+        latitude,
+        longitude,
       });
       setMyCourses((prev) => [created, ...prev]);
     } catch (err) {
@@ -674,7 +688,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: colors.red,
+    backgroundColor: '#2e8b3a',
     borderRadius: 12,
     paddingVertical: 12,
     width: '100%',

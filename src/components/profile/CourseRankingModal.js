@@ -29,7 +29,8 @@ export default function CourseRankingModal({ visible, initialRanking, onClose, o
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [courseResults, setCourseResults] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [rating, setRating] = useState(5);
+  const [ratingText, setRatingText] = useState('5.0');
+  const [ratingError, setRatingError] = useState(null);
   const [saving, setSaving] = useState(false);
   const searchTimer = useRef(null);
 
@@ -38,7 +39,8 @@ export default function CourseRankingModal({ visible, initialRanking, onClose, o
       setCourseName(initialRanking?.courseName ?? '');
       setSelectedCourse(null);
       setCourseResults([]);
-      setRating(initialRanking?.rating ?? 5);
+      setRatingText((initialRanking?.rating ?? 5).toFixed(1));
+      setRatingError(null);
     } else if (searchTimer.current) {
       clearTimeout(searchTimer.current);
     }
@@ -74,18 +76,21 @@ export default function CourseRankingModal({ visible, initialRanking, onClose, o
     setCourseResults([]);
   }
 
-  function handleStep(delta) {
-    setRating((prev) => clampRating(prev + delta));
+  function handleRatingChangeText(text) {
+    // Digits and a single decimal point only — free typing, no clamping
+    // mid-keystroke so "7.5" can be typed one character at a time.
+    const cleaned = text.replace(/[^0-9.]/g, '');
+    const [whole, ...rest] = cleaned.split('.');
+    const normalized = rest.length ? `${whole}.${rest.join('')}` : whole;
+    setRatingText(normalized);
+    setRatingError(null);
   }
 
-  function handleRatingText(text) {
-    const cleaned = text.replace(/[^0-9.]/g, '');
-    const num = Number(cleaned);
-    if (cleaned === '' || Number.isNaN(num)) {
-      setRating(0);
-      return;
+  function handleRatingBlur() {
+    const num = Number(ratingText);
+    if (ratingText.trim() !== '' && !Number.isNaN(num)) {
+      setRatingText(num.toFixed(1));
     }
-    setRating(Math.min(10, num));
   }
 
   async function handleSave() {
@@ -93,13 +98,22 @@ export default function CourseRankingModal({ visible, initialRanking, onClose, o
       Alert.alert('Add a course name', 'Search for and select the course you played.');
       return;
     }
+
+    const num = Number(ratingText);
+    if (ratingText.trim() === '' || Number.isNaN(num) || num < 0 || num > 10) {
+      setRatingError('Rating must be between 0.0 and 10.0');
+      return;
+    }
+    const rating = clampRating(num);
+
     setSaving(true);
     try {
       await onSave({
         courseId: selectedCourse?.id ?? null,
         courseName: courseName.trim(),
-        rating: clampRating(rating),
+        rating,
       });
+      setRatingText(rating.toFixed(1));
     } catch (err) {
       console.error('Failed to save course ranking:', err);
       Alert.alert('Something went wrong', 'Could not save this ranking. Please try again.');
@@ -168,28 +182,29 @@ export default function CourseRankingModal({ visible, initialRanking, onClose, o
           )}
 
           <Text style={styles.label}>Rating</Text>
-          <View style={styles.ratingRow}>
-            <TouchableOpacity style={styles.stepButton} onPress={() => handleStep(-0.1)}>
-              <Ionicons name="remove" size={20} color={colors.white} />
-            </TouchableOpacity>
-            <TextInput
-              style={styles.ratingInput}
-              value={rating.toFixed(1)}
-              onChangeText={handleRatingText}
-              keyboardType="decimal-pad"
-            />
-            <TouchableOpacity style={styles.stepButton} onPress={() => handleStep(0.1)}>
-              <Ionicons name="add" size={20} color={colors.white} />
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.helperText}>0.0 – 10.0, in steps of 0.1</Text>
+          <TextInput
+            style={[styles.ratingInput, ratingError && styles.ratingInputError]}
+            value={ratingText}
+            onChangeText={handleRatingChangeText}
+            onBlur={handleRatingBlur}
+            keyboardType="decimal-pad"
+            placeholder="0.0"
+            placeholderTextColor={colors.muted}
+          />
+          {ratingError ? (
+            <Text style={styles.errorText}>{ratingError}</Text>
+          ) : (
+            <Text style={styles.helperText}>0.0 – 10.0</Text>
+          )}
 
           <TouchableOpacity
             style={[styles.primaryButton, saving && styles.primaryButtonDisabled]}
             onPress={handleSave}
             disabled={saving}
           >
-            <Text style={styles.primaryButtonText}>{saving ? 'Saving…' : 'Save Ranking'}</Text>
+            <Text style={styles.primaryButtonText}>
+              {saving ? 'Saving…' : initialRanking ? 'Update' : 'Save Ranking'}
+            </Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -286,23 +301,7 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 15,
   },
-  ratingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  stepButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-    backgroundColor: colors.navyCard,
-    borderWidth: 1,
-    borderColor: colors.navyBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   ratingInput: {
-    flex: 1,
     textAlign: 'center',
     color: colors.gold,
     fontSize: 28,
@@ -313,8 +312,16 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 8,
   },
+  ratingInputError: {
+    borderColor: colors.red,
+  },
   helperText: {
     color: colors.muted,
+    fontSize: 11,
+    marginTop: 8,
+  },
+  errorText: {
+    color: colors.red,
     fontSize: 11,
     marginTop: 8,
   },

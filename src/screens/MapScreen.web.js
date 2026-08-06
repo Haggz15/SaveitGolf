@@ -16,7 +16,7 @@ import { MapWarningBanner, MapLoadingBanner } from '../components/map/MapMessage
 import colors from '../theme/colors';
 import { useCourseMapData, US_INITIAL_REGION, MAP_FILTERS, ZOOM_LEVEL } from '../hooks/useCourseMapData';
 import { useAuth } from '../context/AuthContext';
-import { getFriendPlayedCourses } from '../services/friendMap';
+import { getFriendMyCourses } from '../services/friendMap';
 import { filterCoursesWithValidCoordinates, hasValidCoordinates } from '../utils/mapCoords';
 
 // react-native-maps has no web renderer, so web gets its own map surface here
@@ -137,7 +137,7 @@ function MapSync({ mapInstanceRef, onRegionChange, focusRegion }) {
 export default function MapScreen({ navigation, route }) {
   const { user } = useAuth();
   const mapInstanceRef = useRef(null);
-  const [friendFilter, setFriendFilter] = useState(null); // { username, courses, loading }
+  const [friendFilter, setFriendFilter] = useState(null); // { displayName, courses, loading }
   const {
     setRegion,
     focusRegion,
@@ -212,13 +212,14 @@ export default function MapScreen({ navigation, route }) {
 
   const handleSelectFriend = async (profile) => {
     clearSelectedCourse();
-    setFriendFilter({ username: profile.username, courses: [], loading: true });
+    const displayName = profile.full_name || profile.username || 'this golfer';
+    setFriendFilter({ displayName, courses: [], loading: true });
     try {
-      const courses = await getFriendPlayedCourses(profile.user_id);
-      setFriendFilter({ username: profile.username, courses, loading: false });
+      const courses = await getFriendMyCourses(profile.user_id);
+      setFriendFilter({ displayName, courses, loading: false });
     } catch (err) {
-      console.error('Failed to load friend played courses:', err);
-      setFriendFilter({ username: profile.username, courses: [], loading: false });
+      console.error("Failed to load friend's courses:", err);
+      setFriendFilter({ displayName, courses: [], loading: false });
     }
   };
 
@@ -252,10 +253,10 @@ export default function MapScreen({ navigation, route }) {
           <Ionicons name="golf-outline" size={16} color={colors.white} />
           <Text style={styles.friendBannerText} numberOfLines={1}>
             {friendFilter.loading
-              ? `Loading courses played by ${friendFilter.username}…`
+              ? `Loading ${friendFilter.displayName}'s courses…`
               : friendFilter.courses.length > 0
-              ? `Showing courses played by ${friendFilter.username}`
-              : `${friendFilter.username} hasn't played any courses yet`}
+              ? `Viewing ${friendFilter.displayName}'s courses`
+              : `${friendFilter.displayName} hasn't added any courses yet`}
           </Text>
           <TouchableOpacity onPress={handleClearFriendFilter} style={styles.friendBannerClear}>
             <Text style={styles.friendBannerClearText}>Clear</Text>
