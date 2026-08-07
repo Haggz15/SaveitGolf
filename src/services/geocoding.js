@@ -43,7 +43,7 @@ async function persistCache(cache) {
 }
 
 async function nominatimSearch(query) {
-  const url = `${NOMINATIM_BASE}/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=us`;
+  const url = `${NOMINATIM_BASE}/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
   const res = await throttledFetch(url);
   if (!res.ok) {
     throw new Error(`Geocoding request failed: HTTP ${res.status}`);
@@ -53,38 +53,47 @@ async function nominatimSearch(query) {
   return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
 }
 
-// Builds a fallback chain of queries to try, most-specific first. The full
-// street address is often unmatchable by Nominatim's free-text search —
-// suite numbers ("#500"), highway-grid street numbers ("25W253"), or a
-// slightly-off city component (the API's city field doesn't always match
-// what OSM has) all cause a clean address to return zero results. Dropping
-// down to "name, city, state", then just "name", then just "city, state"
-// recovers real matches for those cases; each is progressively less precise
-// but still lands the pin in the right place.
-function geocodeQueryChain(address, { name, city, state } = {}) {
-  const queries = [address];
-  if (name && city && state) queries.push(`${name}, ${city}, ${state}`);
-  if (name) queries.push(name);
-  if (city && state) queries.push(`${city}, ${state}`);
+// Builds a fallback chain of queries to try, most-specific first. Searching
+// by the course's name (plus city/state) matches Nominatim's free-text
+// index far more reliably than a raw street address — suite numbers
+// ("#500"), highway-grid street numbers ("25W253"), or a slightly-off city
+// component (the API's city field doesn't always match what OSM has) all
+// cause a street address to return zero results. If the full query (with
+// city) comes up empty, a shorter "name, state" query is tried next.
+//
+// Deliberately no "golf course"/"golf club" suffix here — verified against
+// the live API that appending it (e.g. "Merion Golf Club Ardmore PA golf
+// course") reliably returns zero results for real courses that match fine
+// without it ("Merion Golf Club Ardmore PA"); Nominatim's free-text search
+// is closer to an address parser than a keyword search, and the extra words
+// break the match instead of narrowing it.
+function geocodeQueryChain({ name, city, state } = {}) {
+  const queries = [];
+  if (name && city && state) queries.push(`${name} ${city} ${state}`);
+  if (name && state) queries.push(`${name} ${state}`);
   return [...new Set(queries.filter(Boolean))];
 }
 
 // Geocodes a course via OpenStreetMap's Nominatim API, caching results in
 // AsyncStorage keyed by courseId so repeat app launches don't re-spend the
-// shared 1 req/sec budget. Falls back through progressively less specific
-// queries (see geocodeQueryChain) when the exact address has no match.
-export async function geocodeCourse(courseId, address, { name, city, state } = {}) {
+// shared 1 req/sec budget. Falls back through a shorter query (see
+// geocodeQueryChain) when the full name+city+state query has no match.
+export async function geocodeCourse(courseId, { name, city, state } = {}) {
   const cache = await loadCache();
   if (cache[courseId]) {
     return cache[courseId];
   }
 
-  const attempts = geocodeQueryChain(address, { name, city, state });
+  const attempts = geocodeQueryChain({ name, city, state });
+  if (!attempts.length) {
+    throw new Error(`Geocoding failed: course "${name || courseId}" has no name to search by`);
+  }
+
   for (const query of attempts) {
     const result = await nominatimSearch(query);
     if (result) {
-      if (query !== address) {
-        console.warn(`[geocoding] "${address}" had no match — used fallback query "${query}" instead`);
+      if (query !== attempts[0]) {
+        console.warn(`[geocoding] "${attempts[0]}" had no match — used fallback query "${query}" instead`);
       }
       cache[courseId] = result;
       await persistCache(cache);
@@ -93,7 +102,7 @@ export async function geocodeCourse(courseId, address, { name, city, state } = {
   }
 
   throw new Error(
-    `Geocoding failed for "${address}": no results after ${attempts.length} attempt(s) (${attempts.join(' | ')})`
+    `Geocoding failed for "${name}": no results after ${attempts.length} attempt(s) (${attempts.join(' | ')})`
   );
 }
 
@@ -103,15 +112,15 @@ export async function getCachedGeocode(courseId) {
 }
 
 // golfcourseapi.com's search endpoint doesn't return usable coordinates, so
-// the map geocodes a normalized course (id/name/address/city/state, as
-// produced by golfCourseApi.normalizeCourse) via Nominatim before placing
-// its pin. Returns null (rather than throwing) when no match is found, since
-// callers show the course either way and just skip the map pin.
+// the map geocodes a normalized course (id/name/city/state, as produced by
+// golfCourseApi.normalizeCourse) via Nominatim before placing its pin.
+// Searches by course name + city + state rather than street address (see
+// geocodeQueryChain). Returns null (rather than throwing) when no match is
+// found, since callers show the course either way and just skip the map pin.
 export async function geocodeCourseCoordinates(course) {
-  const address = course?.address || [course?.city, course?.state].filter(Boolean).join(', ');
-  if (!address || !course?.id) return null;
+  if (!course?.name || !course?.id) return null;
   try {
-    return await geocodeCourse(course.id, address, { name: course.name, city: course.city, state: course.state });
+    return await geocodeCourse(course.id, { name: course.name, city: course.city, state: course.state });
   } catch (err) {
     console.warn(`[geocoding] could not geocode course "${course?.name}":`, err.message);
     return null;

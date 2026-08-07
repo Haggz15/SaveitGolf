@@ -21,7 +21,7 @@ import CourseRankingModal from '../components/profile/CourseRankingModal';
 import CourseSearchModal from '../components/profile/CourseSearchModal';
 import { uploadAvatar } from '../services/profiles';
 import { getCourseRankings, addCourseRanking, updateCourseRanking } from '../services/courseRankings';
-import { getMyCourses, addMyCourse, removeMyCourse } from '../services/myCourses';
+import { getMyCourses, addMyCourse, removeMyCourse, getSavedCourseCoordinates } from '../services/myCourses';
 import { geocodeCourseCoordinates } from '../services/geocoding';
 import { submitNewCourse } from '../services/golfCourseApi';
 import { getUserPosts } from '../services/posts';
@@ -179,9 +179,15 @@ export default function ProfileScreen({ navigation }) {
 
   const loadMyCourses = useCallback(async () => {
     if (!user?.id) return;
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    console.log('[ProfileScreen] loadMyCourses userId:', userId);
+    if (!userId) return;
     setMyCoursesLoading(true);
     try {
-      setMyCourses(await getMyCourses(user.id));
+      setMyCourses(await getMyCourses(userId));
     } catch (err) {
       console.error('Failed to load my courses:', err);
     } finally {
@@ -194,27 +200,39 @@ export default function ProfileScreen({ navigation }) {
   }, [loadMyCourses]);
 
   async function handleAddMyCourse(course) {
-    console.log('[ProfileScreen] handleAddMyCourse user_id:', user?.id);
-    if (!user?.id) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    console.log('[ProfileScreen] handleAddMyCourse userId:', userId);
+    if (!userId) {
       setToastType('error');
       setToastMessage('You need to be signed in to add a course.');
       throw new Error('No user id available when saving course');
     }
     try {
       // golfcourseapi.com search results frequently omit coordinates —
-      // geocode the course via Nominatim first so it still gets a valid map
-      // pin (getMyCourses skips rows with no lat/lng).
+      // first check whether another my_courses row already has this course
+      // geocoded (the table is world-readable, see schema.sql), and only
+      // fall back to a fresh Nominatim lookup if not, so a shared course
+      // never spends the 1 req/sec Nominatim budget twice.
       let latitude = course.lat;
       let longitude = course.lng;
       if (latitude == null || longitude == null) {
-        const coords = await geocodeCourseCoordinates(course);
-        if (coords) {
-          latitude = coords.lat;
-          longitude = coords.lng;
+        const saved = course.id ? await getSavedCourseCoordinates(course.id).catch(() => null) : null;
+        if (saved) {
+          latitude = saved.lat;
+          longitude = saved.lng;
+        } else {
+          const coords = await geocodeCourseCoordinates(course);
+          if (coords) {
+            latitude = coords.lat;
+            longitude = coords.lng;
+          }
         }
       }
 
-      const created = await addMyCourse(user.id, {
+      const created = await addMyCourse(userId, {
         courseId: course.id,
         courseName: course.name,
         city: course.city,
@@ -243,8 +261,12 @@ export default function ProfileScreen({ navigation }) {
   // alongside it and never blocks or surfaces its own errors — the local
   // save having worked is all the user needs to know.
   async function handleAddManualCourse({ name, city, state }) {
-    console.log('[ProfileScreen] handleAddManualCourse user_id:', user?.id);
-    if (!user?.id) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    console.log('[ProfileScreen] handleAddManualCourse userId:', userId);
+    if (!userId) {
       setToastType('error');
       setToastMessage('You need to be signed in to add a course.');
       throw new Error('No user id available when saving course');
@@ -263,7 +285,7 @@ export default function ProfileScreen({ navigation }) {
         .then((result) => console.log('[golfcourseapi] submitted manually-added course:', result))
         .catch((err) => console.error('[golfcourseapi] failed to submit manually-added course:', err.message));
 
-      const created = await addMyCourse(user.id, {
+      const created = await addMyCourse(userId, {
         courseId: null,
         courseName: name,
         city,

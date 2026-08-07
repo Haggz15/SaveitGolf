@@ -3,7 +3,7 @@ import * as Location from 'expo-location';
 import { stateCenters, allStateAbbreviations } from '../data/courses';
 import { getCourseById, searchCourses, RateLimitError } from '../services/golfCourseApi';
 import { geocodeCourseCoordinates } from '../services/geocoding';
-import { getMyCourses, updateMyCourseCoordinates } from '../services/myCourses';
+import { getMyCourses, updateMyCourseCoordinates, getSavedCourseCoordinates } from '../services/myCourses';
 import { getAllCoursesInState } from '../services/stateCourses';
 import { courseHasValidCoordinates } from '../utils/mapCoords';
 import { getStateZoomCenter, zoomLevelToDelta, STATE_ZOOM_LEVEL } from '../utils/stateZoomCenters';
@@ -128,12 +128,16 @@ export function useCourseMapData({
           let lat = r.latitude;
           let lng = r.longitude;
           if (lat == null || lng == null) {
-            const coords = await geocodeCourseCoordinates({
+            // The my_courses table is world-readable (see schema.sql), so
+            // another user may have already geocoded this same course_id —
+            // check there before spending a Nominatim request on it.
+            const saved = r.courseId ? await getSavedCourseCoordinates(r.courseId).catch(() => null) : null;
+            const coords = saved ?? (await geocodeCourseCoordinates({
               id: r.courseId || r.id,
               name: r.courseName,
               city: r.city,
               state: r.state,
-            });
+            }));
             if (coords) {
               lat = coords.lat;
               lng = coords.lng;

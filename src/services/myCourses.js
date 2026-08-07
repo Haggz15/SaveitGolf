@@ -49,6 +49,25 @@ export async function addMyCourse(userId, { courseId, courseName, city, state, l
   return mapRow(data);
 }
 
+// The my_courses select policy is world-readable (see schema.sql), so any
+// user who already geocoded a given course leaves usable coordinates behind
+// for the next person to add it — checking here before hitting Nominatim
+// saves a request against its shared 1 req/sec budget.
+export async function getSavedCourseCoordinates(courseId) {
+  if (!courseId) return null;
+  const { data, error } = await supabase
+    .from('my_courses')
+    .select('latitude, longitude')
+    .eq('course_id', courseId)
+    .not('latitude', 'is', null)
+    .not('longitude', 'is', null)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? { lat: data.latitude, lng: data.longitude } : null;
+}
+
 export async function removeMyCourse(id) {
   const { error } = await supabase.from('my_courses').delete().eq('id', id);
   if (error) throw error;
