@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
-import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -174,8 +173,6 @@ export default function ProfileScreen({ navigation }) {
   const [myCoursesLoading, setMyCoursesLoading] = useState(true);
   const [myCoursesEditMode, setMyCoursesEditMode] = useState(false);
   const [courseSearchVisible, setCourseSearchVisible] = useState(false);
-  const [toastMessage, setToastMessage] = useState(null);
-  const [toastType, setToastType] = useState(null);
 
   const loadMyCourses = useCallback(async () => {
     if (!user?.id) return;
@@ -199,59 +196,70 @@ export default function ProfileScreen({ navigation }) {
     loadMyCourses();
   }, [loadMyCourses]);
 
+  // Mirrors handleSaveRanking below: session comes straight from useAuth's
+  // `user` (not a fresh supabase.auth.getSession() call), the Supabase call
+  // happens directly with no try/catch here (errors bubble to the caller,
+  // same as handleSaveRanking), and local state is updated straight from
+  // the row the insert returns, no refetch.
   async function handleAddMyCourse(course) {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const userId = session?.user?.id;
-    console.log('[ProfileScreen] handleAddMyCourse userId:', userId);
-    if (!userId) {
-      setToastType('error');
-      setToastMessage('You need to be signed in to add a course.');
-      throw new Error('No user id available when saving course');
+    console.log('[ProfileScreen] handleAddMyCourse called with course:', course);
+    if (!user?.id) {
+      console.log('[ProfileScreen] handleAddMyCourse: no signed-in user, aborting');
+      return;
     }
-    try {
-      // golfcourseapi.com search results frequently omit coordinates —
-      // first check whether another my_courses row already has this course
-      // geocoded (the table is world-readable, see schema.sql), and only
-      // fall back to a fresh Nominatim lookup if not, so a shared course
-      // never spends the 1 req/sec Nominatim budget twice.
-      let latitude = course.lat;
-      let longitude = course.lng;
-      if (latitude == null || longitude == null) {
-        const saved = course.id ? await getSavedCourseCoordinates(course.id).catch(() => null) : null;
-        if (saved) {
-          latitude = saved.lat;
-          longitude = saved.lng;
+
+    // golfcourseapi.com search results frequently omit coordinates — first
+    // check whether another my_courses row already has this course geocoded
+    // (the table is world-readable, see schema.sql), and only fall back to
+    // a fresh Nominatim lookup if not, so a shared course never spends the
+    // 1 req/sec Nominatim budget twice.
+    let latitude = course.lat;
+    let longitude = course.lng;
+    console.log('[ProfileScreen] handleAddMyCourse: coordinates from search result:', latitude, longitude);
+
+    if (latitude == null || longitude == null) {
+      const saved = course.id
+        ? await getSavedCourseCoordinates(course.id).catch((err) => {
+            console.log('[ProfileScreen] handleAddMyCourse: getSavedCourseCoordinates failed:', err.message);
+            return null;
+          })
+        : null;
+
+      if (saved) {
+        console.log('[ProfileScreen] handleAddMyCourse: reusing previously-saved coordinates:', saved);
+        latitude = saved.lat;
+        longitude = saved.lng;
+      } else {
+        console.log('[ProfileScreen] handleAddMyCourse: geocoding course via Nominatim:', course.name);
+        // Geocoding failure must never block the save — geocodeCourseCoordinates
+        // resolves to null rather than throwing, but it's still wrapped here
+        // so a save can never fail because of a geocoding problem.
+        const coords = await geocodeCourseCoordinates(course).catch((err) => {
+          console.log('[ProfileScreen] handleAddMyCourse: geocoding threw, saving without coordinates:', err.message);
+          return null;
+        });
+        if (coords) {
+          console.log('[ProfileScreen] handleAddMyCourse: geocoding succeeded:', coords);
+          latitude = coords.lat;
+          longitude = coords.lng;
         } else {
-          const coords = await geocodeCourseCoordinates(course);
-          if (coords) {
-            latitude = coords.lat;
-            longitude = coords.lng;
-          }
+          console.log('[ProfileScreen] handleAddMyCourse: geocoding found no match, saving with null coordinates');
         }
       }
-
-      const created = await addMyCourse(userId, {
-        courseId: course.id,
-        courseName: course.name,
-        city: course.city,
-        state: course.state,
-        latitude,
-        longitude,
-      });
-      // The upsert may have updated an existing row for this course rather
-      // than inserted a new one — replace any existing entry so the list
-      // never shows the same course twice.
-      setMyCourses((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
-      setToastType('success');
-      setToastMessage('Course added successfully');
-    } catch (err) {
-      console.error('Failed to add course:', err);
-      setToastType('error');
-      setToastMessage(err.message ?? 'An unknown error occurred.');
-      throw err;
     }
+
+    console.log('[ProfileScreen] handleAddMyCourse: calling addMyCourse with userId:', user.id);
+    const created = await addMyCourse(user.id, {
+      courseId: course.id,
+      courseName: course.name,
+      city: course.city,
+      state: course.state,
+      latitude,
+      longitude,
+    });
+    console.log('[ProfileScreen] handleAddMyCourse: addMyCourse succeeded:', created);
+
+    setMyCourses((prev) => [created, ...prev]);
   }
 
   // A course search came up empty in golfcourseapi.com, so the user typed
@@ -261,47 +269,43 @@ export default function ProfileScreen({ navigation }) {
   // alongside it and never blocks or surfaces its own errors — the local
   // save having worked is all the user needs to know.
   async function handleAddManualCourse({ name, city, state }) {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const userId = session?.user?.id;
-    console.log('[ProfileScreen] handleAddManualCourse userId:', userId);
-    if (!userId) {
-      setToastType('error');
-      setToastMessage('You need to be signed in to add a course.');
-      throw new Error('No user id available when saving course');
+    console.log('[ProfileScreen] handleAddManualCourse called with:', { name, city, state });
+    if (!user?.id) {
+      console.log('[ProfileScreen] handleAddManualCourse: no signed-in user, aborting');
+      return;
     }
-    try {
-      const coords = await geocodeCourseCoordinates({
-        id: `manual-${name}-${city}-${state}`,
-        name,
-        city,
-        state,
-      });
-      const latitude = coords?.lat ?? null;
-      const longitude = coords?.lng ?? null;
 
-      submitNewCourse({ name, city, state, lat: latitude, lng: longitude })
-        .then((result) => console.log('[golfcourseapi] submitted manually-added course:', result))
-        .catch((err) => console.error('[golfcourseapi] failed to submit manually-added course:', err.message));
+    console.log('[ProfileScreen] handleAddManualCourse: geocoding manual course via Nominatim:', name);
+    // Same as handleAddMyCourse: geocoding failure must never block the save.
+    const coords = await geocodeCourseCoordinates({
+      id: `manual-${name}-${city}-${state}`,
+      name,
+      city,
+      state,
+    }).catch((err) => {
+      console.log('[ProfileScreen] handleAddManualCourse: geocoding threw, saving without coordinates:', err.message);
+      return null;
+    });
+    const latitude = coords?.lat ?? null;
+    const longitude = coords?.lng ?? null;
+    console.log('[ProfileScreen] handleAddManualCourse: resolved coordinates:', { latitude, longitude });
 
-      const created = await addMyCourse(userId, {
-        courseId: null,
-        courseName: name,
-        city,
-        state,
-        latitude,
-        longitude,
-      });
-      setMyCourses((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
-      setToastType('success');
-      setToastMessage('Course added successfully');
-    } catch (err) {
-      console.error('Failed to add manual course:', err);
-      setToastType('error');
-      setToastMessage(err.message ?? 'An unknown error occurred.');
-      throw err;
-    }
+    submitNewCourse({ name, city, state, lat: latitude, lng: longitude })
+      .then((result) => console.log('[golfcourseapi] submitted manually-added course:', result))
+      .catch((err) => console.error('[golfcourseapi] failed to submit manually-added course:', err.message));
+
+    console.log('[ProfileScreen] handleAddManualCourse: calling addMyCourse with userId:', user.id);
+    const created = await addMyCourse(user.id, {
+      courseId: null,
+      courseName: name,
+      city,
+      state,
+      latitude,
+      longitude,
+    });
+    console.log('[ProfileScreen] handleAddManualCourse: addMyCourse succeeded:', created);
+
+    setMyCourses((prev) => [created, ...prev]);
   }
 
   function handleRemoveMyCourse(course) {
@@ -619,7 +623,6 @@ export default function ProfileScreen({ navigation }) {
         onAddManualCourse={handleAddManualCourse}
       />
 
-      <Toast message={toastMessage} type={toastType} onHide={() => setToastMessage(null)} />
     </View>
   );
 }

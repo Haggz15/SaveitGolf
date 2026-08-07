@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { MapContainer, TileLayer, Marker, CircleMarker, Tooltip, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -183,8 +184,10 @@ export default function MapScreen({ navigation, route }) {
     feedFocusPin,
     filter,
     setFilter,
+    myCoursesList,
     myCoursesLoading,
     myCoursesLoaded,
+    refreshMyCourses,
     userLocation,
     searchQuery,
     searchResults,
@@ -200,6 +203,17 @@ export default function MapScreen({ navigation, route }) {
     routeZoomToStateTimestamp: route?.params?.zoomToStateAt,
     userId: user?.id,
   });
+
+  // The Map tab stays mounted across tab switches, so a course added on the
+  // Profile tab wouldn't otherwise show up here until the app reloads.
+  // Refetching my_courses every time this screen regains focus keeps it in
+  // sync without a manual refresh.
+  useFocusEffect(
+    useCallback(() => {
+      console.log('[MapScreen.web] screen focused — refreshing my_courses');
+      refreshMyCourses();
+    }, [refreshMyCourses])
+  );
 
   const initialZoom = useMemo(() => regionToZoom(US_INITIAL_REGION.latitudeDelta), []);
   const stateIcons = useMemo(
@@ -230,27 +244,30 @@ export default function MapScreen({ navigation, route }) {
     map.fitBounds(bounds, { padding: [60, 60] });
   }, [friendFilter]);
 
+  // My Courses pins are now a permanent layer (see useCourseMapData), so
+  // this fits the map to them once, the first time they load — not on
+  // every refetch (refreshMyCourses reruns on every tab focus, which would
+  // otherwise re-snap the map and undo the user's own panning/zooming every
+  // time they revisit the Map tab).
+  const hasFitMyCoursesRef = useRef(false);
   useEffect(() => {
-    if (filter !== MAP_FILTERS.PLAYED || myCoursesLoading || visibleCourses.length === 0) return;
+    if (myCoursesLoading || myCoursesList.length === 0 || hasFitMyCoursesRef.current) return;
     const map = mapInstanceRef.current;
     if (!map) return;
-    const bounds = visibleCourses.map((c) => [c.lat, c.lng]);
+    hasFitMyCoursesRef.current = true;
+    const bounds = myCoursesList.map((c) => [c.lat, c.lng]);
     map.fitBounds(bounds, { padding: [60, 60] });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, myCoursesLoading, visibleCourses]);
+  }, [myCoursesLoading, myCoursesList]);
 
-  // My Courses toggle drops pins silently — the only feedback for an empty
-  // list is this bottom toast, not a banner or inline card.
+  // The only feedback for an empty My Courses list is this bottom toast,
+  // not a banner or inline card. Shown once per app session (the ref never
+  // resets), since the Map tab stays mounted and refetches on every focus.
   useEffect(() => {
-    if (filter !== MAP_FILTERS.PLAYED) {
-      playedEmptyToastShownRef.current = false;
-      return;
-    }
-    if (myCoursesLoading || !myCoursesLoaded || visibleCourses.length > 0) return;
+    if (myCoursesLoading || !myCoursesLoaded || myCoursesList.length > 0) return;
     if (playedEmptyToastShownRef.current) return;
     playedEmptyToastShownRef.current = true;
     setEmptyMyCoursesToast('Add courses in your profile to see them here');
-  }, [filter, myCoursesLoading, myCoursesLoaded, visibleCourses]);
+  }, [myCoursesLoading, myCoursesLoaded, myCoursesList]);
 
   const handleSelectFriend = async (profile) => {
     clearSelectedCourse();
@@ -350,30 +367,32 @@ export default function MapScreen({ navigation, route }) {
 
             <MapSync mapInstanceRef={mapInstanceRef} onRegionChange={guard(setRegion)} focusRegion={focusRegion} />
 
-            {!friendFilter && filter !== MAP_FILTERS.PLAYED && zoomLevel === ZOOM_LEVEL.COUNTRY
-              ? stateMarkers.map((state) => (
-                  <SilentMarkerBoundary key={state.abbr}>
-                    <Marker
-                      position={[state.lat, state.lng]}
-                      icon={stateIcons[state.abbr]}
-                      eventHandlers={{ click: guard(() => handleSelectStateMarker(state.abbr)) }}
-                    />
-                  </SilentMarkerBoundary>
-                ))
-              : withCoords(friendFilter ? friendFilter.courses : visibleCourses, 'render markers').map((course) => {
-                  const isHighlighted = selectedCourse?.id === course.id;
-                  const isGreen = !friendFilter && filter === MAP_FILTERS.PLAYED;
-                  return (
-                    <SilentMarkerBoundary key={course.id}>
-                      <Marker
-                        position={[course.lat, course.lng]}
-                        icon={isHighlighted ? highlightedCourseIcon : isGreen ? greenCourseIcon : courseIcon}
-                        zIndexOffset={isHighlighted ? 1000 : 0}
-                        eventHandlers={{ click: guard(() => handleSelectCourse(course)) }}
-                      />
-                    </SilentMarkerBoundary>
-                  );
-                })}
+            {!friendFilter &&
+              filter !== MAP_FILTERS.PLAYED &&
+              zoomLevel === ZOOM_LEVEL.COUNTRY &&
+              stateMarkers.map((state) => (
+                <SilentMarkerBoundary key={state.abbr}>
+                  <Marker
+                    position={[state.lat, state.lng]}
+                    icon={stateIcons[state.abbr]}
+                    eventHandlers={{ click: guard(() => handleSelectStateMarker(state.abbr)) }}
+                  />
+                </SilentMarkerBoundary>
+              ))}
+            {withCoords(friendFilter ? friendFilter.courses : visibleCourses, 'render markers').map((course) => {
+              const isHighlighted = selectedCourse?.id === course.id;
+              const isGreen = !friendFilter && course.isMine;
+              return (
+                <SilentMarkerBoundary key={course.id}>
+                  <Marker
+                    position={[course.lat, course.lng]}
+                    icon={isHighlighted ? highlightedCourseIcon : isGreen ? greenCourseIcon : courseIcon}
+                    zIndexOffset={isHighlighted ? 1000 : 0}
+                    eventHandlers={{ click: guard(() => handleSelectCourse(course)) }}
+                  />
+                </SilentMarkerBoundary>
+              );
+            })}
 
             {feedFocusPin && (
               <SilentMarkerBoundary>

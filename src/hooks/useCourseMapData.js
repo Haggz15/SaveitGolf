@@ -100,16 +100,22 @@ export function useCourseMapData({
   const searchDebounceRef = useRef(null);
   const searchRequestIdRef = useRef(0);
   const courseDetailRequestIdRef = useRef(0);
-  // "Courses I've Played" pulls from the user's own my_courses table rather
-  // than the zoom-level course cache — it's a distinct, user-curated list
-  // that may include courses never surfaced by state search, and it
-  // overrides the zoom-level behavior entirely per the map spec.
+  // My Courses (the user's own my_courses table) is a permanent map layer —
+  // it's fetched on mount and shown regardless of the ALL/PLAYED filter or
+  // zoom level (see visibleCourses below), not gated behind the filter the
+  // way it used to be. `myCoursesRefreshKey` lets a screen force a refetch
+  // (e.g. on tab focus) so a course added elsewhere in the app shows up on
+  // the map without needing a reload.
   const [myCoursesList, setMyCoursesList] = useState([]);
   const [myCoursesLoading, setMyCoursesLoading] = useState(false);
   const [myCoursesLoaded, setMyCoursesLoaded] = useState(false);
+  const [myCoursesRefreshKey, setMyCoursesRefreshKey] = useState(0);
+
+  const refreshMyCourses = useCallback(() => {
+    setMyCoursesRefreshKey((key) => key + 1);
+  }, []);
 
   useEffect(() => {
-    if (filter !== MAP_FILTERS.PLAYED) return;
     if (!userId) {
       setMyCoursesList([]);
       setMyCoursesLoaded(true);
@@ -117,8 +123,10 @@ export function useCourseMapData({
     }
     let cancelled = false;
     setMyCoursesLoading(true);
+    console.log('[useCourseMapData] fetching my_courses for userId:', userId);
     getMyCourses(userId)
       .then(async (rows) => {
+        console.log('[useCourseMapData] my_courses rows fetched:', rows.length);
         if (cancelled) return;
         // Rows saved before they had coordinates (or whose address didn't
         // geocode at save time) still need a pin — geocode them now via
@@ -128,6 +136,7 @@ export function useCourseMapData({
           let lat = r.latitude;
           let lng = r.longitude;
           if (lat == null || lng == null) {
+            console.log(`[useCourseMapData] "${r.courseName}" has no stored coordinates — geocoding`);
             // The my_courses table is world-readable (see schema.sql), so
             // another user may have already geocoded this same course_id —
             // check there before spending a Nominatim request on it.
@@ -141,15 +150,19 @@ export function useCourseMapData({
             if (coords) {
               lat = coords.lat;
               lng = coords.lng;
+              console.log(`[useCourseMapData] geocoded "${r.courseName}":`, coords, '— persisting to my_courses row', r.id);
               updateMyCourseCoordinates(r.id, { latitude: lat, longitude: lng }).catch((err) =>
                 console.error(`[useCourseMapData] failed to persist geocoded coordinates for "${r.courseName}":`, err.message)
               );
+            } else {
+              console.log(`[useCourseMapData] could not geocode "${r.courseName}" — no pin will be shown`);
             }
           }
           if (lat != null && lng != null) {
             withCoords.push({ id: r.courseId || r.id, name: r.courseName, city: r.city, state: r.state, lat, lng });
           }
         }
+        console.log('[useCourseMapData] my_courses ready to render:', withCoords.length, 'of', rows.length, 'rows');
         if (!cancelled) setMyCoursesList(withCoords);
       })
       .catch((err) => {
@@ -165,7 +178,7 @@ export function useCourseMapData({
     return () => {
       cancelled = true;
     };
-  }, [filter, userId]);
+  }, [userId, myCoursesRefreshKey]);
 
   // "All Courses" (zoomed into a state) — every course this app knows about
   // in that state, aggregated from all users' my_courses/posts/scorecards
@@ -378,35 +391,36 @@ export function useCourseMapData({
     };
   }, [routeZoomToState, routeZoomToStateTimestamp]);
 
-  // Course pins come from the active filter — the user's own My Courses list,
-  // or (for "All Courses" zoomed into a state) every course this app knows
-  // about in that state (see getAllCoursesInState; golfcourseapi.com can't be
-  // searched reliably by state name, so this aggregates the app's own data
-  // instead of hitting that endpoint).
+  // My Courses pins are always part of the visible set — a permanent layer,
+  // independent of the ALL/PLAYED filter and zoom level. The filter only
+  // controls whether the "All Courses" layer (every course this app knows
+  // about in the zoomed-into state, via getAllCoursesInState) is layered in
+  // on top of it. Each course is tagged `isMine` so callers can color My
+  // Courses pins (green) distinctly from the rest without re-deriving it
+  // from the filter themselves.
   const visibleCourses = useMemo(() => {
-    let base;
-    if (filter === MAP_FILTERS.PLAYED) {
-      base = myCoursesList;
-    } else if (zoomLevel !== ZOOM_LEVEL.COUNTRY) {
-      base = allStateCoursesList;
-    } else {
-      base = [];
+    const stateLayer = filter === MAP_FILTERS.ALL && zoomLevel !== ZOOM_LEVEL.COUNTRY ? allStateCoursesList : [];
+    const myIds = new Set(myCoursesList.map((c) => c.id));
+
+    const merged = myCoursesList.map((c) => ({ ...c, isMine: true }));
+    for (const c of stateLayer) {
+      if (!myIds.has(c.id)) merged.push({ ...c, isMine: false });
     }
 
     // Always keep the selected/focused course pinned and visible on top of
-    // whatever the current filter shows — a search result or a course
-    // opened from the feed may not be in `base` at all, and should still
-    // show as a temporary pin alongside it. Skip courses with no
-    // coordinates — they can't be placed as a marker and would crash the
-    // underlying map (react-native-maps / react-leaflet don't guard this).
+    // whatever's already shown — a search result or a course opened from
+    // the feed may not be in the merged list at all, and should still show
+    // as a temporary pin alongside it. Skip courses with no coordinates —
+    // they can't be placed as a marker and would crash the underlying map
+    // (react-native-maps / react-leaflet don't guard this).
     if (
       selectedCourse &&
       courseHasValidCoordinates(selectedCourse) &&
-      !base.some((c) => c.id === selectedCourse.id)
+      !merged.some((c) => c.id === selectedCourse.id)
     ) {
-      base = [...base, selectedCourse];
+      merged.push({ ...selectedCourse, isMine: myIds.has(selectedCourse.id) });
     }
-    return base;
+    return merged;
   }, [filter, myCoursesList, allStateCoursesList, zoomLevel, selectedCourse]);
 
   // Tapping a state pin zooms in and resets the search bar to empty/ready
@@ -531,8 +545,10 @@ export function useCourseMapData({
     filter,
     setFilter,
     clearPlayedFilter,
+    myCoursesList,
     myCoursesLoading,
     myCoursesLoaded,
+    refreshMyCourses,
     userLocation,
     searchQuery,
     searchResults,

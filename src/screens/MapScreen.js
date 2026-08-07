@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
@@ -146,8 +147,10 @@ export default function MapScreen({ navigation, route }) {
     feedFocusPin,
     filter,
     setFilter,
+    myCoursesList,
     myCoursesLoading,
     myCoursesLoaded,
+    refreshMyCourses,
     searchQuery,
     searchResults,
     searching,
@@ -163,6 +166,18 @@ export default function MapScreen({ navigation, route }) {
     userId: user?.id,
   });
 
+  // The Map tab stays mounted across tab switches (bottom tab navigators
+  // don't unmount screens), so a course added on the Profile tab wouldn't
+  // otherwise show up here until the app reloads. Refetching my_courses
+  // every time this screen regains focus keeps it in sync without a manual
+  // refresh.
+  useFocusEffect(
+    useCallback(() => {
+      console.log('[MapScreen] screen focused — refreshing my_courses');
+      refreshMyCourses();
+    }, [refreshMyCourses])
+  );
+
   useEffect(() => {
     if (!focusRegion) return;
     mapRef.current?.animateToRegion(focusRegion, 600);
@@ -177,28 +192,26 @@ export default function MapScreen({ navigation, route }) {
     });
   }, [friendFilter]);
 
+  const hasFitMyCoursesRef = useRef(false);
   useEffect(() => {
-    if (filter !== MAP_FILTERS.PLAYED || myCoursesLoading || visibleCourses.length === 0) return;
-    const coords = visibleCourses.map((c) => ({ latitude: c.lat, longitude: c.lng }));
+    if (myCoursesLoading || myCoursesList.length === 0 || hasFitMyCoursesRef.current) return;
+    hasFitMyCoursesRef.current = true;
+    const coords = myCoursesList.map((c) => ({ latitude: c.lat, longitude: c.lng }));
     mapRef.current?.fitToCoordinates(coords, {
       edgePadding: { top: 120, right: 60, bottom: 200, left: 60 },
       animated: true,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, myCoursesLoading, visibleCourses]);
+  }, [myCoursesLoading, myCoursesList]);
 
-  // My Courses toggle drops pins silently — the only feedback for an empty
-  // list is this bottom toast, not a banner or inline card.
+  // The only feedback for an empty My Courses list is this bottom toast,
+  // not a banner or inline card. Shown once per app session (the ref never
+  // resets), since the Map tab stays mounted and refetches on every focus.
   useEffect(() => {
-    if (filter !== MAP_FILTERS.PLAYED) {
-      playedEmptyToastShownRef.current = false;
-      return;
-    }
-    if (myCoursesLoading || !myCoursesLoaded || visibleCourses.length > 0) return;
+    if (myCoursesLoading || !myCoursesLoaded || myCoursesList.length > 0) return;
     if (playedEmptyToastShownRef.current) return;
     playedEmptyToastShownRef.current = true;
     setEmptyMyCoursesToast('Add courses in your profile to see them here');
-  }, [filter, myCoursesLoading, myCoursesLoaded, visibleCourses]);
+  }, [myCoursesLoading, myCoursesLoaded, myCoursesList]);
 
   const handleSelectFriend = async (profile) => {
     clearSelectedCourse();
@@ -299,22 +312,24 @@ export default function MapScreen({ navigation, route }) {
             showsUserLocation={!locationDenied}
             onRegionChangeComplete={guard(setRegion)}
           >
-            {!friendFilter && filter !== MAP_FILTERS.PLAYED && zoomLevel === ZOOM_LEVEL.COUNTRY
-              ? stateMarkers.map((state) => (
-                  <SilentMarkerBoundary key={state.abbr}>
-                    <StateMarker state={state} onPress={guard(handleSelectStateMarker)} />
-                  </SilentMarkerBoundary>
-                ))
-              : withCoords(friendFilter ? friendFilter.courses : visibleCourses, 'render markers').map((course) => (
-                  <SilentMarkerBoundary key={course.id}>
-                    <CourseMarker
-                      course={course}
-                      highlighted={selectedCourse?.id === course.id}
-                      green={!friendFilter && filter === MAP_FILTERS.PLAYED}
-                      onPress={guard(handleSelectCourse)}
-                    />
-                  </SilentMarkerBoundary>
-                ))}
+            {!friendFilter &&
+              filter !== MAP_FILTERS.PLAYED &&
+              zoomLevel === ZOOM_LEVEL.COUNTRY &&
+              stateMarkers.map((state) => (
+                <SilentMarkerBoundary key={state.abbr}>
+                  <StateMarker state={state} onPress={guard(handleSelectStateMarker)} />
+                </SilentMarkerBoundary>
+              ))}
+            {withCoords(friendFilter ? friendFilter.courses : visibleCourses, 'render markers').map((course) => (
+              <SilentMarkerBoundary key={course.id}>
+                <CourseMarker
+                  course={course}
+                  highlighted={selectedCourse?.id === course.id}
+                  green={!friendFilter && course.isMine}
+                  onPress={guard(handleSelectCourse)}
+                />
+              </SilentMarkerBoundary>
+            ))}
 
             {feedFocusPin && (
               <SilentMarkerBoundary>

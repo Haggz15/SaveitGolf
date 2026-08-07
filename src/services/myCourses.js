@@ -23,29 +23,42 @@ export async function getMyCourses(userId) {
   return (data ?? []).map(mapRow);
 }
 
+// Mirrors addCourseRanking's shape exactly (see courseRankings.js): a plain
+// insert, no pre-check, no upsert. The one structural difference is the
+// extra city/state/latitude/longitude columns this table has and
+// course_rankings doesn't.
 export async function addMyCourse(userId, { courseId, courseName, city, state, latitude, longitude }) {
-  console.log('[myCourses] addMyCourse user_id:', userId);
+  console.log('[myCourses] addMyCourse called with userId:', userId, {
+    courseId,
+    courseName,
+    city,
+    state,
+    latitude,
+    longitude,
+  });
 
   const { data, error } = await supabase
     .from('my_courses')
-    .upsert(
-      {
-        user_id: userId,
-        course_id: courseId ?? null,
-        course_name: courseName,
-        city: city ?? null,
-        state: state ?? null,
-        latitude: latitude ?? null,
-        longitude: longitude ?? null,
-      },
-      { onConflict: 'user_id,course_id' }
-    )
+    .insert({
+      user_id: userId,
+      course_id: courseId ?? null,
+      course_name: courseName,
+      city: city ?? null,
+      state: state ?? null,
+      latitude: latitude ?? null,
+      longitude: longitude ?? null,
+    })
     .select()
     .single();
 
   console.log('[myCourses] addMyCourse response:', { data, error });
 
-  if (error) throw error;
+  if (error) {
+    console.error('[myCourses] addMyCourse insert failed:', error);
+    throw error;
+  }
+
+  console.log('[myCourses] addMyCourse succeeded, row id:', data.id);
   return mapRow(data);
 }
 

@@ -61,23 +61,36 @@ async function nominatimSearch(query) {
 // cause a street address to return zero results. If the full query (with
 // city) comes up empty, a shorter "name, state" query is tried next.
 //
-// Deliberately no "golf course"/"golf club" suffix here — verified against
-// the live API that appending it (e.g. "Merion Golf Club Ardmore PA golf
-// course") reliably returns zero results for real courses that match fine
-// without it ("Merion Golf Club Ardmore PA"); Nominatim's free-text search
-// is closer to an address parser than a keyword search, and the extra words
-// break the match instead of narrowing it.
+// Deliberately no "golf course"/"golf club" suffix on the first two
+// attempts — verified against the live API that appending it (e.g. "Merion
+// Golf Club Ardmore PA golf course") reliably returns zero results for real
+// courses that match fine without it ("Merion Golf Club Ardmore PA");
+// Nominatim's free-text search is closer to an address parser than a
+// keyword search, and the extra words break the match instead of narrowing
+// it. Once those plain attempts are exhausted, small-town courses that
+// aren't in OSM under their exact name get a few looser tries: with a
+// "golf club"/"country club" suffix (some courses are only indexed under
+// that form of the name), and finally just the city itself, which at least
+// lands near the right town instead of missing entirely.
 function geocodeQueryChain({ name, city, state } = {}) {
   const queries = [];
   if (name && city && state) queries.push(`${name} ${city} ${state}`);
   if (name && state) queries.push(`${name} ${state}`);
+  if (name && state) queries.push(`${name} golf club ${state}`);
+  if (name && state) queries.push(`${name} country club ${state}`);
+  if (city && state) queries.push(`${city} ${state} golf course`);
   return [...new Set(queries.filter(Boolean))];
 }
 
 // Geocodes a course via OpenStreetMap's Nominatim API, caching results in
 // AsyncStorage keyed by courseId so repeat app launches don't re-spend the
-// shared 1 req/sec budget. Falls back through a shorter query (see
-// geocodeQueryChain) when the full name+city+state query has no match.
+// shared 1 req/sec budget. Works through the fallback chain in
+// geocodeQueryChain, from most to least specific. Never throws for a course
+// that simply can't be found (small-town courses OSM doesn't have under any
+// of the tried names) — returns null instead so callers can save the course
+// without coordinates rather than losing the save entirely. A single
+// request's network failure doesn't abort the whole chain either; it's
+// logged and the next query is tried.
 export async function geocodeCourse(courseId, { name, city, state } = {}) {
   const cache = await loadCache();
   if (cache[courseId]) {
@@ -86,11 +99,18 @@ export async function geocodeCourse(courseId, { name, city, state } = {}) {
 
   const attempts = geocodeQueryChain({ name, city, state });
   if (!attempts.length) {
-    throw new Error(`Geocoding failed: course "${name || courseId}" has no name to search by`);
+    console.warn(`[geocoding] course "${name || courseId}" has no name to search by`);
+    return null;
   }
 
   for (const query of attempts) {
-    const result = await nominatimSearch(query);
+    let result;
+    try {
+      result = await nominatimSearch(query);
+    } catch (err) {
+      console.warn(`[geocoding] query "${query}" failed:`, err.message);
+      continue;
+    }
     if (result) {
       if (query !== attempts[0]) {
         console.warn(`[geocoding] "${attempts[0]}" had no match — used fallback query "${query}" instead`);
@@ -101,9 +121,10 @@ export async function geocodeCourse(courseId, { name, city, state } = {}) {
     }
   }
 
-  throw new Error(
-    `Geocoding failed for "${name}": no results after ${attempts.length} attempt(s) (${attempts.join(' | ')})`
+  console.warn(
+    `[geocoding] no results for "${name}" after ${attempts.length} attempt(s) (${attempts.join(' | ')}) — saving without coordinates`
   );
+  return null;
 }
 
 export async function getCachedGeocode(courseId) {

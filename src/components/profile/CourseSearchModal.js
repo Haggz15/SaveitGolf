@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -81,8 +82,10 @@ export default function CourseSearchModal({ visible, onClose, onAddCourse, onAdd
       await onAddCourse(course);
       onClose();
     } catch (err) {
-      // Save failed — error is already surfaced to the user by onAddCourse.
-      // Keep the modal open so they can retry instead of losing their search.
+      // Mirrors CourseRankingModal's handleSave catch block. Keep the modal
+      // open so the user can retry instead of losing their search.
+      console.error('Failed to add course:', err);
+      Alert.alert('Something went wrong', 'Could not add this course. Please try again.');
     } finally {
       setAddingId(null);
     }
@@ -110,8 +113,10 @@ export default function CourseSearchModal({ visible, onClose, onAddCourse, onAdd
       });
       onClose();
     } catch (err) {
-      // Save failed — error is already surfaced to the user by
-      // onAddManualCourse. Keep the form open so they can retry.
+      // Mirrors CourseRankingModal's handleSave catch block. Keep the form
+      // open so the user can retry.
+      console.error('Failed to add manual course:', err);
+      Alert.alert('Something went wrong', 'Could not add this course. Please try again.');
     } finally {
       setSavingManual(false);
     }
