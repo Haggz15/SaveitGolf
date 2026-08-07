@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Header from '../components/Header';
 import VideoPost from '../components/VideoPost';
@@ -20,19 +20,19 @@ import CommentSheet from '../components/feed/CommentSheet';
 import NotificationPanel from '../components/feed/NotificationPanel';
 import ShotOfWeekBanner from '../components/feed/ShotOfWeekBanner';
 import PostActionsSheet from '../components/feed/PostActionsSheet';
-import PostShareSheet from '../components/feed/PostShareSheet';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { feedPosts as mockFeedPosts, filterPills } from '../data/mockData';
 import { HEADER_CONTENT_HEIGHT, PILL_ROW_HEIGHT, TAB_BAR_HEIGHT } from '../theme/layout';
 import { useAuth } from '../context/AuthContext';
-import { getFeedPosts, incrementShareCount } from '../services/posts';
+import { getFeedPosts } from '../services/posts';
 import { getFollowingIds } from '../services/social';
 import { likePost, unlikePost, getLikedPostIds } from '../services/likes';
 import { createNotification, getUnreadNotificationCount } from '../services/notifications';
 import { getCurrentShotOfWeek } from '../services/shotOfWeek';
 import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
+import { saveMediaToDevice } from '../utils/saveMedia';
 import { haversineMiles } from '../utils/distance';
 
 function FilterPill({ label, active, onPress }) {
@@ -58,8 +58,8 @@ function PostSlide({
   onCoursePress,
   onUserPress,
   onCommentPress,
-  onSharePress,
   onMorePress,
+  onToast,
 }) {
   const [liked, setLiked] = useState(initiallyLiked);
   const [likeCount, setLikeCount] = useState(post.likes);
@@ -92,6 +92,14 @@ function PostSlide({
     try {
       if (next) {
         await savePost(currentUserId, post.id);
+        if (post.mediaUrl) {
+          try {
+            await saveMediaToDevice(post.mediaUrl);
+            onToast?.('Saved to Camera Roll');
+          } catch (mediaErr) {
+            console.error('Failed to save media to camera roll:', mediaErr);
+          }
+        }
       } else {
         await unsavePost(currentUserId, post.id);
       }
@@ -142,29 +150,46 @@ function PostSlide({
       </View>
 
       <View style={styles.actionRail}>
-        <TouchableOpacity style={styles.railButton} onPress={toggleLike}>
-          <MaterialCommunityIcons
-            name={liked ? 'flag-variant' : 'flag-variant-outline'}
-            size={24}
-            color={liked ? colors.red : 'rgba(255,255,255,0.85)'}
+        <TouchableOpacity
+          style={styles.railButton}
+          onPress={toggleLike}
+          hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
+        >
+          <Ionicons
+            name={liked ? 'heart' : 'heart-outline'}
+            size={28}
+            color={liked ? colors.red : 'rgba(255,255,255,0.95)'}
+            style={styles.railIconShadow}
           />
-          <Text style={styles.railText}>{likeCount}</Text>
+          <Text style={styles.railCountText}>{likeCount}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.railButton} onPress={() => onCommentPress(post)}>
-          <Ionicons name="chatbubble-outline" size={24} color="rgba(255,255,255,0.85)" />
-          <Text style={styles.railText}>{post.comments}</Text>
+        <TouchableOpacity
+          style={styles.railButton}
+          onPress={() => onCommentPress(post)}
+          hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
+        >
+          <Ionicons name="chatbubble-outline" size={28} color={colors.white} style={styles.railIconShadow} />
+          <Text style={styles.railCountText}>{post.comments}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.railButton} onPress={() => onSharePress(post)}>
-          <Ionicons name="share-outline" size={24} color="rgba(255,255,255,0.85)" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.railButton} onPress={handleToggleSave}>
-          <Text style={[styles.saveButtonText, saved && styles.saveButtonTextSaved]}>SAVE</Text>
+        <TouchableOpacity
+          style={styles.railButton}
+          onPress={handleToggleSave}
+          hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
+        >
+          <Text style={[styles.saveButtonText, saved && styles.saveButtonTextSaved]}>
+            <Text style={styles.saveButtonS}>S</Text>
+            <Text style={styles.saveButtonAve}>ave</Text>
+          </Text>
         </TouchableOpacity>
         {/* Demo/mock posts have no real userId — nothing in the database to
             report or block, so the option doesn't render for them. */}
         {post.userId && (
-          <TouchableOpacity style={styles.railButton} onPress={() => onMorePress(post)}>
-            <Ionicons name="ellipsis-horizontal" size={24} color="rgba(255,255,255,0.85)" />
+          <TouchableOpacity
+            style={styles.moreButton}
+            onPress={() => onMorePress(post)}
+            hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
+          >
+            <Ionicons name="ellipsis-horizontal" size={24} color="rgba(255,255,255,0.85)" style={styles.railIconShadow} />
           </TouchableOpacity>
         )}
       </View>
@@ -214,7 +239,6 @@ export default function FeedScreen({ navigation }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [commentPost, setCommentPost] = useState(null);
   const [actionsSheetPost, setActionsSheetPost] = useState(null);
-  const [shareSheetPost, setShareSheetPost] = useState(null);
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const containerHeight =
@@ -382,18 +406,6 @@ export default function FeedScreen({ navigation }) {
     }
   };
 
-  // Fired by PostShareSheet after "Share via Text" or "Copy Link" actually
-  // hands the post off to someone else (not for the personal-only "Save to
-  // Camera Roll" action).
-  const handlePostShared = (post) => {
-    incrementShareCount(post.id).catch((err) => console.error('Failed to record share:', err));
-    if (user?.id && post.userId) {
-      createNotification({ userId: post.userId, actorId: user.id, type: 'share', postId: post.id }).catch((err) =>
-        console.error('Failed to create share notification:', err)
-      );
-    }
-  };
-
   // Equivalent of an Intersection Observer for React Native: fires whenever
   // the set of on-screen list items changes so we can play only the post
   // that's actually visible and pause everything else.
@@ -472,8 +484,8 @@ export default function FeedScreen({ navigation }) {
                   onCoursePress={handleCoursePress}
                   onUserPress={handleUserPress}
                   onCommentPress={setCommentPost}
-                  onSharePress={setShareSheetPost}
                   onMorePress={setActionsSheetPost}
+                  onToast={setToastMessage}
                 />
               )}
               pagingEnabled
@@ -525,14 +537,6 @@ export default function FeedScreen({ navigation }) {
         onClose={() => setActionsSheetPost(null)}
         onReport={handleReportPost}
         onBlock={handleBlockUser}
-      />
-
-      <PostShareSheet
-        visible={Boolean(shareSheetPost)}
-        post={shareSheetPost}
-        onClose={() => setShareSheetPost(null)}
-        onToast={setToastMessage}
-        onShared={handlePostShared}
       />
 
       <Toast message={toastMessage} onHide={() => setToastMessage(null)} />
@@ -665,27 +669,44 @@ const styles = StyleSheet.create({
   },
   actionRail: {
     position: 'absolute',
-    right: 14,
+    right: 6,
     bottom: 120,
     alignItems: 'center',
   },
   railButton: {
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 22,
   },
-  railText: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: 12,
+  moreButton: {
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  railIconShadow: {
+    textShadowColor: 'rgba(0, 0, 0, 0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  railCountText: {
+    color: colors.white,
+    fontSize: 11,
     fontWeight: '700',
-    marginTop: 3,
+    marginTop: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   saveButtonText: {
     fontFamily: 'DancingScript_700Bold',
-    fontSize: 22,
     color: colors.white,
     textShadowColor: 'rgba(0, 0, 0, 0.7)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+  },
+  saveButtonS: {
+    fontSize: 22,
+  },
+  saveButtonAve: {
+    fontSize: 16,
   },
   saveButtonTextSaved: {
     color: colors.brightGreen,
