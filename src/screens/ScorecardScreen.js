@@ -17,6 +17,7 @@ import {
 } from '../components/scorecard/ScorecardExportCard';
 import PhotoCropBox from '../components/scorecard/PhotoCropBox';
 import CroppedPhoto from '../components/scorecard/CroppedPhoto';
+import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { scorecard as mockScorecard } from '../data/mockData';
 import { getLatestScorecard, saveScorecard } from '../services/scorecards';
@@ -46,6 +47,7 @@ export default function ScorecardScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [pastListKey, setPastListKey] = useState(0);
   const [detailScorecard, setDetailScorecard] = useState(null);
+  const [toastMessage, setToastMessage] = useState(null);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -159,24 +161,20 @@ export default function ScorecardScreen() {
     try {
       setIsSharing(true);
 
-      // Required lazily: these native modules aren't available on web and
-      // throw at import time if loaded statically there.
+      // Required lazily: this native module isn't available on web and
+      // throws at import time if loaded statically there.
       const MediaLibrary = require('expo-media-library');
-      const Sharing = require('expo-sharing');
 
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow photo library access to save your scorecard.');
+        Alert.alert('Permission needed', 'Please allow photo access in Settings.');
         return;
       }
 
       const uri = photo ? await photoViewShotRef.current.capture() : await cleanViewShotRef.current.capture();
 
       await MediaLibrary.saveToLibraryAsync(uri);
-
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, { dialogTitle: 'Share your scorecard' });
-      }
+      setToastMessage('Scorecard saved to Camera Roll');
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not export your scorecard. Please try again.');
     } finally {
@@ -310,6 +308,8 @@ export default function ScorecardScreen() {
         fullName={fullName}
         onClose={() => setDetailScorecard(null)}
       />
+
+      <Toast message={toastMessage} onHide={() => setToastMessage(null)} />
     </View>
   );
 }

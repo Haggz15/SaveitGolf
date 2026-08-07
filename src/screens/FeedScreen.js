@@ -9,11 +9,9 @@ import {
   ActivityIndicator,
   useWindowDimensions,
   Platform,
-  Share,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Header from '../components/Header';
 import VideoPost from '../components/VideoPost';
@@ -22,6 +20,7 @@ import CommentSheet from '../components/feed/CommentSheet';
 import NotificationPanel from '../components/feed/NotificationPanel';
 import ShotOfWeekBanner from '../components/feed/ShotOfWeekBanner';
 import PostActionsSheet from '../components/feed/PostActionsSheet';
+import PostShareSheet from '../components/feed/PostShareSheet';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { feedPosts as mockFeedPosts, filterPills } from '../data/mockData';
@@ -34,7 +33,6 @@ import { createNotification, getUnreadNotificationCount } from '../services/noti
 import { getCurrentShotOfWeek } from '../services/shotOfWeek';
 import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
-import { saveMediaToDevice } from '../utils/saveMedia';
 import { haversineMiles } from '../utils/distance';
 
 function FilterPill({ label, active, onPress }) {
@@ -60,7 +58,7 @@ function PostSlide({
   onCoursePress,
   onUserPress,
   onCommentPress,
-  onSaveToast,
+  onSharePress,
   onMorePress,
 }) {
   const [liked, setLiked] = useState(initiallyLiked);
@@ -87,22 +85,6 @@ function PostSlide({
     }
   }
 
-  async function handleShare() {
-    try {
-      const result = await Share.share({
-        message: `Check out ${post.user}'s post on SaveitGolf${post.course ? ` at ${post.course}` : ''}!`,
-      });
-      if (result.action === Share.sharedAction) {
-        incrementShareCount(post.id).catch((err) => console.error('Failed to record share:', err));
-        if (currentUserId) {
-          await createNotification({ userId: post.userId, actorId: currentUserId, type: 'share', postId: post.id });
-        }
-      }
-    } catch (err) {
-      console.error('Failed to share post:', err);
-    }
-  }
-
   async function handleToggleSave() {
     if (!currentUserId) return;
     const next = !saved;
@@ -110,21 +92,12 @@ function PostSlide({
     try {
       if (next) {
         await savePost(currentUserId, post.id);
-        await saveMediaToDevice(post.mediaUrl);
-        onSaveToast?.('Saved to camera roll');
       } else {
         await unsavePost(currentUserId, post.id);
       }
     } catch (err) {
       console.error('Failed to save post:', err);
       setSaved(!next);
-      if (next) {
-        const message =
-          err.message === 'PERMISSION_DENIED'
-            ? 'Allow photo library access to save posts to your camera roll.'
-            : "Couldn't save this post. Please try again.";
-        Alert.alert('Something went wrong', message);
-      }
     }
   }
 
@@ -170,8 +143,8 @@ function PostSlide({
 
       <View style={styles.actionRail}>
         <TouchableOpacity style={styles.railButton} onPress={toggleLike}>
-          <Ionicons
-            name={liked ? 'heart' : 'heart-outline'}
+          <MaterialCommunityIcons
+            name={liked ? 'flag-variant' : 'flag-variant-outline'}
             size={24}
             color={liked ? colors.red : 'rgba(255,255,255,0.85)'}
           />
@@ -181,15 +154,11 @@ function PostSlide({
           <Ionicons name="chatbubble-outline" size={24} color="rgba(255,255,255,0.85)" />
           <Text style={styles.railText}>{post.comments}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.railButton} onPress={handleShare}>
+        <TouchableOpacity style={styles.railButton} onPress={() => onSharePress(post)}>
           <Ionicons name="share-outline" size={24} color="rgba(255,255,255,0.85)" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.railButton} onPress={handleToggleSave}>
-          <Ionicons
-            name={saved ? 'bookmark' : 'bookmark-outline'}
-            size={24}
-            color={saved ? colors.gold : 'rgba(255,255,255,0.85)'}
-          />
+          <Text style={[styles.saveButtonText, saved && styles.saveButtonTextSaved]}>SAVE</Text>
         </TouchableOpacity>
         {/* Demo/mock posts have no real userId — nothing in the database to
             report or block, so the option doesn't render for them. */}
@@ -245,6 +214,7 @@ export default function FeedScreen({ navigation }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [commentPost, setCommentPost] = useState(null);
   const [actionsSheetPost, setActionsSheetPost] = useState(null);
+  const [shareSheetPost, setShareSheetPost] = useState(null);
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const containerHeight =
@@ -412,6 +382,18 @@ export default function FeedScreen({ navigation }) {
     }
   };
 
+  // Fired by PostShareSheet after "Share via Text" or "Copy Link" actually
+  // hands the post off to someone else (not for the personal-only "Save to
+  // Camera Roll" action).
+  const handlePostShared = (post) => {
+    incrementShareCount(post.id).catch((err) => console.error('Failed to record share:', err));
+    if (user?.id && post.userId) {
+      createNotification({ userId: post.userId, actorId: user.id, type: 'share', postId: post.id }).catch((err) =>
+        console.error('Failed to create share notification:', err)
+      );
+    }
+  };
+
   // Equivalent of an Intersection Observer for React Native: fires whenever
   // the set of on-screen list items changes so we can play only the post
   // that's actually visible and pause everything else.
@@ -490,7 +472,7 @@ export default function FeedScreen({ navigation }) {
                   onCoursePress={handleCoursePress}
                   onUserPress={handleUserPress}
                   onCommentPress={setCommentPost}
-                  onSaveToast={setToastMessage}
+                  onSharePress={setShareSheetPost}
                   onMorePress={setActionsSheetPost}
                 />
               )}
@@ -543,6 +525,14 @@ export default function FeedScreen({ navigation }) {
         onClose={() => setActionsSheetPost(null)}
         onReport={handleReportPost}
         onBlock={handleBlockUser}
+      />
+
+      <PostShareSheet
+        visible={Boolean(shareSheetPost)}
+        post={shareSheetPost}
+        onClose={() => setShareSheetPost(null)}
+        onToast={setToastMessage}
+        onShared={handlePostShared}
       />
 
       <Toast message={toastMessage} onHide={() => setToastMessage(null)} />
@@ -688,6 +678,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginTop: 3,
+  },
+  saveButtonText: {
+    fontFamily: 'DancingScript_700Bold',
+    fontSize: 22,
+    color: colors.white,
+    textShadowColor: 'rgba(0, 0, 0, 0.7)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  saveButtonTextSaved: {
+    color: colors.brightGreen,
   },
   leftInfo: {
     position: 'absolute',
