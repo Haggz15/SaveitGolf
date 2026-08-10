@@ -21,314 +21,313 @@ export function computeTotals(scorecard) {
 
 function diffColor(diff) {
   if (diff > 0) return colors.red;
-  if (diff < 0) return colors.green;
-  return colors.offWhite;
+  if (diff < 0) return colors.brightGreen;
+  return colors.white;
 }
 
-// Birdie/eagle: green ring(s), green text. Bogey/double bogey: red square(s),
-// red text. Par: plain white number, no indicator.
-function ScoreBadge({ score, par }) {
+function splitNameWords(fullName) {
+  return (fullName || '').trim().split(/\s+/).filter(Boolean);
+}
+
+// "OWEN HAGGERTY" -> O and H rendered larger (18px) than the rest of their
+// words (12px). A single-word name collapses first-word/last-word onto the
+// same letter.
+function StyledPlayerName({ fullName }) {
+  const words = splitNameWords(fullName);
+  return (
+    <Text style={styles.nameLine} numberOfLines={1}>
+      {words.map((word, wi) => {
+        const isEdgeWord = wi === 0 || wi === words.length - 1;
+        const firstChar = word.slice(0, 1);
+        const rest = word.slice(1);
+        return (
+          <Text key={wi}>
+            {firstChar ? <Text style={isEdgeWord ? styles.nameBig : styles.nameSmall}>{firstChar}</Text> : null}
+            {rest ? <Text style={styles.nameSmall}>{rest}</Text> : null}
+            {wi < words.length - 1 ? <Text style={styles.nameSmall}> </Text> : null}
+          </Text>
+        );
+      })}
+    </Text>
+  );
+}
+
+// Birdie/eagle: green circle border. Bogey/double bogey: red square border.
+// Par: plain white number, no shape.
+function ScoreCell({ score, par }) {
   const diff = score - par;
   const isUnder = diff <= -1;
   const isOver = diff >= 1;
-  const color = isUnder ? colors.green : isOver ? colors.red : colors.white;
+  const color = isUnder ? colors.brightGreen : isOver ? colors.red : colors.white;
 
-  let node = <Text style={[styles.scoreNumber, { color }]}>{score}</Text>;
-
-  if (isUnder) {
-    const rings = Math.min(-diff, 2);
-    for (let i = 0; i < rings; i++) {
-      node = <View style={styles.circleRing}>{node}</View>;
-    }
-  } else if (isOver) {
-    const rings = Math.min(diff, 2);
-    for (let i = 0; i < rings; i++) {
-      node = <View style={styles.squareRing}>{node}</View>;
-    }
-  }
-
-  return <View style={styles.scoreBadge}>{node}</View>;
+  return (
+    <View
+      style={[
+        styles.scoreCell,
+        isUnder && styles.scoreCellCircle,
+        isOver && styles.scoreCellSquare,
+        (isUnder || isOver) && { borderColor: color },
+      ]}
+    >
+      <Text style={[styles.scoreDigit, { color }]}>{score}</Text>
+    </View>
+  );
 }
 
-// One nine (front or back): small grey label at top, each hole row with the
-// hole number (small, grey, left) and the score (bold, right), then a total
-// row separated by a thin divider line.
-export function NineColumn({ holes, label }) {
+// One nine: each hole row is [hole number, right-aligned | score cell], then
+// a total row below reading "<score> FRONT"/"<score> BACK".
+function NineColumn({ holes, label }) {
   return (
-    <View style={styles.column}>
-      <Text style={styles.columnLabel}>{label}</Text>
+    <View style={styles.nineColumn}>
       {holes.map((h) => (
-        <View key={h.hole} style={styles.columnRow}>
+        <View key={h.hole} style={styles.holeRow}>
           <Text style={styles.holeNumber}>{h.hole}</Text>
-          <ScoreBadge score={h.score} par={h.par} />
+          <ScoreCell score={h.score} par={h.par} />
         </View>
       ))}
-      <View style={styles.columnTotalRow}>
-        <Text style={styles.columnTotalLabel}>{label}</Text>
-        <Text style={styles.columnTotalValue}>{sumScore(holes)}</Text>
+      <View style={styles.nineTotalRow}>
+        <Text style={styles.nineTotalScore}>{sumScore(holes)}</Text>
+        <Text style={styles.nineTotalLabel}>{label}</Text>
       </View>
     </View>
   );
 }
 
-export function GrandTotal({ totalScore, diffLabel, diff }) {
+// Full-height photo column: tapping it opens the picker (only when
+// `onRequestPhoto` is passed — past, read-only scorecards omit it). With no
+// photo it shows a dashed placeholder; with a photo it fills the column and
+// gets a centered watermark pill along the bottom edge.
+function PhotoColumn({ photoUri, onRequestPhoto }) {
+  const Wrapper = onRequestPhoto ? TouchableOpacity : View;
+
   return (
-    <View style={styles.totalBlock}>
-      <Text style={styles.totalBlockLabel}>TOTAL</Text>
-      <View style={styles.totalRow}>
-        <Text style={styles.totalScore}>{totalScore}</Text>
-        <Text style={[styles.totalDiff, { color: diffColor(diff) }]}>({diffLabel})</Text>
-      </View>
-    </View>
+    <Wrapper
+      style={styles.photoColumn}
+      onPress={onRequestPhoto}
+      activeOpacity={onRequestPhoto ? 0.85 : 1}
+    >
+      {photoUri ? (
+        <>
+          <Image source={{ uri: photoUri }} style={styles.photoImage} resizeMode="cover" />
+          <View style={styles.photoWatermarkPill}>
+            <Text style={styles.photoWatermarkText}>SaveitGolf</Text>
+          </View>
+        </>
+      ) : (
+        <View style={styles.photoEmpty}>
+          <Ionicons name="camera-outline" size={22} color={colors.muted} />
+          <Text style={styles.photoEmptyText}>Add Photo</Text>
+        </View>
+      )}
+    </Wrapper>
   );
 }
 
-// Full scorecard: photo (when set) fills the card as a full background with
-// a dark overlay so the content on top stays readable; with no photo it's
-// just the plain navy card background. Header (name / course / camera icon /
-// optional Share button), scores row (front+back nines), grand total,
-// watermark. `onShare` and `onRequestPhoto` are only passed by the live "new
-// scorecard" view — past scorecards fetched from Supabase render read-only
-// with neither (though they may still carry their own saved `photoUri`).
-export default function ScorecardCard({ scorecard, fullName, photoUri, onRequestPhoto, onShare, sharing }) {
+// Scores (left 48%) + photo (right 52%), side by side. `onRequestPhoto` is
+// only passed by the live "new scorecard" view — past scorecards fetched
+// from Supabase render read-only with no tap target on the photo.
+export default function ScorecardCard({ scorecard, fullName, photoUri, onRequestPhoto }) {
   const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(scorecard);
+  const totalColor = diffColor(diff);
 
   return (
     <View style={styles.cardBody}>
-      {photoUri && (
-        <>
-          <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-          <View style={[StyleSheet.absoluteFill, styles.overlay]} />
-        </>
-      )}
+      <View style={styles.scoresColumn}>
+        <StyledPlayerName fullName={fullName} />
+        <Text style={styles.courseNameText} numberOfLines={2}>
+          {scorecard.courseName}
+        </Text>
+        <View style={styles.divider} />
 
-      <View style={styles.headerRow}>
-        <View style={styles.headerText}>
-          <Text style={styles.userName}>{fullName}</Text>
-          <Text style={styles.courseNameText} numberOfLines={2}>
-            {scorecard.courseName}
-          </Text>
+        <View style={styles.ninesRow}>
+          <NineColumn holes={scorecard.front} label="FRONT" />
+          {!isNineHoleRound && <NineColumn holes={scorecard.back} label="BACK" />}
         </View>
 
-        <View style={styles.headerActions}>
-          {onRequestPhoto && (
-            <TouchableOpacity
-              style={styles.photoButton}
-              onPress={onRequestPhoto}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="camera" size={14} color={colors.white} />
-            </TouchableOpacity>
-          )}
-
-          {onShare && (
-            <TouchableOpacity
-              style={styles.shareButton}
-              onPress={onShare}
-              disabled={sharing}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="share-outline" size={13} color={colors.white} />
-              <Text style={styles.shareButtonText}>{sharing ? 'Saving…' : 'Share'}</Text>
-            </TouchableOpacity>
-          )}
+        <View style={styles.totalBlock}>
+          <View style={styles.totalRow}>
+            <Text style={[styles.totalScore, { color: totalColor }]}>{totalScore}</Text>
+            <Text style={[styles.totalDiff, { color: totalColor }]}>({diffLabel})</Text>
+          </View>
+          <Text style={styles.blockWatermark}>SaveitGolf</Text>
         </View>
       </View>
 
-      <View style={styles.ninesRow}>
-        <NineColumn holes={scorecard.front} label="FRONT" />
-        {!isNineHoleRound && <NineColumn holes={scorecard.back} label="BACK" />}
-      </View>
-
-      <GrandTotal totalScore={totalScore} diffLabel={diffLabel} diff={diff} />
-
-      <View style={styles.watermarkWrap}>
-        <Text style={styles.watermarkText}>SaveitGolf</Text>
-      </View>
+      <PhotoColumn photoUri={photoUri} onRequestPhoto={onRequestPhoto} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   cardBody: {
-    paddingTop: 18,
-    paddingHorizontal: 14,
-    paddingBottom: 34,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  overlay: {
-    backgroundColor: 'rgba(13, 31, 60, 0.82)',
-  },
-  headerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 10,
+    alignItems: 'stretch',
+    gap: 12,
+    padding: 14,
+    backgroundColor: colors.navy,
   },
-  headerText: {
-    flex: 1,
+  scoresColumn: {
+    flexGrow: 48,
+    flexBasis: 0,
   },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  photoButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(13, 31, 60, 0.75)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  userName: {
-    color: colors.white,
-    fontSize: 21,
-    fontWeight: '800',
+  // Name
+  nameLine: {
     textTransform: 'uppercase',
-    letterSpacing: 0.3,
+  },
+  nameBig: {
+    fontFamily: 'Oswald_700Bold',
+    fontSize: 18,
+    color: colors.white,
+    letterSpacing: 18 * 0.05,
+    textTransform: 'uppercase',
+  },
+  nameSmall: {
+    fontFamily: 'Oswald_700Bold',
+    fontSize: 12,
+    color: colors.white,
+    letterSpacing: 12 * 0.05,
+    textTransform: 'uppercase',
   },
   courseNameText: {
     fontFamily: 'Cinzel_700Bold',
+    fontSize: 7,
     color: colors.lightBlue,
-    fontSize: 12,
-    marginTop: 6,
+    marginTop: 5,
   },
-  shareButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: colors.red,
-    borderRadius: 20,
-    paddingVertical: 7,
-    paddingHorizontal: 14,
+  divider: {
+    height: 1,
+    backgroundColor: colors.navyBorder,
+    marginTop: 8,
+    marginBottom: 8,
   },
-  shareButtonText: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: '700',
-  },
+  // Nines
   ninesRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 18,
+    gap: 12,
   },
-  column: {
+  nineColumn: {
     flex: 1,
   },
-  columnLabel: {
-    color: '#6a8ab0',
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 6,
-  },
-  columnRow: {
+  holeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 3,
+    gap: 3,
+    paddingVertical: 1,
   },
   holeNumber: {
+    width: 14,
+    textAlign: 'right',
+    color: colors.muted,
+    fontSize: 8,
+  },
+  scoreCell: {
+    width: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scoreDigit: {
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  scoreCellCircle: {
+    borderWidth: 1,
+    borderRadius: 8,
+  },
+  scoreCellSquare: {
+    borderWidth: 1,
+    borderRadius: 2,
+  },
+  nineTotalRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+    marginTop: 6,
+  },
+  nineTotalScore: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  nineTotalLabel: {
+    color: '#6a8ab0',
+    fontSize: 7,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  // Total block
+  totalBlock: {
+    position: 'relative',
+    marginTop: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.navyBorder,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  totalScore: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  totalDiff: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  blockWatermark: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    fontFamily: 'DancingScript_700Bold',
+    fontSize: 11,
+    color: colors.white,
+    opacity: 0.4,
+  },
+  // Photo column
+  photoColumn: {
+    flexGrow: 52,
+    flexBasis: 0,
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  photoImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  photoEmpty: {
+    flex: 1,
+    minHeight: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#1a2e4a',
+    borderRadius: 8,
+    backgroundColor: '#1a2e4a',
+  },
+  photoEmptyText: {
     color: colors.muted,
     fontSize: 11,
     fontWeight: '600',
   },
-  columnTotalRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: colors.navyBorder,
-  },
-  columnTotalLabel: {
-    color: '#6a8ab0',
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  columnTotalValue: {
-    color: colors.white,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  scoreBadge: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scoreNumber: {
-    fontSize: 16,
-    fontWeight: '700',
-    width: 24,
-    height: 24,
-    lineHeight: 24,
-    textAlign: 'center',
-  },
-  circleRing: {
-    borderWidth: 1.6,
-    borderColor: colors.green,
-    borderRadius: 999,
-    padding: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  squareRing: {
-    borderWidth: 1.6,
-    borderColor: colors.red,
-    borderRadius: 4,
-    padding: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  totalBlock: {
-    alignItems: 'center',
-    width: '100%',
-    marginTop: 18,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.navyBorder,
-  },
-  totalBlockLabel: {
-    color: colors.muted,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1,
-    marginBottom: 4,
-  },
-  totalRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 5,
-  },
-  totalScore: {
-    color: colors.white,
-    fontSize: 32,
-    fontWeight: '700',
-    lineHeight: 34,
-  },
-  totalDiff: {
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: 5,
-  },
-  watermarkWrap: {
+  photoWatermarkPill: {
     position: 'absolute',
-    bottom: 10,
-    right: 14,
+    bottom: 8,
+    alignSelf: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(6, 14, 26, 0.6)',
   },
-  watermarkText: {
+  photoWatermarkText: {
     fontFamily: 'DancingScript_700Bold',
-    fontSize: 14,
+    fontSize: 12,
     color: colors.white,
-    opacity: 0.9,
-    textShadowColor: 'rgba(0,0,0,0.6)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
   },
 });

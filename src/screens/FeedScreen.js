@@ -87,9 +87,20 @@ function PostSlide({
   }
 
   async function handleToggleSave() {
-    if (!currentUserId) return;
+    if (!currentUserId) {
+      onToast?.('You must be logged in to save posts', 'error');
+      return;
+    }
+    // Demo/mock posts (see the report/block guard above) have no real row in
+    // `posts` — their ids aren't UUIDs, so an insert into saved_posts would
+    // fail the post_id foreign key. Saving only makes sense for real posts.
+    if (!post.userId) {
+      onToast?.('Demo posts can’t be saved', 'error');
+      return;
+    }
     const next = !saved;
     setSaved(next);
+    console.log('Toggling save:', post.id, 'for user:', currentUserId, 'next:', next);
     try {
       if (next) {
         await savePost(currentUserId, post.id);
@@ -113,9 +124,9 @@ function PostSlide({
         await unsavePost(currentUserId, post.id);
       }
     } catch (err) {
-      console.error('Failed to save post:', err);
+      console.error('Failed to save post:', post.id, err);
       setSaved(!next);
-      onToast?.('Could not save this post. Please try again.', 'error');
+      onToast?.(`Could not save this post: ${err.message || 'please try again'}`, 'error');
     }
   }
 

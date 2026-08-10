@@ -1,35 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
 import Header from '../components/Header';
 import NewScorecardModal from '../components/scorecard/NewScorecardModal';
 import PastScorecardsList from '../components/scorecard/PastScorecardsList';
 import ScorecardDetailModal from '../components/scorecard/ScorecardDetailModal';
-import ScorecardCard, { computeTotals } from '../components/scorecard/ScorecardCard';
-import {
-  NameSection,
-  ExportNineColumn,
-  ExportGrandTotal,
-  BallWatermark,
-} from '../components/scorecard/ScorecardExportCard';
+import ScorecardCard from '../components/scorecard/ScorecardCard';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { scorecard as mockScorecard } from '../data/mockData';
 import { getLatestScorecard, saveScorecard } from '../services/scorecards';
 import { notifyFollowersOfScorecard } from '../services/notifications';
 import { useAuth } from '../context/AuthContext';
-
-// Exported bitmap size for the share card (a 9:16 "story" format). The
-// hidden ViewShot template below is laid out at 1/3.2 of this (337.5x600)
-// and captured up to the full size, so every font/spacing number in
-// ScorecardExportCard.js can be read as the actual on-screen-at-natural-scale
-// value rather than something pre-scaled for the final bitmap.
-const EXPORT_WIDTH = 1080;
-const EXPORT_HEIGHT = 1920;
-const EXPORT_SCALE = 3.2;
-const EXPORT_NATURAL_WIDTH = EXPORT_WIDTH / EXPORT_SCALE;
-const EXPORT_NATURAL_HEIGHT = EXPORT_HEIGHT / EXPORT_SCALE;
 
 export default function ScorecardScreen() {
   const { user, profile } = useAuth();
@@ -54,7 +37,6 @@ export default function ScorecardScreen() {
     })();
   }, [user?.id]);
 
-  const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(activeScorecard);
   const fullName = (profile?.full_name || 'Unnamed Golfer').toUpperCase();
   // A freshly-picked photo previews immediately; once no new pick is pending,
   // fall back to whatever photo is already saved on the active scorecard.
@@ -182,14 +164,24 @@ export default function ScorecardScreen() {
         </TouchableOpacity>
 
         <View style={styles.cardWrapper}>
-          <ScorecardCard
-            scorecard={activeScorecard}
-            fullName={fullName}
-            photoUri={displayedPhotoUri}
-            onRequestPhoto={handlePickPhoto}
-            onShare={handleShare}
-            sharing={isSharing}
-          />
+          <ViewShot ref={shareCardRef} options={{ format: 'png', quality: 1 }}>
+            <ScorecardCard
+              scorecard={activeScorecard}
+              fullName={fullName}
+              photoUri={displayedPhotoUri}
+              onRequestPhoto={handlePickPhoto}
+            />
+          </ViewShot>
+
+          <TouchableOpacity
+            style={styles.shareButton}
+            onPress={handleShare}
+            disabled={isSharing}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="share-outline" size={13} color={colors.white} />
+            <Text style={styles.shareButtonText}>{isSharing ? 'Saving…' : 'Share'}</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.pastSection}>
@@ -199,46 +191,6 @@ export default function ScorecardScreen() {
           )}
         </View>
       </ScrollView>
-
-      {/* Hidden off-screen template captured for sharing, laid out at
-          1/3.2 natural scale (see EXPORT_SCALE above) and then upscaled by
-          ViewShot's capture options to the required 1080x1920, so every
-          font/spacing value in ScorecardExportCard.js reads as its literal
-          natural-scale number. The photo (when present) fills the card as a
-          full background with a dark overlay so the scores stay readable;
-          with no photo it's just the plain navy card background. */}
-      <View style={styles.exportOffscreenWrap} pointerEvents="none">
-        <ViewShot
-          ref={shareCardRef}
-          style={styles.exportCard}
-          options={{ format: 'png', quality: 1, width: EXPORT_WIDTH, height: EXPORT_HEIGHT }}
-        >
-          {displayedPhotoUri && (
-            <>
-              <Image source={{ uri: displayedPhotoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-              <View style={[StyleSheet.absoluteFill, styles.exportOverlay]} />
-            </>
-          )}
-
-          <NameSection fullName={fullName} courseName={activeScorecard.courseName} />
-
-          <View style={styles.exportScoresRow}>
-            <ExportNineColumn holes={activeScorecard.front} label="FRONT" style={styles.exportNineColumn} />
-            {!isNineHoleRound && (
-              <ExportNineColumn holes={activeScorecard.back} label="BACK" style={styles.exportNineColumn} />
-            )}
-          </View>
-
-          <ExportGrandTotal
-            totalScore={totalScore}
-            diffLabel={diffLabel}
-            diff={diff}
-            style={styles.exportTotalBlock}
-          >
-            <BallWatermark style={styles.exportWatermark} />
-          </ExportGrandTotal>
-        </ViewShot>
-      </View>
 
       <NewScorecardModal
         visible={modalVisible}
@@ -298,6 +250,26 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.navyBorder,
+    position: 'relative',
+  },
+  // Overlaid on top of the card (a sibling of the ViewShot-wrapped content,
+  // not a child of it) so it never shows up in the captured/saved image.
+  shareButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: colors.red,
+    borderRadius: 20,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+  },
+  shareButtonText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '700',
   },
   pastSection: {
     marginTop: 28,
@@ -307,43 +279,5 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 16,
     marginBottom: 12,
-  },
-  // Export-only styles below — laid out at 1/EXPORT_SCALE natural size (see
-  // the constant above) and upscaled to 1080x1920 by ViewShot's capture
-  // options, so every number here is the literal natural-scale value rather
-  // than something pre-scaled for the final bitmap.
-  exportOffscreenWrap: {
-    position: 'absolute',
-    top: 0,
-    left: -3000,
-  },
-  exportCard: {
-    width: EXPORT_NATURAL_WIDTH,
-    height: EXPORT_NATURAL_HEIGHT,
-    backgroundColor: colors.navy,
-    paddingTop: 26,
-    paddingHorizontal: 20,
-    paddingBottom: 24,
-    justifyContent: 'space-between',
-    overflow: 'hidden',
-  },
-  exportOverlay: {
-    backgroundColor: 'rgba(13, 31, 60, 0.82)',
-  },
-  exportScoresRow: {
-    flexDirection: 'row',
-    gap: 16,
-    justifyContent: 'center',
-  },
-  exportNineColumn: {
-    width: 70,
-  },
-  exportTotalBlock: {
-    paddingBottom: 26,
-  },
-  exportWatermark: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
   },
 });
