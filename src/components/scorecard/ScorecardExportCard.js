@@ -3,10 +3,11 @@ import GolfBallMark, { useGolfBallFont } from '../common/GolfBallMark';
 import { sumScore } from './ScorecardCard';
 import colors from '../../theme/colors';
 
-// Everything in this file is exclusively for the two hidden ViewShot export
-// templates in ScorecardScreen.js (no-photo / with-photo share cards) — the
-// live on-screen scorecard (ScorecardCard.js) and the read-only past-round
-// view (ScorecardDetailModal.js) intentionally keep their own older, denser
+// Everything in this file is exclusively for the hidden ViewShot export
+// template in ScorecardScreen.js (used for both the plain-navy and
+// photo-background share cards) — the live on-screen scorecard
+// (ScorecardCard.js) and the read-only past-round view
+// (ScorecardDetailModal.js) intentionally keep their own older, denser
 // styling and are untouched by this file.
 
 function splitNameWords(fullName) {
@@ -125,27 +126,15 @@ export function ExportGrandTotal({ totalScore, diffLabel, diff, style, children 
   );
 }
 
-// No-photo watermark: the dimmed ball mark plus "SaveitGolf" script text,
-// meant to sit inside the grand-total block's bottom-right corner.
+// Dimmed (0.45 opacity) ball mark plus "SaveitGolf" script text, meant to
+// sit inside the grand-total block's bottom-right corner — used whether or
+// not the card has a photo background.
 export function BallWatermark({ style }) {
   const fontFamily = useGolfBallFont();
   return (
     <View style={[styles.ballWatermarkRow, style]}>
-      <View style={styles.ballWatermarkBallWrap}>
-        <GolfBallMark fontFamily={fontFamily} displayWidth={22} />
-      </View>
+      <GolfBallMark fontFamily={fontFamily} displayWidth={22} />
       <Text style={styles.ballWatermarkText}>SaveitGolf</Text>
-    </View>
-  );
-}
-
-// With-photo watermark: just the "Save it" / "Golf" wordmark side by side in
-// a dark pill, meant to sit centered over the photo near its bottom edge.
-export function PillWatermark({ style }) {
-  return (
-    <View style={[styles.pillWatermark, style]}>
-      <Text style={styles.pillSaveIt}>Save it</Text>
-      <Text style={styles.pillGolf}>Golf</Text>
     </View>
   );
 }
@@ -276,32 +265,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-  },
-  ballWatermarkBallWrap: {
     opacity: 0.45,
   },
   ballWatermarkText: {
     fontFamily: 'DancingScript_700Bold',
     fontSize: 7,
     color: colors.white,
-  },
-  pillWatermark: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  pillSaveIt: {
-    fontFamily: 'DancingScript_700Bold',
-    color: colors.white,
-    fontSize: 12,
-  },
-  pillGolf: {
-    fontFamily: 'DancingScript_700Bold',
-    color: colors.red,
-    fontSize: 12,
   },
 });

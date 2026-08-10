@@ -190,6 +190,10 @@ create table if not exists public.scorecards (
 create index if not exists scorecards_user_id_idx on public.scorecards (user_id);
 create index if not exists scorecards_course_id_idx on public.scorecards (course_id);
 
+-- Optional photo attached on the Scorecard screen, used as the full
+-- background of the scorecard card and its camera-roll share image.
+alter table public.scorecards add column if not exists photo_url text;
+
 alter table public.scorecards enable row level security;
 
 drop policy if exists "Scorecards are viewable by everyone" on public.scorecards;

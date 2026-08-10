@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 
@@ -83,16 +83,25 @@ export function GrandTotal({ totalScore, diffLabel, diff }) {
   );
 }
 
-// Full scorecard: header (name / course / optional Share button), scores row
-// (front+back nines on the left, photo slot ~90px on the right, matching
-// height), grand total centered under the nines, watermark. `onShare` and
-// `photoSlot` are only passed by the live "new scorecard" view — past
-// scorecards fetched from Supabase render read-only with neither.
-export default function ScorecardCard({ scorecard, fullName, photoSlot, onShare, sharing }) {
+// Full scorecard: photo (when set) fills the card as a full background with
+// a dark overlay so the content on top stays readable; with no photo it's
+// just the plain navy card background. Header (name / course / camera icon /
+// optional Share button), scores row (front+back nines), grand total,
+// watermark. `onShare` and `onRequestPhoto` are only passed by the live "new
+// scorecard" view — past scorecards fetched from Supabase render read-only
+// with neither (though they may still carry their own saved `photoUri`).
+export default function ScorecardCard({ scorecard, fullName, photoUri, onRequestPhoto, onShare, sharing }) {
   const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(scorecard);
 
   return (
     <View style={styles.cardBody}>
+      {photoUri && (
+        <>
+          <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          <View style={[StyleSheet.absoluteFill, styles.overlay]} />
+        </>
+      )}
+
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
           <Text style={styles.userName}>{fullName}</Text>
@@ -101,31 +110,38 @@ export default function ScorecardCard({ scorecard, fullName, photoSlot, onShare,
           </Text>
         </View>
 
-        {onShare && (
-          <TouchableOpacity
-            style={styles.shareButton}
-            onPress={onShare}
-            disabled={sharing}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="share-outline" size={13} color={colors.white} />
-            <Text style={styles.shareButtonText}>{sharing ? 'Saving…' : 'Share'}</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+        <View style={styles.headerActions}>
+          {onRequestPhoto && (
+            <TouchableOpacity
+              style={styles.photoButton}
+              onPress={onRequestPhoto}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="camera" size={14} color={colors.white} />
+            </TouchableOpacity>
+          )}
 
-      <View style={styles.mainRow}>
-        <View style={styles.leftSection}>
-          <View style={styles.ninesRow}>
-            <NineColumn holes={scorecard.front} label="FRONT" />
-            {!isNineHoleRound && <NineColumn holes={scorecard.back} label="BACK" />}
-          </View>
-
-          <GrandTotal totalScore={totalScore} diffLabel={diffLabel} diff={diff} />
+          {onShare && (
+            <TouchableOpacity
+              style={styles.shareButton}
+              onPress={onShare}
+              disabled={sharing}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="share-outline" size={13} color={colors.white} />
+              <Text style={styles.shareButtonText}>{sharing ? 'Saving…' : 'Share'}</Text>
+            </TouchableOpacity>
+          )}
         </View>
-
-        {photoSlot && <View style={styles.photoColumn}>{photoSlot}</View>}
       </View>
+
+      <View style={styles.ninesRow}>
+        <NineColumn holes={scorecard.front} label="FRONT" />
+        {!isNineHoleRound && <NineColumn holes={scorecard.back} label="BACK" />}
+      </View>
+
+      <GrandTotal totalScore={totalScore} diffLabel={diffLabel} diff={diff} />
 
       <View style={styles.watermarkWrap}>
         <Text style={styles.watermarkText}>SaveitGolf</Text>
@@ -140,6 +156,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingBottom: 34,
     position: 'relative',
+    overflow: 'hidden',
+  },
+  overlay: {
+    backgroundColor: 'rgba(13, 31, 60, 0.82)',
   },
   headerRow: {
     flexDirection: 'row',
@@ -149,6 +169,19 @@ const styles = StyleSheet.create({
   },
   headerText: {
     flex: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  photoButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(13, 31, 60, 0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   userName: {
     color: colors.white,
@@ -177,20 +210,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  mainRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 18,
-  },
-  leftSection: {
-    flex: 1,
-  },
   ninesRow: {
     flexDirection: 'row',
     gap: 10,
-  },
-  photoColumn: {
-    width: 90,
+    marginTop: 18,
   },
   column: {
     flex: 1,

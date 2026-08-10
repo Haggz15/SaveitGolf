@@ -23,7 +23,7 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
         {scorecard && (
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             <View style={styles.cardWrapper}>
-              <ScorecardCard scorecard={scorecard} fullName={fullName} />
+              <ScorecardCard scorecard={scorecard} fullName={fullName} photoUri={scorecard.photoUrl} />
             </View>
           </ScrollView>
         )}

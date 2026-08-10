@@ -64,6 +64,7 @@ function PostSlide({
   const [liked, setLiked] = useState(initiallyLiked);
   const [likeCount, setLikeCount] = useState(post.likes);
   const [saved, setSaved] = useState(initiallySaved);
+  const [savingMedia, setSavingMedia] = useState(false);
   const isVideo = post.isVideo ?? Boolean(post.video);
 
   async function toggleLike() {
@@ -93,11 +94,19 @@ function PostSlide({
       if (next) {
         await savePost(currentUserId, post.id);
         if (post.mediaUrl) {
+          setSavingMedia(true);
           try {
             await saveMediaToDevice(post.mediaUrl);
-            onToast?.('Saved to Camera Roll');
+            onToast?.('Saved to Camera Roll', 'success');
           } catch (mediaErr) {
             console.error('Failed to save media to camera roll:', mediaErr);
+            const message =
+              mediaErr.message === 'PERMISSION_DENIED'
+                ? 'Please allow photo access in Settings to save posts'
+                : mediaErr.message || 'Could not save to Camera Roll';
+            onToast?.(message, 'error');
+          } finally {
+            setSavingMedia(false);
           }
         }
       } else {
@@ -106,6 +115,7 @@ function PostSlide({
     } catch (err) {
       console.error('Failed to save post:', err);
       setSaved(!next);
+      onToast?.('Could not save this post. Please try again.', 'error');
     }
   }
 
@@ -174,12 +184,17 @@ function PostSlide({
         <TouchableOpacity
           style={styles.railButton}
           onPress={handleToggleSave}
+          disabled={savingMedia}
           hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
         >
-          <Text style={[styles.saveButtonText, saved && styles.saveButtonTextSaved]}>
-            <Text style={styles.saveButtonS}>S</Text>
-            <Text style={styles.saveButtonAve}>ave</Text>
-          </Text>
+          {savingMedia ? (
+            <ActivityIndicator size="small" color={colors.white} />
+          ) : (
+            <Text style={[styles.saveButtonText, saved && styles.saveButtonTextSaved]}>
+              <Text style={styles.saveButtonS}>S</Text>
+              <Text style={styles.saveButtonAve}>ave</Text>
+            </Text>
+          )}
         </TouchableOpacity>
         {/* Demo/mock posts have no real userId — nothing in the database to
             report or block, so the option doesn't render for them. */}
@@ -232,6 +247,7 @@ export default function FeedScreen({ navigation }) {
   const [savedPostIds, setSavedPostIds] = useState(new Set());
   const [shotOfWeekPostId, setShotOfWeekPostId] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+  const [toastType, setToastType] = useState(null);
   const [loadingFeed, setLoadingFeed] = useState(true);
   const [activePostId, setActivePostId] = useState(null);
   const [addFriendsVisible, setAddFriendsVisible] = useState(false);
@@ -409,6 +425,11 @@ export default function FeedScreen({ navigation }) {
   // Equivalent of an Intersection Observer for React Native: fires whenever
   // the set of on-screen list items changes so we can play only the post
   // that's actually visible and pause everything else.
+  const showToast = useCallback((message, type = null) => {
+    setToastMessage(message);
+    setToastType(type);
+  }, []);
+
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
   const onViewableItemsChanged = useRef(({ viewableItems }) => {
     if (viewableItems.length > 0) {
@@ -485,7 +506,7 @@ export default function FeedScreen({ navigation }) {
                   onUserPress={handleUserPress}
                   onCommentPress={setCommentPost}
                   onMorePress={setActionsSheetPost}
-                  onToast={setToastMessage}
+                  onToast={showToast}
                 />
               )}
               pagingEnabled
@@ -539,7 +560,14 @@ export default function FeedScreen({ navigation }) {
         onBlock={handleBlockUser}
       />
 
-      <Toast message={toastMessage} onHide={() => setToastMessage(null)} />
+      <Toast
+        message={toastMessage}
+        type={toastType}
+        onHide={() => {
+          setToastMessage(null);
+          setToastType(null);
+        }}
+      />
     </View>
   );
 }

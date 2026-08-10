@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
-import { LinearGradient } from 'expo-linear-gradient';
 import Header from '../components/Header';
 import NewScorecardModal from '../components/scorecard/NewScorecardModal';
 import PastScorecardsList from '../components/scorecard/PastScorecardsList';
@@ -13,10 +12,7 @@ import {
   ExportNineColumn,
   ExportGrandTotal,
   BallWatermark,
-  PillWatermark,
 } from '../components/scorecard/ScorecardExportCard';
-import PhotoCropBox from '../components/scorecard/PhotoCropBox';
-import CroppedPhoto from '../components/scorecard/CroppedPhoto';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { scorecard as mockScorecard } from '../data/mockData';
@@ -24,8 +20,8 @@ import { getLatestScorecard, saveScorecard } from '../services/scorecards';
 import { notifyFollowersOfScorecard } from '../services/notifications';
 import { useAuth } from '../context/AuthContext';
 
-// Exported bitmap size for both share cards (a 9:16 "story" format). Both
-// hidden ViewShot templates below are laid out at 1/3.2 of this (337.5x600)
+// Exported bitmap size for the share card (a 9:16 "story" format). The
+// hidden ViewShot template below is laid out at 1/3.2 of this (337.5x600)
 // and captured up to the full size, so every font/spacing number in
 // ScorecardExportCard.js can be read as the actual on-screen-at-natural-scale
 // value rather than something pre-scaled for the final bitmap.
@@ -34,15 +30,12 @@ const EXPORT_HEIGHT = 1920;
 const EXPORT_SCALE = 3.2;
 const EXPORT_NATURAL_WIDTH = EXPORT_WIDTH / EXPORT_SCALE;
 const EXPORT_NATURAL_HEIGHT = EXPORT_HEIGHT / EXPORT_SCALE;
-const DEFAULT_CROP = { zoom: 1, panX: 0.5, panY: 0.5 };
 
 export default function ScorecardScreen() {
   const { user, profile } = useAuth();
-  const cleanViewShotRef = useRef(null);
-  const photoViewShotRef = useRef(null);
+  const shareCardRef = useRef(null);
   const [isSharing, setIsSharing] = useState(false);
-  const [photo, setPhoto] = useState(null); // { uri, width, height }
-  const [crop, setCrop] = useState(DEFAULT_CROP);
+  const [photoUri, setPhotoUri] = useState(null);
   const [activeScorecard, setActiveScorecard] = useState(mockScorecard);
   const [modalVisible, setModalVisible] = useState(false);
   const [pastListKey, setPastListKey] = useState(0);
@@ -63,14 +56,16 @@ export default function ScorecardScreen() {
 
   const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(activeScorecard);
   const fullName = (profile?.full_name || 'Unnamed Golfer').toUpperCase();
+  // A freshly-picked photo previews immediately; once no new pick is pending,
+  // fall back to whatever photo is already saved on the active scorecard.
+  const displayedPhotoUri = photoUri ?? activeScorecard.photoUrl ?? null;
 
   async function handleScorecardSaved(newScorecard) {
     if (!user?.id) return;
     try {
-      const saved = await saveScorecard(user.id, newScorecard);
+      const saved = await saveScorecard(user.id, { ...newScorecard, photoUri });
       setActiveScorecard(saved);
-      setPhoto(null);
-      setCrop(DEFAULT_CROP);
+      setPhotoUri(null);
       setModalVisible(false);
       // Refresh the Past Scorecards list so the round just logged shows up.
       setPastListKey((k) => k + 1);
@@ -90,13 +85,7 @@ export default function ScorecardScreen() {
     input.onchange = (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
-      const uri = URL.createObjectURL(file);
-      const img = new window.Image();
-      img.onload = () => {
-        setPhoto({ uri, width: img.naturalWidth, height: img.naturalHeight });
-        setCrop(DEFAULT_CROP);
-      };
-      img.src = uri;
+      setPhotoUri(URL.createObjectURL(file));
     };
     input.click();
   }
@@ -113,17 +102,15 @@ export default function ScorecardScreen() {
         return;
       }
 
-      // No allowsEditing here — cropping/panning happens in-place afterward
-      // via PhotoCropBox so the same crop can be reproduced in the export.
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        quality: 0.9,
+        allowsEditing: true,
+        aspect: [9, 16],
+        quality: 1,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const asset = result.assets[0];
-        setPhoto({ uri: asset.uri, width: asset.width, height: asset.height });
-        setCrop(DEFAULT_CROP);
+        setPhotoUri(result.assets[0].uri);
       }
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not open your photo library. Please try again.');
@@ -140,10 +127,9 @@ export default function ScorecardScreen() {
 
   async function handleShare() {
     if (Platform.OS === 'web') {
-      const ref = photo ? photoViewShotRef.current : cleanViewShotRef.current;
       try {
         setIsSharing(true);
-        const dataUrl = await ref.capture();
+        const dataUrl = await shareCardRef.current.capture();
         const link = document.createElement('a');
         link.href = dataUrl;
         link.download = `${activeScorecard.courseName || 'scorecard'}.png`;
@@ -171,20 +157,16 @@ export default function ScorecardScreen() {
         return;
       }
 
-      const uri = photo ? await photoViewShotRef.current.capture() : await cleanViewShotRef.current.capture();
+      const uri = await shareCardRef.current.capture();
 
       await MediaLibrary.saveToLibraryAsync(uri);
-      setToastMessage('Scorecard saved to Camera Roll');
+      setToastMessage({ text: 'Scorecard saved to Camera Roll', type: 'success' });
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not export your scorecard. Please try again.');
     } finally {
       setIsSharing(false);
     }
   }
-
-  const photoSlot = (
-    <PhotoCropBox photo={photo} crop={crop} onCropChange={setCrop} onRequestPhoto={handlePickPhoto} />
-  );
 
   return (
     <View style={styles.screen}>
@@ -203,7 +185,8 @@ export default function ScorecardScreen() {
           <ScorecardCard
             scorecard={activeScorecard}
             fullName={fullName}
-            photoSlot={photoSlot}
+            photoUri={displayedPhotoUri}
+            onRequestPhoto={handlePickPhoto}
             onShare={handleShare}
             sharing={isSharing}
           />
@@ -217,23 +200,32 @@ export default function ScorecardScreen() {
         </View>
       </ScrollView>
 
-      {/* Hidden off-screen templates captured for sharing. Both are laid out
-          at 1/3.2 natural scale (see EXPORT_SCALE above) and then upscaled by
+      {/* Hidden off-screen template captured for sharing, laid out at
+          1/3.2 natural scale (see EXPORT_SCALE above) and then upscaled by
           ViewShot's capture options to the required 1080x1920, so every
           font/spacing value in ScorecardExportCard.js reads as its literal
-          natural-scale number. */}
+          natural-scale number. The photo (when present) fills the card as a
+          full background with a dark overlay so the scores stay readable;
+          with no photo it's just the plain navy card background. */}
       <View style={styles.exportOffscreenWrap} pointerEvents="none">
         <ViewShot
-          ref={cleanViewShotRef}
-          style={styles.cleanExportCard}
+          ref={shareCardRef}
+          style={styles.exportCard}
           options={{ format: 'png', quality: 1, width: EXPORT_WIDTH, height: EXPORT_HEIGHT }}
         >
+          {displayedPhotoUri && (
+            <>
+              <Image source={{ uri: displayedPhotoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+              <View style={[StyleSheet.absoluteFill, styles.exportOverlay]} />
+            </>
+          )}
+
           <NameSection fullName={fullName} courseName={activeScorecard.courseName} />
 
-          <View style={styles.cleanScoresRow}>
-            <ExportNineColumn holes={activeScorecard.front} label="FRONT" style={styles.cleanNineColumn} />
+          <View style={styles.exportScoresRow}>
+            <ExportNineColumn holes={activeScorecard.front} label="FRONT" style={styles.exportNineColumn} />
             {!isNineHoleRound && (
-              <ExportNineColumn holes={activeScorecard.back} label="BACK" style={styles.cleanNineColumn} />
+              <ExportNineColumn holes={activeScorecard.back} label="BACK" style={styles.exportNineColumn} />
             )}
           </View>
 
@@ -241,58 +233,11 @@ export default function ScorecardScreen() {
             totalScore={totalScore}
             diffLabel={diffLabel}
             diff={diff}
-            style={styles.cleanTotalBlock}
+            style={styles.exportTotalBlock}
           >
-            <BallWatermark style={styles.cleanWatermark} />
+            <BallWatermark style={styles.exportWatermark} />
           </ExportGrandTotal>
         </ViewShot>
-
-        {photo && (
-          <ViewShot
-            ref={photoViewShotRef}
-            style={styles.photoExportCard}
-            options={{ format: 'png', quality: 1, width: EXPORT_WIDTH, height: EXPORT_HEIGHT }}
-          >
-            <View style={styles.photoRow}>
-              <View style={styles.photoScoreCol}>
-                <View style={styles.photoScoresRow}>
-                  <ExportNineColumn holes={activeScorecard.front} label="FRONT" style={styles.photoNineColumn} />
-                  {!isNineHoleRound && (
-                    <ExportNineColumn holes={activeScorecard.back} label="BACK" style={styles.photoNineColumn} />
-                  )}
-                </View>
-
-                <ExportGrandTotal
-                  totalScore={totalScore}
-                  diffLabel={diffLabel}
-                  diff={diff}
-                  style={styles.photoTotalBlock}
-                />
-              </View>
-
-              <View style={styles.photoHalf}>
-                <CroppedPhoto photo={photo} crop={crop} />
-                <View style={styles.photoPillWatermarkWrap} pointerEvents="none">
-                  <PillWatermark />
-                </View>
-              </View>
-            </View>
-
-            {/* Name banner: overlaid on top of both the scores and the photo,
-                full card width, with a dark gradient behind it so the name
-                reads over a bright photo. */}
-            <LinearGradient
-              colors={['rgba(0,0,0,0.82)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0)']}
-              style={styles.photoNameBannerGradient}
-              pointerEvents="none"
-            />
-            <NameSection
-              fullName={fullName}
-              courseName={activeScorecard.courseName}
-              style={styles.photoNameBanner}
-            />
-          </ViewShot>
-        )}
       </View>
 
       <NewScorecardModal
@@ -309,7 +254,11 @@ export default function ScorecardScreen() {
         onClose={() => setDetailScorecard(null)}
       />
 
-      <Toast message={toastMessage} onHide={() => setToastMessage(null)} />
+      <Toast
+        message={toastMessage?.text}
+        type={toastMessage?.type}
+        onHide={() => setToastMessage(null)}
+      />
     </View>
   );
 }
@@ -368,7 +317,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: -3000,
   },
-  cleanExportCard: {
+  exportCard: {
     width: EXPORT_NATURAL_WIDTH,
     height: EXPORT_NATURAL_HEIGHT,
     backgroundColor: colors.navy,
@@ -376,76 +325,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 24,
     justifyContent: 'space-between',
+    overflow: 'hidden',
   },
-  cleanScoresRow: {
+  exportOverlay: {
+    backgroundColor: 'rgba(13, 31, 60, 0.82)',
+  },
+  exportScoresRow: {
     flexDirection: 'row',
     gap: 16,
     justifyContent: 'center',
   },
-  cleanNineColumn: {
+  exportNineColumn: {
     width: 70,
   },
-  cleanTotalBlock: {
+  exportTotalBlock: {
     paddingBottom: 26,
   },
-  cleanWatermark: {
+  exportWatermark: {
     position: 'absolute',
     bottom: 2,
     right: 2,
-  },
-  photoExportCard: {
-    width: EXPORT_NATURAL_WIDTH,
-    height: EXPORT_NATURAL_HEIGHT,
-    backgroundColor: colors.navy,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  photoRow: {
-    flex: 1,
-    flexDirection: 'row',
-  },
-  photoScoreCol: {
-    width: '55%',
-    paddingTop: 78,
-    paddingHorizontal: 14,
-    paddingBottom: 16,
-    justifyContent: 'space-between',
-  },
-  photoScoresRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  photoNineColumn: {
-    flex: 1,
-  },
-  photoTotalBlock: {
-    marginTop: 10,
-  },
-  photoHalf: {
-    width: '45%',
-    height: '100%',
-    backgroundColor: colors.navyLight,
-  },
-  photoPillWatermarkWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 10,
-    alignItems: 'center',
-  },
-  photoNameBannerGradient: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 96,
-  },
-  photoNameBanner: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    paddingTop: 16,
-    paddingHorizontal: 16,
   },
 });

@@ -23,6 +23,7 @@ function mapRow(row) {
     ...(back.length ? { back } : {}),
     totalScore: row.total_score,
     totalPar: row.total_par,
+    photoUrl: row.photo_url ?? null,
     createdAt: row.created_at,
   };
 }
@@ -53,7 +54,8 @@ export async function getLatestScorecard(userId) {
 
 // `scorecard` comes from NewScorecardModal: { course, front, back?, ... }
 // where `course` is the selected search result ({id, name, city, state, lat, lng})
-// or a free-typed { id: null, name }.
+// or a free-typed { id: null, name }. `photoUri` is the optional photo
+// attached on the Scorecard screen before saving.
 export async function saveScorecard(userId, scorecard) {
   const holes = [...scorecard.front, ...(scorecard.back ?? [])];
   const totalScore = holes.reduce((sum, h) => sum + h.score, 0);
@@ -73,6 +75,7 @@ export async function saveScorecard(userId, scorecard) {
       holes,
       total_score: totalScore,
       total_par: totalPar,
+      photo_url: scorecard.photoUri ?? null,
     })
     .select()
     .single();
