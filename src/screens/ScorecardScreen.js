@@ -187,6 +187,7 @@ export default function ScorecardScreen() {
               fullName={fullName}
               photoUri={displayedPhotoUri}
               onRequestPhoto={handlePickPhoto}
+              onRemovePhoto={photoUri ? () => setPhotoUri(null) : undefined}
             />
           </ViewShot>
 

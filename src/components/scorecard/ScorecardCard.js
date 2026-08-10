@@ -108,9 +108,10 @@ function NineColumn({ holes, label }) {
 
 // Full-height photo column: tapping it opens the picker (only when
 // `onRequestPhoto` is passed — past, read-only scorecards omit it). With no
-// photo it shows a dashed placeholder; with a photo it fills the column and
-// gets a centered watermark pill along the bottom edge.
-function PhotoColumn({ photoUri, onRequestPhoto }) {
+// photo it shows a dashed placeholder; with a photo it fills the column,
+// gets a centered watermark pill along the bottom edge, and (when
+// `onRemovePhoto` is passed) a red "Remove" pill top-right to clear it.
+function PhotoColumn({ photoUri, onRequestPhoto, onRemovePhoto }) {
   const Wrapper = onRequestPhoto ? TouchableOpacity : View;
 
   return (
@@ -125,6 +126,15 @@ function PhotoColumn({ photoUri, onRequestPhoto }) {
           <View style={styles.photoWatermarkPill}>
             <Text style={styles.photoWatermarkText}>SaveitGolf</Text>
           </View>
+          {onRemovePhoto && (
+            <TouchableOpacity
+              onPress={onRemovePhoto}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={styles.removePhotoButton}
+            >
+              <Text style={styles.removePhotoButtonText}>✕ Remove</Text>
+            </TouchableOpacity>
+          )}
         </>
       ) : (
         <View style={styles.photoEmpty}>
@@ -142,7 +152,7 @@ function PhotoColumn({ photoUri, onRequestPhoto }) {
 // `hidePhotoColumn` drives the hidden no-photo share-card capture (Fix 4):
 // when true the photo column is omitted entirely rather than falling back
 // to the dashed "Add Photo" placeholder, so it never ends up in a saved image.
-export default function ScorecardCard({ scorecard, fullName, photoUri, onRequestPhoto, hidePhotoColumn }) {
+export default function ScorecardCard({ scorecard, fullName, photoUri, onRequestPhoto, onRemovePhoto, hidePhotoColumn }) {
   const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(scorecard);
   const diffTextColor = diffColor(diff);
   const compositeName = compositeNameFor(scorecard, isNineHoleRound);
@@ -175,7 +185,9 @@ export default function ScorecardCard({ scorecard, fullName, photoUri, onRequest
         </View>
       </View>
 
-      {!hidePhotoColumn && <PhotoColumn photoUri={photoUri} onRequestPhoto={onRequestPhoto} />}
+      {!hidePhotoColumn && (
+        <PhotoColumn photoUri={photoUri} onRequestPhoto={onRequestPhoto} onRemovePhoto={onRemovePhoto} />
+      )}
     </View>
   );
 }
@@ -359,5 +371,19 @@ const styles = StyleSheet.create({
     fontFamily: 'DancingScript_700Bold',
     fontSize: 12,
     color: colors.white,
+  },
+  removePhotoButton: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(192, 0, 26, 0.85)',
+    borderRadius: 5,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+  },
+  removePhotoButtonText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: '700',
   },
 });
