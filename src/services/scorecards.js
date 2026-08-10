@@ -24,6 +24,8 @@ function mapRow(row) {
     totalScore: row.total_score,
     totalPar: row.total_par,
     photoUrl: row.photo_url ?? null,
+    compositeFront: row.composite_front ?? null,
+    compositeBack: row.composite_back ?? null,
     createdAt: row.created_at,
   };
 }
@@ -76,6 +78,8 @@ export async function saveScorecard(userId, scorecard) {
       total_score: totalScore,
       total_par: totalPar,
       photo_url: scorecard.photoUri ?? null,
+      composite_front: scorecard.compositeFront ?? null,
+      composite_back: scorecard.compositeBack ?? null,
     })
     .select()
     .single();

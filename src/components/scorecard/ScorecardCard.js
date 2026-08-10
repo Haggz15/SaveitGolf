@@ -19,10 +19,23 @@ export function computeTotals(scorecard) {
   return { isNineHoleRound, totalPar, totalScore, diff, diffLabel };
 }
 
+// Only used for the "(+3)"/"(-2)"/"(E)" label next to the total — the total
+// score digits themselves always stay white (see ScorecardCard below).
 function diffColor(diff) {
   if (diff > 0) return colors.red;
   if (diff < 0) return colors.brightGreen;
-  return colors.white;
+  return '#4a9eff';
+}
+
+// "Blue" / "Ridge" / "Blue Nine" typed verbatim by the user — shown exactly
+// as entered, never suffixed with "Nine"/"9". 18-hole rounds with both a
+// front and back name join them with " / "; either half may be omitted.
+function compositeNameFor(scorecard, isNineHoleRound) {
+  const front = (scorecard.compositeFront || '').trim();
+  const back = (scorecard.compositeBack || '').trim();
+  if (isNineHoleRound) return front || null;
+  if (front && back) return `${front} / ${back}`;
+  return front || back || null;
 }
 
 function splitNameWords(fullName) {
@@ -126,9 +139,13 @@ function PhotoColumn({ photoUri, onRequestPhoto }) {
 // Scores (left 48%) + photo (right 52%), side by side. `onRequestPhoto` is
 // only passed by the live "new scorecard" view — past scorecards fetched
 // from Supabase render read-only with no tap target on the photo.
-export default function ScorecardCard({ scorecard, fullName, photoUri, onRequestPhoto }) {
+// `hidePhotoColumn` drives the hidden no-photo share-card capture (Fix 4):
+// when true the photo column is omitted entirely rather than falling back
+// to the dashed "Add Photo" placeholder, so it never ends up in a saved image.
+export default function ScorecardCard({ scorecard, fullName, photoUri, onRequestPhoto, hidePhotoColumn }) {
   const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(scorecard);
-  const totalColor = diffColor(diff);
+  const diffTextColor = diffColor(diff);
+  const compositeName = compositeNameFor(scorecard, isNineHoleRound);
 
   return (
     <View style={styles.cardBody}>
@@ -137,6 +154,11 @@ export default function ScorecardCard({ scorecard, fullName, photoUri, onRequest
         <Text style={styles.courseNameText} numberOfLines={2}>
           {scorecard.courseName}
         </Text>
+        {compositeName ? (
+          <Text style={styles.compositeNameText} numberOfLines={1}>
+            {compositeName}
+          </Text>
+        ) : null}
         <View style={styles.divider} />
 
         <View style={styles.ninesRow}>
@@ -146,14 +168,14 @@ export default function ScorecardCard({ scorecard, fullName, photoUri, onRequest
 
         <View style={styles.totalBlock}>
           <View style={styles.totalRow}>
-            <Text style={[styles.totalScore, { color: totalColor }]}>{totalScore}</Text>
-            <Text style={[styles.totalDiff, { color: totalColor }]}>({diffLabel})</Text>
+            <Text style={styles.totalScore}>{totalScore}</Text>
+            <Text style={[styles.totalDiff, { color: diffTextColor }]}>({diffLabel})</Text>
           </View>
           <Text style={styles.blockWatermark}>SaveitGolf</Text>
         </View>
       </View>
 
-      <PhotoColumn photoUri={photoUri} onRequestPhoto={onRequestPhoto} />
+      {!hidePhotoColumn && <PhotoColumn photoUri={photoUri} onRequestPhoto={onRequestPhoto} />}
     </View>
   );
 }
@@ -193,6 +215,13 @@ const styles = StyleSheet.create({
     fontSize: 7,
     color: colors.lightBlue,
     marginTop: 5,
+  },
+  compositeNameText: {
+    fontFamily: 'Cinzel_700Bold',
+    fontStyle: 'italic',
+    fontSize: 7.5,
+    color: '#6a8ab0',
+    marginTop: 2,
   },
   divider: {
     height: 1,
@@ -274,6 +303,7 @@ const styles = StyleSheet.create({
   totalScore: {
     fontSize: 22,
     fontWeight: '800',
+    color: colors.white,
   },
   totalDiff: {
     fontSize: 13,

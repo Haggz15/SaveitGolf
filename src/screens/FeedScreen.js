@@ -20,6 +20,7 @@ import CommentSheet from '../components/feed/CommentSheet';
 import NotificationPanel from '../components/feed/NotificationPanel';
 import ShotOfWeekBanner from '../components/feed/ShotOfWeekBanner';
 import PostActionsSheet from '../components/feed/PostActionsSheet';
+import MentionText from '../components/social/MentionText';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { feedPosts as mockFeedPosts, filterPills } from '../data/mockData';
@@ -34,6 +35,8 @@ import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
 import { saveMediaToDevice } from '../utils/saveMedia';
 import { haversineMiles } from '../utils/distance';
+
+const UNREAD_POLL_INTERVAL_MS = 30000;
 
 function FilterPill({ label, active, onPress }) {
   return (
@@ -59,6 +62,7 @@ function PostSlide({
   onUserPress,
   onCommentPress,
   onMorePress,
+  onMentionPress,
   onToast,
 }) {
   const [liked, setLiked] = useState(initiallyLiked);
@@ -91,15 +95,36 @@ function PostSlide({
       onToast?.('You must be logged in to save posts', 'error');
       return;
     }
-    // Demo/mock posts (see the report/block guard above) have no real row in
-    // `posts` — their ids aren't UUIDs, so an insert into saved_posts would
-    // fail the post_id foreign key. Saving only makes sense for real posts.
-    if (!post.userId) {
-      onToast?.('Demo posts can’t be saved', 'error');
-      return;
-    }
+
     const next = !saved;
     setSaved(next);
+
+    // Demo/mock posts (see the report/block guard above) have no real row in
+    // `posts` — their ids aren't UUIDs, so an insert into saved_posts would
+    // fail the post_id foreign key. There's nothing to toggle in Supabase for
+    // these, but the media itself is still real, so mirror it to the camera
+    // roll instead of just failing the whole action.
+    if (!post.userId) {
+      if (next && post.mediaUrl) {
+        setSavingMedia(true);
+        try {
+          await saveMediaToDevice(post.mediaUrl);
+          onToast?.('Saved to Camera Roll', 'success');
+        } catch (mediaErr) {
+          console.error('Failed to save demo post media to camera roll:', mediaErr);
+          setSaved(!next);
+          const message =
+            mediaErr.message === 'PERMISSION_DENIED'
+              ? 'Please allow photo access in Settings to save posts'
+              : mediaErr.message || 'Could not save to Camera Roll';
+          onToast?.(message, 'error');
+        } finally {
+          setSavingMedia(false);
+        }
+      }
+      return;
+    }
+
     console.log('Toggling save:', post.id, 'for user:', currentUserId, 'next:', next);
     try {
       if (next) {
@@ -234,9 +259,13 @@ function PostSlide({
           </TouchableOpacity>
           <Text style={styles.timeAgo}>{post.timeAgo}</Text>
         </View>
-        <Text style={styles.caption} numberOfLines={2} ellipsizeMode="tail">
-          {post.caption}
-        </Text>
+        <MentionText
+          text={post.caption}
+          style={styles.caption}
+          numberOfLines={2}
+          ellipsizeMode="tail"
+          onMentionPress={onMentionPress}
+        />
       </View>
 
       <TouchableOpacity
@@ -270,6 +299,7 @@ export default function FeedScreen({ navigation }) {
   const { height: windowHeight } = useWindowDimensions();
   const containerHeight =
     windowHeight - insets.top - HEADER_CONTENT_HEIGHT - PILL_ROW_HEIGHT - TAB_BAR_HEIGHT;
+  const postsListRef = useRef(null);
 
   const loadFeed = useCallback(async () => {
     setLoadingFeed(true);
@@ -358,9 +388,20 @@ export default function FeedScreen({ navigation }) {
 
   useEffect(() => {
     if (!user?.id) return;
-    getUnreadNotificationCount(user.id)
-      .then(setUnreadCount)
-      .catch((err) => console.error('Failed to load unread notification count:', err));
+    let cancelled = false;
+    const refreshUnreadCount = () => {
+      getUnreadNotificationCount(user.id)
+        .then((count) => {
+          if (!cancelled) setUnreadCount(count);
+        })
+        .catch((err) => console.error('Failed to load unread notification count:', err));
+    };
+    refreshUnreadCount();
+    const interval = setInterval(refreshUnreadCount, UNREAD_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [user?.id]);
 
   const handleStatePress = (post) => {
@@ -392,6 +433,39 @@ export default function FeedScreen({ navigation }) {
   const handleUserPress = (post) => {
     if (!post.user) return;
     navigation.navigate('UserProfile', { username: post.user });
+  };
+
+  const handleMentionPress = (username) => {
+    if (!username) return;
+    navigation.navigate('UserProfile', { username });
+  };
+
+  // Notifications panel lives inside this screen, so a postId notification
+  // just has to scroll the already-mounted posts list — no cross-screen
+  // navigation needed. Only "follow" goes to a different screen.
+  const handleNotificationPress = (notification) => {
+    if (!notification.read) {
+      setUnreadCount((count) => Math.max(0, count - 1));
+    }
+
+    if (notification.type === 'follow') {
+      setNotificationsVisible(false);
+      navigation.navigate('UserProfile', { username: notification.actorUsername });
+      return;
+    }
+
+    if (notification.postId) {
+      const index = posts.findIndex((p) => p.id === notification.postId);
+      if (index === -1) {
+        showToast("Couldn't find that post in your feed", 'error');
+        return;
+      }
+      setNotificationsVisible(false);
+      setActivePostId(notification.postId);
+      requestAnimationFrame(() => {
+        postsListRef.current?.scrollToIndex({ index, animated: true });
+      });
+    }
   };
 
   const handleCommentPosted = (postId) => {
@@ -501,6 +575,7 @@ export default function FeedScreen({ navigation }) {
         ) : (
           containerHeight > 0 && (
             <FlatList
+              ref={postsListRef}
               data={posts}
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => (
@@ -517,6 +592,7 @@ export default function FeedScreen({ navigation }) {
                   onUserPress={handleUserPress}
                   onCommentPress={setCommentPost}
                   onMorePress={setActionsSheetPost}
+                  onMentionPress={handleMentionPress}
                   onToast={showToast}
                 />
               )}
@@ -530,6 +606,11 @@ export default function FeedScreen({ navigation }) {
                 offset: containerHeight * index,
                 index,
               })}
+              onScrollToIndexFailed={(info) => {
+                requestAnimationFrame(() => {
+                  postsListRef.current?.scrollToIndex({ index: info.index, animated: true });
+                });
+              }}
               viewabilityConfig={viewabilityConfig}
               onViewableItemsChanged={onViewableItemsChanged}
               initialNumToRender={2}
@@ -552,7 +633,7 @@ export default function FeedScreen({ navigation }) {
         visible={notificationsVisible}
         onClose={() => setNotificationsVisible(false)}
         userId={user?.id}
-        onMarkedRead={() => setUnreadCount(0)}
+        onPressNotification={handleNotificationPress}
       />
 
       <CommentSheet
@@ -561,6 +642,7 @@ export default function FeedScreen({ navigation }) {
         post={commentPost}
         currentUserId={user?.id}
         onCommentPosted={handleCommentPosted}
+        onMentionPress={handleMentionPress}
       />
 
       <PostActionsSheet

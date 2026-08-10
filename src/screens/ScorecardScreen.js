@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Platform,
+  Alert,
+  useWindowDimensions,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
 import Header from '../components/Header';
@@ -16,7 +25,13 @@ import { useAuth } from '../context/AuthContext';
 
 export default function ScorecardScreen() {
   const { user, profile } = useAuth();
+  const { width: windowWidth } = useWindowDimensions();
   const shareCardRef = useRef(null);
+  // Hidden off-screen copy of the card with no photo column at all (rather
+  // than the dashed "Add Photo" placeholder) — captured instead of
+  // `shareCardRef` whenever the user shares without having added a photo,
+  // so the placeholder never ends up in the saved image (Fix 4).
+  const noPhotoShareCardRef = useRef(null);
   const [isSharing, setIsSharing] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
   const [activeScorecard, setActiveScorecard] = useState(mockScorecard);
@@ -108,10 +123,12 @@ export default function ScorecardScreen() {
   }
 
   async function handleShare() {
+    const captureRef = displayedPhotoUri ? shareCardRef : noPhotoShareCardRef;
+
     if (Platform.OS === 'web') {
       try {
         setIsSharing(true);
-        const dataUrl = await shareCardRef.current.capture();
+        const dataUrl = await captureRef.current.capture();
         const link = document.createElement('a');
         link.href = dataUrl;
         link.download = `${activeScorecard.courseName || 'scorecard'}.png`;
@@ -139,7 +156,7 @@ export default function ScorecardScreen() {
         return;
       }
 
-      const uri = await shareCardRef.current.capture();
+      const uri = await captureRef.current.capture();
 
       await MediaLibrary.saveToLibraryAsync(uri);
       setToastMessage({ text: 'Scorecard saved to Camera Roll', type: 'success' });
@@ -182,6 +199,12 @@ export default function ScorecardScreen() {
             <Ionicons name="share-outline" size={13} color={colors.white} />
             <Text style={styles.shareButtonText}>{isSharing ? 'Saving…' : 'Share'}</Text>
           </TouchableOpacity>
+        </View>
+
+        <View style={[styles.offscreen, { width: windowWidth - 32 }]} pointerEvents="none">
+          <ViewShot ref={noPhotoShareCardRef} options={{ format: 'png', quality: 1 }}>
+            <ScorecardCard scorecard={activeScorecard} fullName={fullName} hidePhotoColumn />
+          </ViewShot>
         </View>
 
         <View style={styles.pastSection}>
@@ -270,6 +293,14 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 12,
     fontWeight: '700',
+  },
+  // Positioned off-screen (not display:none/opacity:0) so it still lays out
+  // and renders normally — react-native-view-shot needs a real, visible
+  // layout to capture from.
+  offscreen: {
+    position: 'absolute',
+    top: -10000,
+    left: 0,
   },
   pastSection: {
     marginTop: 28,

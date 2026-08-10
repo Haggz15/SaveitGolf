@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Header from '../components/Header';
+import MentionTextInput from '../components/social/MentionTextInput';
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { createPost } from '../services/posts';
@@ -298,11 +299,12 @@ export default function PostScreen({ navigation }) {
         </View>
 
         <Text style={styles.label}>Caption</Text>
-        <TextInput
+        <MentionTextInput
           style={[styles.input, styles.captionInput]}
           value={caption}
           onChangeText={setCaption}
-          placeholder="Tell the story of this hole..."
+          currentUserId={user?.id}
+          placeholder="Tell the story of this hole... use @ to tag someone"
           placeholderTextColor={colors.muted}
           multiline
         />

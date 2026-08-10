@@ -194,6 +194,12 @@ create index if not exists scorecards_course_id_idx on public.scorecards (course
 -- background of the scorecard card and its camera-roll share image.
 alter table public.scorecards add column if not exists photo_url text;
 
+-- Optional user-typed nine name(s) (e.g. "Blue", "Ridge / Trail") for
+-- courses with multiple/composite nines, set on the hole-count step of
+-- scorecard creation. composite_back only applies to 18-hole rounds.
+alter table public.scorecards add column if not exists composite_front text;
+alter table public.scorecards add column if not exists composite_back text;
+
 alter table public.scorecards enable row level security;
 
 drop policy if exists "Scorecards are viewable by everyone" on public.scorecards;
@@ -481,9 +487,11 @@ create policy "Users can delete their own course rankings"
 -- denormalized course_name (matches how posts.course_name is itself
 -- denormalized) so the panel can render "posted at {course}" without a
 -- conditional join across posts vs scorecards.
+-- 'tag' (caption tagging) and 'follow' (new follower) added alongside the
+-- rest — kept in the same constraint rather than a separate migration.
 alter table public.notifications drop constraint if exists notifications_type_check;
 alter table public.notifications add constraint notifications_type_check
-  check (type in ('like', 'comment', 'share', 'mention', 'new_post', 'new_scorecard'));
+  check (type in ('like', 'comment', 'share', 'mention', 'new_post', 'new_scorecard', 'tag', 'follow'));
 
 alter table public.notifications add column if not exists scorecard_id uuid references public.scorecards (id) on delete cascade;
 alter table public.notifications add column if not exists course_name text;
@@ -759,3 +767,68 @@ drop policy if exists "Users can unblock their own blocks" on public.blocked_use
 create policy "Users can unblock their own blocks"
   on public.blocked_users for delete
   using (auth.uid() = blocker_id);
+
+-- Post tags: one row per user @mentioned in a post's caption, recorded
+-- separately from the caption text so the "tagged you in a post"
+-- notification and any future "posts you're tagged in" list don't have to
+-- re-parse @mentions out of free text. tagged_by is the post's author
+-- (always the one typing the caption), tagged_user_id the mentioned user.
+create table if not exists public.post_tags (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.posts (id) on delete cascade,
+  tagged_user_id uuid not null references auth.users (id) on delete cascade,
+  tagged_by uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  constraint post_tags_unique unique (post_id, tagged_user_id)
+);
+
+create index if not exists post_tags_post_id_idx on public.post_tags (post_id);
+create index if not exists post_tags_tagged_user_id_idx on public.post_tags (tagged_user_id);
+
+alter table public.post_tags enable row level security;
+
+drop policy if exists "Post tags are viewable by everyone" on public.post_tags;
+create policy "Post tags are viewable by everyone"
+  on public.post_tags for select
+  using (true);
+
+drop policy if exists "Users can tag others as the post author" on public.post_tags;
+create policy "Users can tag others as the post author"
+  on public.post_tags for insert
+  with check (auth.uid() = tagged_by);
+
+drop policy if exists "Post authors can remove their own tags" on public.post_tags;
+create policy "Post authors can remove their own tags"
+  on public.post_tags for delete
+  using (auth.uid() = tagged_by);
+
+-- Comment likes: mirrors post_likes' shape (one row per comment/user pair)
+-- for the small heart on each comment row. Kept as its own table rather
+-- than folded into post_likes since it likes a comment, not a post.
+create table if not exists public.comment_likes (
+  id uuid primary key default gen_random_uuid(),
+  comment_id uuid not null references public.comments (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  constraint comment_likes_unique unique (comment_id, user_id)
+);
+
+create index if not exists comment_likes_comment_id_idx on public.comment_likes (comment_id);
+create index if not exists comment_likes_user_id_idx on public.comment_likes (user_id);
+
+alter table public.comment_likes enable row level security;
+
+drop policy if exists "Comment likes are viewable by everyone" on public.comment_likes;
+create policy "Comment likes are viewable by everyone"
+  on public.comment_likes for select
+  using (true);
+
+drop policy if exists "Users can like comments as themselves" on public.comment_likes;
+create policy "Users can like comments as themselves"
+  on public.comment_likes for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can unlike comments as themselves" on public.comment_likes;
+create policy "Users can unlike comments as themselves"
+  on public.comment_likes for delete
+  using (auth.uid() = user_id);

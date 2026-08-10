@@ -14,13 +14,15 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
-import { getNotifications, markAllNotificationsRead } from '../../services/notifications';
+import { getNotifications, markNotificationRead } from '../../services/notifications';
 
 const NOTIFICATION_ICONS = {
   like: 'heart',
   comment: 'chatbubble',
   share: 'share-social',
   mention: 'at',
+  tag: 'pricetag',
+  follow: 'person-add',
   new_post: 'image',
   new_scorecard: 'golf',
 };
@@ -41,7 +43,7 @@ function NotificationAvatar({ avatarUrl, name }) {
   );
 }
 
-export default function NotificationPanel({ visible, onClose, userId, onMarkedRead }) {
+export default function NotificationPanel({ visible, onClose, userId, onPressNotification }) {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
   const panelWidth = Math.round(screenWidth * 0.5);
@@ -60,16 +62,23 @@ export default function NotificationPanel({ visible, onClose, userId, onMarkedRe
         .then(setNotifications)
         .catch((err) => console.error('Failed to load notifications:', err))
         .finally(() => setLoading(false));
-
-      markAllNotificationsRead(userId)
-        .then(() => onMarkedRead?.())
-        .catch((err) => console.error('Failed to mark notifications read:', err));
     } else if (mounted) {
       Animated.timing(translateX, { toValue: panelWidth, duration: 200, useNativeDriver: true }).start(() => {
         setMounted(false);
       });
     }
   }, [visible, userId]);
+
+  // Marks just this one notification read (optimistically, then persisted)
+  // and hands it to the parent to decide where tapping it should navigate —
+  // the panel only knows about notifications, not the feed's post list.
+  function handlePressNotification(item) {
+    if (!item.read) {
+      setNotifications((prev) => prev.map((n) => (n.id === item.id ? { ...n, read: true } : n)));
+      markNotificationRead(item.id).catch((err) => console.error('Failed to mark notification read:', err));
+    }
+    onPressNotification?.(item);
+  }
 
   if (!mounted) return null;
 
@@ -100,7 +109,11 @@ export default function NotificationPanel({ visible, onClose, userId, onMarkedRe
               keyExtractor={(item) => item.id}
               contentContainerStyle={{ paddingBottom: 24 }}
               renderItem={({ item }) => (
-                <View style={[styles.row, !item.read && styles.rowUnread]}>
+                <TouchableOpacity
+                  style={[styles.row, !item.read && styles.rowUnread]}
+                  onPress={() => handlePressNotification(item)}
+                  activeOpacity={0.75}
+                >
                   <NotificationAvatar avatarUrl={item.actorAvatarUrl} name={item.actorFullName || item.actorUsername} />
                   <View style={styles.rowBody}>
                     <Ionicons
@@ -114,7 +127,8 @@ export default function NotificationPanel({ visible, onClose, userId, onMarkedRe
                     </Text>
                     <Text style={styles.rowTime}>{item.timeAgo}</Text>
                   </View>
-                </View>
+                  {item.thumbnailUrl && <Image source={{ uri: item.thumbnailUrl }} style={styles.rowThumbnail} />}
+                </TouchableOpacity>
               )}
             />
           )}
@@ -162,11 +176,15 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: 'transparent',
   },
   rowUnread: {
-    backgroundColor: 'rgba(192, 0, 26, 0.1)',
+    borderLeftColor: '#4a9eff',
+    backgroundColor: 'rgba(74, 158, 255, 0.08)',
   },
   avatar: {
     width: 24,
@@ -205,5 +223,11 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 9,
     marginTop: 3,
+  },
+  rowThumbnail: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    marginLeft: 6,
   },
 });

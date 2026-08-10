@@ -59,6 +59,9 @@ const INITIAL_STATE = {
   pars: null,
   loadingPars: false,
   scores: {},
+  compositeToggleOpen: false,
+  compositeFront: '',
+  compositeBack: '',
 };
 
 export default function NewScorecardModal({ visible, onClose, onSaved, fullName }) {
@@ -183,7 +186,7 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
   }
 
   async function handleSave() {
-    const { selectedCourse, holesCount, pars, scores } = state;
+    const { selectedCourse, holesCount, pars, scores, compositeFront, compositeBack } = state;
     const holeNumbers = Array.from({ length: holesCount }, (_, i) => i + 1);
 
     const front = holeNumbers.slice(0, 9).map((hole, idx) => ({
@@ -205,6 +208,8 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
       holesCount,
       front,
       ...(back ? { back } : {}),
+      compositeFront: compositeFront.trim() || null,
+      compositeBack: holesCount === 18 ? compositeBack.trim() || null : null,
     };
 
     onSaved(newScorecard);
@@ -300,22 +305,95 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
 
         {state.step === 'holes' && (
           <View style={styles.stepContent}>
-            <TouchableOpacity style={styles.backRow} onPress={() => patch({ step: 'course' })}>
+            <TouchableOpacity
+              style={styles.backRow}
+              onPress={() => patch({ step: 'course', holesCount: null, compositeToggleOpen: false })}
+            >
               <Ionicons name="chevron-back" size={18} color={colors.muted} />
               <Text style={styles.backText}>{state.selectedCourse?.name}</Text>
             </TouchableOpacity>
 
             <Text style={styles.label}>HOLES PLAYED</Text>
             <View style={styles.holesRow}>
-              <TouchableOpacity style={styles.holesButton} onPress={() => handleSelectHoles(9)} activeOpacity={0.85}>
+              <TouchableOpacity
+                style={[styles.holesButton, state.holesCount === 9 && styles.holesButtonSelected]}
+                onPress={() => patch({ holesCount: 9 })}
+                activeOpacity={0.85}
+              >
                 <Text style={styles.holesButtonNumber}>9</Text>
                 <Text style={styles.holesButtonLabel}>HOLES</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.holesButton} onPress={() => handleSelectHoles(18)} activeOpacity={0.85}>
+              <TouchableOpacity
+                style={[styles.holesButton, state.holesCount === 18 && styles.holesButtonSelected]}
+                onPress={() => patch({ holesCount: 18 })}
+                activeOpacity={0.85}
+              >
                 <Text style={styles.holesButtonNumber}>18</Text>
                 <Text style={styles.holesButtonLabel}>HOLES</Text>
               </TouchableOpacity>
             </View>
+
+            {state.holesCount != null && (
+              <>
+                <TouchableOpacity
+                  style={styles.compositeToggleRow}
+                  onPress={() => patch({ compositeToggleOpen: !state.compositeToggleOpen })}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={state.compositeToggleOpen ? 'chevron-up' : 'chevron-down'}
+                    size={16}
+                    color={colors.muted}
+                  />
+                  <Text style={styles.compositeToggleText}>Course has multiple nines with a custom name</Text>
+                </TouchableOpacity>
+
+                {state.compositeToggleOpen && (
+                  <View style={styles.compositeInputs}>
+                    {state.holesCount === 9 ? (
+                      <>
+                        <Text style={styles.label}>WHAT NINE DID YOU PLAY? (OPTIONAL)</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={state.compositeFront}
+                          onChangeText={(text) => patch({ compositeFront: text })}
+                          placeholder="e.g. Blue, Ridge, Trail"
+                          placeholderTextColor={colors.muted}
+                          autoCorrect={false}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <Text style={styles.label}>FRONT NINE NAME (OPTIONAL)</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={state.compositeFront}
+                          onChangeText={(text) => patch({ compositeFront: text })}
+                          placeholder="e.g. Blue, Ridge, Trail"
+                          placeholderTextColor={colors.muted}
+                          autoCorrect={false}
+                        />
+                        <Text style={[styles.label, styles.compositeSecondLabel]}>BACK NINE NAME (OPTIONAL)</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={state.compositeBack}
+                          onChangeText={(text) => patch({ compositeBack: text })}
+                          placeholder="e.g. Blue, Ridge, Trail"
+                          placeholderTextColor={colors.muted}
+                          autoCorrect={false}
+                        />
+                      </>
+                    )}
+                  </View>
+                )}
+
+                <View style={styles.footer}>
+                  <TouchableOpacity style={styles.primaryButton} onPress={() => handleSelectHoles(state.holesCount)}>
+                    <Text style={styles.primaryButtonText}>Continue</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         )}
 
@@ -581,6 +659,27 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1,
     marginTop: 4,
+  },
+  holesButtonSelected: {
+    borderColor: colors.red,
+    backgroundColor: colors.navyLight,
+  },
+  compositeToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 20,
+  },
+  compositeToggleText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  compositeInputs: {
+    marginTop: 14,
+  },
+  compositeSecondLabel: {
+    marginTop: 14,
   },
   entryCourseName: {
     color: colors.white,

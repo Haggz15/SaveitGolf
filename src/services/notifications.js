@@ -16,6 +16,8 @@ const ACTION_TEXT = {
   comment: 'commented on your post',
   share: 'shared your post',
   mention: 'mentioned you in a comment',
+  tag: 'tagged you in a post',
+  follow: 'started following you',
   new_post: 'just posted a new shot',
   new_scorecard: 'just shot their score',
 };
@@ -41,6 +43,8 @@ function mapRow(row) {
     actorFullName: row.profiles?.full_name ?? null,
     actorAvatarUrl: row.profiles?.avatar_url ?? null,
     actionText: actionTextFor(row),
+    // Only photos render as a thumbnail — an <Image> can't decode video.
+    thumbnailUrl: row.posts?.media_type === 'photo' ? row.posts.media_url : null,
     timeAgo: timeAgo(row.created_at),
     createdAt: row.created_at,
   };
@@ -50,13 +54,19 @@ export async function getNotifications(userId) {
   if (!userId) return [];
   const { data, error } = await supabase
     .from('notifications')
-    .select('*, profiles!notifications_actor_id_profiles_fkey(username, full_name, avatar_url)')
+    .select('*, profiles!notifications_actor_id_profiles_fkey(username, full_name, avatar_url), posts(media_url, media_type)')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(50);
 
   if (error) throw error;
   return (data ?? []).map(mapRow);
+}
+
+export async function markNotificationRead(notificationId) {
+  if (!notificationId) return;
+  const { error } = await supabase.from('notifications').update({ read: true }).eq('id', notificationId);
+  if (error) throw error;
 }
 
 export async function getUnreadNotificationCount(userId) {
@@ -69,17 +79,6 @@ export async function getUnreadNotificationCount(userId) {
 
   if (error) throw error;
   return count ?? 0;
-}
-
-export async function markAllNotificationsRead(userId) {
-  if (!userId) return;
-  const { error } = await supabase
-    .from('notifications')
-    .update({ read: true })
-    .eq('user_id', userId)
-    .eq('read', false);
-
-  if (error) throw error;
 }
 
 // Fires a notification for `userId` describing something `actorId` did.

@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Modal,
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   FlatList,
   Image,
@@ -15,12 +14,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
-import { getComments, addComment } from '../../services/comments';
-import { searchProfiles } from '../../services/social';
-
-const MENTION_SEARCH_DEBOUNCE_MS = 250;
-const TRAILING_MENTION_RE = /(?:^|\s)@(\w*)$/;
-const HIGHLIGHT_RE = /(@\w+)/g;
+import MentionTextInput from '../social/MentionTextInput';
+import MentionText from '../social/MentionText';
+import { getComments, addComment, getLikedCommentIds, likeComment, unlikeComment } from '../../services/comments';
 
 function getInitials(name) {
   if (!name) return '?';
@@ -38,81 +34,39 @@ function CommentAvatar({ avatarUrl, name }) {
   );
 }
 
-function HighlightedCommentText({ text }) {
-  const parts = text.split(HIGHLIGHT_RE);
-  return (
-    <Text style={styles.commentText}>
-      {parts.map((part, i) =>
-        HIGHLIGHT_RE.test(part) ? (
-          <Text key={i} style={styles.mention}>
-            {part}
-          </Text>
-        ) : (
-          part
-        )
-      )}
-    </Text>
-  );
-}
-
-export default function CommentSheet({ visible, onClose, post, currentUserId, onCommentPosted }) {
+export default function CommentSheet({ visible, onClose, post, currentUserId, onCommentPosted, onMentionPress }) {
   const insets = useSafeAreaInsets();
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [inputText, setInputText] = useState('');
   const [posting, setPosting] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState(null);
-  const [mentionResults, setMentionResults] = useState([]);
-  const mentionDebounce = useRef(null);
+  const [likedCommentIds, setLikedCommentIds] = useState(new Set());
 
   useEffect(() => {
     if (!visible || !post?.id) return;
     setLoading(true);
     getComments(post.id)
-      .then(setComments)
+      .then(async (loaded) => {
+        setComments(loaded);
+        if (currentUserId) {
+          try {
+            const liked = await getLikedCommentIds(currentUserId, loaded.map((c) => c.id));
+            setLikedCommentIds(new Set(liked));
+          } catch (err) {
+            console.error('Failed to load comment likes:', err);
+          }
+        }
+      })
       .catch((err) => console.error('Failed to load comments:', err))
       .finally(() => setLoading(false));
-  }, [visible, post?.id]);
+  }, [visible, post?.id, currentUserId]);
 
   useEffect(() => {
     if (!visible) {
       setInputText('');
-      setMentionQuery(null);
-      setMentionResults([]);
-      if (mentionDebounce.current) clearTimeout(mentionDebounce.current);
+      setLikedCommentIds(new Set());
     }
   }, [visible]);
-
-  function handleChangeText(text) {
-    setInputText(text);
-    const match = text.match(TRAILING_MENTION_RE);
-    const query = match ? match[1] : null;
-    setMentionQuery(query);
-
-    if (mentionDebounce.current) clearTimeout(mentionDebounce.current);
-    if (!query) {
-      setMentionResults([]);
-      return;
-    }
-    mentionDebounce.current = setTimeout(async () => {
-      try {
-        const results = await searchProfiles(query, currentUserId);
-        setMentionResults(results);
-      } catch (err) {
-        setMentionResults([]);
-      }
-    }, MENTION_SEARCH_DEBOUNCE_MS);
-  }
-
-  function handleSelectMention(profile) {
-    if (!profile.username) return;
-    const next = inputText.replace(TRAILING_MENTION_RE, (match) =>
-      match.startsWith(' ') ? ` @${profile.username} ` : `@${profile.username} `
-    );
-    setInputText(next);
-    setMentionQuery(null);
-    setMentionResults([]);
-  }
 
   async function handlePost() {
     const trimmed = inputText.trim();
@@ -127,13 +81,37 @@ export default function CommentSheet({ visible, onClose, post, currentUserId, on
       });
       setComments((prev) => [...prev, saved]);
       setInputText('');
-      setMentionQuery(null);
-      setMentionResults([]);
       onCommentPosted?.(post.id);
     } catch (err) {
       console.error('Failed to post comment:', err);
     } finally {
       setPosting(false);
+    }
+  }
+
+  async function handleToggleCommentLike(commentId) {
+    if (!currentUserId) return;
+    const isLiked = likedCommentIds.has(commentId);
+    setLikedCommentIds((prev) => {
+      const next = new Set(prev);
+      if (isLiked) next.delete(commentId);
+      else next.add(commentId);
+      return next;
+    });
+    try {
+      if (isLiked) {
+        await unlikeComment(currentUserId, commentId);
+      } else {
+        await likeComment(currentUserId, commentId);
+      }
+    } catch (err) {
+      console.error('Failed to toggle comment like:', err);
+      setLikedCommentIds((prev) => {
+        const next = new Set(prev);
+        if (isLiked) next.add(commentId);
+        else next.delete(commentId);
+        return next;
+      });
     }
   }
 
@@ -172,35 +150,32 @@ export default function CommentSheet({ visible, onClose, post, currentUserId, on
                       <Text style={styles.commentUsername}>{item.username}</Text>
                       <Text style={styles.commentTime}>{item.timeAgo}</Text>
                     </View>
-                    <HighlightedCommentText text={item.commentText} />
+                    <MentionText text={item.commentText} style={styles.commentText} onMentionPress={onMentionPress} />
                   </View>
+                  <TouchableOpacity
+                    style={styles.commentLikeButton}
+                    onPress={() => handleToggleCommentLike(item.id)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons
+                      name={likedCommentIds.has(item.id) ? 'heart' : 'heart-outline'}
+                      size={14}
+                      color={likedCommentIds.has(item.id) ? colors.red : colors.muted}
+                    />
+                  </TouchableOpacity>
                 </View>
               )}
             />
           )}
 
-          {mentionQuery !== null && mentionResults.length > 0 && (
-            <FlatList
-              data={mentionResults}
-              keyExtractor={(item) => item.user_id}
-              style={styles.mentionDropdown}
-              keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => (
-                <TouchableOpacity style={styles.mentionRow} onPress={() => handleSelectMention(item)}>
-                  <CommentAvatar avatarUrl={item.avatar_url} name={item.full_name || item.username} />
-                  <Text style={styles.mentionUsername}>@{item.username}</Text>
-                </TouchableOpacity>
-              )}
-            />
-          )}
-
           <View style={styles.inputRow}>
-            <TextInput
+            <MentionTextInput
+              containerStyle={styles.mentionInputWrapper}
               style={styles.input}
               value={inputText}
-              onChangeText={handleChangeText}
-              placeholder="Add a comment... use @ to tag someone"
-              placeholderTextColor={colors.muted}
+              onChangeText={setInputText}
+              currentUserId={currentUserId}
+              placeholder="Add a comment"
               multiline
             />
             <TouchableOpacity
@@ -312,26 +287,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  mention: {
-    color: colors.red,
-    fontWeight: '700',
-  },
-  mentionDropdown: {
-    maxHeight: 180,
-    backgroundColor: colors.navyCard,
-    borderTopWidth: 1,
-    borderTopColor: colors.navyBorder,
-  },
-  mentionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-  },
-  mentionUsername: {
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: '600',
+  commentLikeButton: {
+    alignSelf: 'flex-start',
+    marginLeft: 8,
+    paddingTop: 2,
   },
   inputRow: {
     flexDirection: 'row',
@@ -342,8 +301,10 @@ const styles = StyleSheet.create({
     borderTopColor: colors.navyBorder,
     gap: 10,
   },
-  input: {
+  mentionInputWrapper: {
     flex: 1,
+  },
+  input: {
     backgroundColor: colors.navyCard,
     borderWidth: 1,
     borderColor: colors.navyBorder,

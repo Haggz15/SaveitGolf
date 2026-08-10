@@ -1,4 +1,6 @@
 import { supabase } from './supabase';
+import { resolveMentionedUserIds } from './mentions';
+import { createNotification } from './notifications';
 
 const EXT_TO_CONTENT_TYPE = {
   jpg: 'image/jpeg',
@@ -64,6 +66,32 @@ export async function createPost({
     .single();
 
   if (error) throw error;
+
+  // Tagging is a side effect of the caption, not the post itself — a
+  // failure here shouldn't undo an already-published post, so it's caught
+  // and logged rather than rethrown.
+  if (caption) {
+    try {
+      const mentionedUserIds = await resolveMentionedUserIds(caption);
+      const taggedUserIds = [...new Set(mentionedUserIds)].filter((id) => id !== userId);
+
+      if (taggedUserIds.length > 0) {
+        const { error: tagError } = await supabase
+          .from('post_tags')
+          .insert(taggedUserIds.map((taggedUserId) => ({ post_id: data.id, tagged_user_id: taggedUserId, tagged_by: userId })));
+        if (tagError) throw tagError;
+
+        await Promise.all(
+          taggedUserIds.map((taggedUserId) =>
+            createNotification({ userId: taggedUserId, actorId: userId, type: 'tag', postId: data.id })
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Failed to tag mentioned users in post caption:', err);
+    }
+  }
+
   return data;
 }
 

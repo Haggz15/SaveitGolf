@@ -1,7 +1,6 @@
 import { supabase } from './supabase';
 import { createNotification } from './notifications';
-
-const MENTION_RE = /@(\w+)/g;
+import { resolveMentionedUserIds } from './mentions';
 
 function timeAgo(isoDate) {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(isoDate).getTime()) / 1000));
@@ -39,21 +38,6 @@ export async function getComments(postId) {
   return (data ?? []).map(mapRow);
 }
 
-// Extracts unique @usernames referenced in a comment and resolves them to
-// profile user_ids so each tagged golfer can get a "mentioned you" notification.
-async function resolveMentionedUserIds(commentText) {
-  const usernames = [...new Set([...commentText.matchAll(MENTION_RE)].map((m) => m[1].toLowerCase()))];
-  if (usernames.length === 0) return [];
-
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('user_id, username')
-    .in('username', usernames);
-
-  if (error) throw error;
-  return (data ?? []).map((row) => row.user_id);
-}
-
 // Posts a comment, then fires the two notification flows the comment can
 // trigger: the post owner learns someone commented, and anyone @mentioned
 // in the text learns they were tagged.
@@ -78,4 +62,34 @@ export async function addComment({ postId, userId, commentText, postOwnerId }) {
   );
 
   return mapRow(data);
+}
+
+// Batch-fetches which of `commentIds` the given user has already liked, so
+// CommentSheet can hydrate every row's heart-fill state in one query instead
+// of one per comment.
+export async function getLikedCommentIds(userId, commentIds) {
+  if (!userId || !commentIds?.length) return [];
+  const { data, error } = await supabase
+    .from('comment_likes')
+    .select('comment_id')
+    .eq('user_id', userId)
+    .in('comment_id', commentIds);
+
+  if (error) throw error;
+  return (data ?? []).map((row) => row.comment_id);
+}
+
+export async function likeComment(userId, commentId) {
+  const { error } = await supabase.from('comment_likes').insert({ user_id: userId, comment_id: commentId });
+  if (error && error.code !== '23505') throw error; // ignore "already liked"
+}
+
+export async function unlikeComment(userId, commentId) {
+  const { error } = await supabase
+    .from('comment_likes')
+    .delete()
+    .eq('user_id', userId)
+    .eq('comment_id', commentId);
+
+  if (error) throw error;
 }

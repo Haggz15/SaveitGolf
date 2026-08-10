@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { createNotification } from './notifications';
 
 // Matches on username or full_name, case-insensitive, excluding the current
 // user so people don't see a "Follow yourself" result.
@@ -41,6 +42,13 @@ export async function followUser(followerId, followingId) {
     .single();
 
   if (error && error.code !== '23505') throw error; // ignore "already following"
+
+  if (data) {
+    createNotification({ userId: followingId, actorId: followerId, type: 'follow' }).catch((err) =>
+      console.error('Failed to notify followed user:', err)
+    );
+  }
+
   return data;
 }
 
