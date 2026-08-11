@@ -52,17 +52,21 @@ export default function ScorecardScreen() {
     })();
   }, [user?.id]);
 
+  // `photoUri` is the single source of truth for what the card displays —
+  // keep it in sync whenever the active scorecard changes (initial load,
+  // fetched latest, or just-saved), so removing a photo always works even
+  // when it came from a saved scorecard rather than a fresh pick.
+  useEffect(() => {
+    setPhotoUri(activeScorecard.photoUrl ?? null);
+  }, [activeScorecard]);
+
   const fullName = (profile?.full_name || 'Unnamed Golfer').toUpperCase();
-  // A freshly-picked photo previews immediately; once no new pick is pending,
-  // fall back to whatever photo is already saved on the active scorecard.
-  const displayedPhotoUri = photoUri ?? activeScorecard.photoUrl ?? null;
 
   async function handleScorecardSaved(newScorecard) {
     if (!user?.id) return;
     try {
       const saved = await saveScorecard(user.id, { ...newScorecard, photoUri });
       setActiveScorecard(saved);
-      setPhotoUri(null);
       setModalVisible(false);
       // Refresh the Past Scorecards list so the round just logged shows up.
       setPastListKey((k) => k + 1);
@@ -123,7 +127,7 @@ export default function ScorecardScreen() {
   }
 
   async function handleShare() {
-    const captureRef = displayedPhotoUri ? shareCardRef : noPhotoShareCardRef;
+    const captureRef = photoUri ? shareCardRef : noPhotoShareCardRef;
 
     if (Platform.OS === 'web') {
       try {
@@ -185,21 +189,33 @@ export default function ScorecardScreen() {
             <ScorecardCard
               scorecard={activeScorecard}
               fullName={fullName}
-              photoUri={displayedPhotoUri}
+              photoUri={photoUri}
               onRequestPhoto={handlePickPhoto}
-              onRemovePhoto={photoUri ? () => setPhotoUri(null) : undefined}
+              onRemovePhoto={() => setPhotoUri(null)}
             />
           </ViewShot>
 
-          <TouchableOpacity
-            style={styles.shareButton}
-            onPress={handleShare}
-            disabled={isSharing}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="share-outline" size={13} color={colors.white} />
-            <Text style={styles.shareButtonText}>{isSharing ? 'Saving…' : 'Share'}</Text>
-          </TouchableOpacity>
+          <View style={styles.topRightButtons}>
+            {!photoUri && (
+              <TouchableOpacity
+                onPress={handlePickPhoto}
+                style={styles.addPhotoPlusButton}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.addPhotoPlusButtonText}>+</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.shareButton}
+              onPress={handleShare}
+              disabled={isSharing}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="share-outline" size={13} color={colors.white} />
+              <Text style={styles.shareButtonText}>{isSharing ? 'Saving…' : 'Share'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={[styles.offscreen, { width: windowWidth - 32 }]} pointerEvents="none">
@@ -277,11 +293,34 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   // Overlaid on top of the card (a sibling of the ViewShot-wrapped content,
-  // not a child of it) so it never shows up in the captured/saved image.
-  shareButton: {
+  // not a child of it) so neither button ever shows up in the
+  // captured/saved image.
+  topRightButtons: {
     position: 'absolute',
     top: 10,
     right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  // Only rendered when there's no photo yet; tapping it opens the picker.
+  // Disappears (and the card's own "Remove" button takes over) once a
+  // photo is set.
+  addPhotoPlusButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.brightGreen,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addPhotoPlusButtonText: {
+    color: '#0d2a0d',
+    fontSize: 20,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  shareButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,

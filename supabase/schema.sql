@@ -669,6 +669,12 @@ create policy "Users can remove their own courses"
 alter table public.posts add column if not exists reports_count integer not null default 0;
 alter table public.posts add column if not exists hidden boolean not null default false;
 
+-- Optional name for the specific nine played, for courses with more than 18
+-- holes or informally-named combo nines (e.g. "Ridge", "Blue") — same concept
+-- as scorecards.composite_front/composite_back, but a post only ever tags one
+-- nine at a time since it's about a single hole.
+alter table public.posts add column if not exists composite_name text;
+
 -- Reports: one row per (post, reporter) so the same user can't inflate a
 -- post's count by reporting it repeatedly. No update/delete policy for
 -- regular users — status (pending/reviewed/dismissed/removed) is triaged by

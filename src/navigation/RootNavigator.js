@@ -128,6 +128,11 @@ export default function RootNavigator() {
             component={CourseDetailScreen}
             options={{ presentation: 'modal' }}
           />
+          {/* Reuses FeedScreen itself (see its `route.params.filter` handling)
+              for the course/hole full-screen swipe feeds pushed from
+              CourseDetailScreen — a real stack screen rather than a tab so it
+              gets its own back button and no bottom tab bar. */}
+          <Stack.Screen name="CourseFeed" component={FeedScreen} />
           <Stack.Screen name="UserProfile" component={OtherUserProfileScreen} />
           <Stack.Screen name="UserScorecards" component={UserScorecardsScreen} />
         </Stack.Navigator>

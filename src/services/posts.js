@@ -43,6 +43,7 @@ export async function createPost({
   caption,
   mediaUri,
   mediaType,
+  compositeName,
 }) {
   const mediaUrl = await uploadMedia(userId, mediaUri, mediaType);
 
@@ -61,6 +62,7 @@ export async function createPost({
       caption: caption || null,
       media_url: mediaUrl,
       media_type: mediaType,
+      composite_name: compositeName || null,
     })
     .select()
     .single();
@@ -110,6 +112,7 @@ export function mapRow(row) {
     lng: row.lng,
     hole: row.hole,
     par: row.par,
+    compositeName: row.composite_name ?? null,
     caption: row.caption ?? '',
     likes: row.likes_count ?? 0,
     comments: row.comments_count ?? 0,
@@ -211,4 +214,79 @@ export async function getPostsForCourse({ courseId, courseName }) {
   const { data, error } = await request;
   if (error) throw error;
   return (data ?? []).map(mapRow).sort((a, b) => b.likes - a.likes);
+}
+
+// Lightweight per-post `{ hole, compositeName }` pairs for the Course Detail
+// screen's stats bar and Hole by Hole grid — those only ever count/group by
+// hole and nine, never render the posts themselves (that's CourseFeed's
+// job), so this skips the profile join and full row (media, caption, likes)
+// that getPostsForCourse fetches. Same course_id-with-name-fallback match.
+export async function getCourseHoleStats({ courseId, courseName }) {
+  let request = supabase.from('posts').select('hole, composite_name').eq('hidden', false);
+  request = courseId ? request.eq('course_id', courseId) : request.ilike('course_name', courseName ?? '');
+
+  const { data, error } = await request;
+  if (error) throw error;
+  return (data ?? []).map((row) => ({ hole: row.hole, compositeName: row.composite_name ?? null }));
+}
+
+// Backfills lat/lng on a post once its course has been geocoded on demand
+// (see FeedScreen.handleCoursePress / useCourseMapData's routeZoomToState
+// handling) so the next tap on the same post's course name skips the
+// geocoding round-trip entirely. Best-effort and silent on failure — a
+// write hiccup here shouldn't block the map from showing the course this
+// time around, and demo/mock posts (non-UUID ids, no real row) are expected
+// to fail this update harmlessly.
+export async function updatePostCoordinates(postId, lat, lng) {
+  const { error } = await supabase.from('posts').update({ lat, lng }).eq('id', postId);
+  if (error) console.error('Failed to save geocoded coordinates back to post:', error);
+}
+
+// Sentinel for "posts at this course that never tagged a nine" — distinct
+// from `compositeName: undefined/null`, which means "don't filter by nine at
+// all" (used when the course has no composite-named posts in the first
+// place). Shared between CourseDetailScreen (the "Other Holes" section) and
+// getCourseFeedPosts below, which needs to tell the two cases apart.
+export const UNGROUPED_NINE = '__ungrouped__';
+
+// Paginated, sortable feed for the course/hole full-screen swipe views
+// (CourseDetailScreen -> CourseFeed). `hole` and `compositeName` are both
+// optional filters layered on top of the course match; `compositeName` is
+// only applied when explicitly a real name or UNGROUPED_NINE — omitting it
+// (the classic non-composite course) returns every post at that hole
+// regardless of nine, same as getPostsForCourse's hole-agnostic behavior.
+export async function getCourseFeedPosts({
+  courseId,
+  courseName,
+  hole,
+  compositeName,
+  sort = 'likes',
+  offset = 0,
+  limit = 10,
+}) {
+  let request = supabase
+    .from('posts')
+    .select('*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)')
+    .eq('hidden', false);
+
+  request = courseId ? request.eq('course_id', courseId) : request.ilike('course_name', courseName ?? '');
+
+  if (hole != null) {
+    request = request.eq('hole', hole);
+  }
+  if (compositeName === UNGROUPED_NINE) {
+    request = request.is('composite_name', null);
+  } else if (compositeName) {
+    request = request.eq('composite_name', compositeName);
+  }
+
+  request =
+    sort === 'recent'
+      ? request.order('created_at', { ascending: false })
+      : request.order('likes_count', { ascending: false });
+  request = request.range(offset, offset + limit - 1);
+
+  const { data, error } = await request;
+  if (error) throw error;
+  return (data ?? []).map(mapRow);
 }

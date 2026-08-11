@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Location from 'expo-location';
 import { stateCenters, allStateAbbreviations } from '../data/courses';
 import { getCourseById, searchCourses, RateLimitError } from '../services/golfCourseApi';
+import { getPostsForCourse, updatePostCoordinates } from '../services/posts';
 import { geocodeCourseCoordinates } from '../services/geocoding';
 import { getMyCourses, updateMyCourseCoordinates, getSavedCourseCoordinates } from '../services/myCourses';
 import { getAllCoursesInState } from '../services/stateCourses';
@@ -262,16 +263,30 @@ export function useCourseMapData({
       .then((detail) => {
         if (requestId !== courseDetailRequestIdRef.current) return;
         const primaryTee = detail.tees?.male?.[0] ?? detail.tees?.female?.[0] ?? null;
-        setSelectedDetail({
+        setSelectedDetail((prev) => ({
+          ...prev,
           loading: false,
           holes: primaryTee?.number_of_holes ?? null,
           par: primaryTee?.par_total ?? null,
-        });
+        }));
       })
       .catch((err) => {
         if (requestId !== courseDetailRequestIdRef.current) return;
         const message = err instanceof RateLimitError ? 'Daily limit reached' : 'Unavailable';
-        setSelectedDetail({ loading: false, error: message });
+        setSelectedDetail((prev) => ({ ...prev, loading: false, error: message }));
+      });
+
+    // Separate fetch (and merged into selectedDetail independently of the
+    // tee-data request above) so a slow/failed golfcourseapi.com lookup
+    // never blocks which nines show up in the popup, and vice versa.
+    getPostsForCourse({ courseId: course.id, courseName: course.name })
+      .then((posts) => {
+        if (requestId !== courseDetailRequestIdRef.current) return;
+        const nines = [...new Set(posts.map((p) => p.compositeName).filter(Boolean))];
+        setSelectedDetail((prev) => ({ ...prev, nines }));
+      })
+      .catch((err) => {
+        console.error('Failed to load posts for course map popup:', err);
       });
   }, []);
 
@@ -339,11 +354,16 @@ export function useCourseMapData({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeFocusCourse, routeTimestamp]);
 
-  // Feed's course-name tap (see FeedScreen.handleCoursePress) zooms out to
-  // show the course's whole state — using a small set of specified centers
-  // for a few states and each other state's capital otherwise (see
-  // stateZoomCenters) — rather than zooming tight on the course itself, and
-  // drops a labeled pin at the course's exact coordinates alongside it.
+  // Feed's course-name tap (see FeedScreen.handleCoursePress). Two stages:
+  // (1) immediately zoom out to the course's whole state — using a small
+  // set of specified centers for a few states and each other state's
+  // capital otherwise (see stateZoomCenters) — so the screen shows
+  // *something* right away instead of sitting on the old region while the
+  // course is located; (2) once real coordinates are in hand (already on
+  // the post, or geocoded via Nominatim as a fallback), animate in tight on
+  // the course itself and drop the 1.5x flag there. A post with no stored
+  // coordinates that successfully geocodes gets them written back (see
+  // updatePostCoordinates) so the next tap on it skips straight to stage 2.
   useEffect(() => {
     if (!routeZoomToState) return;
     let cancelled = false;
@@ -365,12 +385,16 @@ export function useCourseMapData({
 
     (async () => {
       let { lat, lng } = routeZoomToState;
+      const hadStoredCoordinates = courseHasValidCoordinates({ lat, lng });
       // Feed posts don't always carry stored coordinates — geocode the
-      // course via Nominatim so the pin can still be placed exactly.
-      if (!courseHasValidCoordinates({ lat, lng }) && routeZoomToState.courseName) {
+      // course via Nominatim so the pin can still be placed exactly. Passing
+      // city (when known) alongside name/state is what makes this match
+      // reliably — see geocodeQueryChain in services/geocoding.js.
+      if (!hadStoredCoordinates && routeZoomToState.courseName) {
         const coords = await geocodeCourseCoordinates({
-          id: `${routeZoomToState.courseName}-${routeZoomToState.state}`,
+          id: routeZoomToState.courseId || `${routeZoomToState.courseName}-${routeZoomToState.state}`,
           name: routeZoomToState.courseName,
+          city: routeZoomToState.city,
           state: routeZoomToState.state,
         });
         if (coords) {
@@ -379,9 +403,27 @@ export function useCourseMapData({
         }
       }
       if (cancelled) return;
+
       if (courseHasValidCoordinates({ lat, lng })) {
         setFeedFocusPin({ name: routeZoomToState.courseName, lat, lng });
+        const nextRegion = {
+          latitude: lat,
+          longitude: lng,
+          latitudeDelta: SEARCH_FOCUS_DELTA,
+          longitudeDelta: SEARCH_FOCUS_DELTA,
+        };
+        setRegionState(nextRegion);
+        setFocusRegion({
+          ...nextRegion,
+          key: `feed-course-${routeZoomToState.courseName}-${routeZoomToStateTimestamp}`,
+        });
+        if (!hadStoredCoordinates && routeZoomToState.postId) {
+          updatePostCoordinates(routeZoomToState.postId, lat, lng);
+        }
       } else {
+        // Geocoding came up empty — stay at the stage-1 state-wide view
+        // rather than dropping a pin at a coordinate that isn't actually
+        // this course.
         setFeedFocusPin(null);
       }
     })();

@@ -20,20 +20,21 @@ import CommentSheet from '../components/feed/CommentSheet';
 import NotificationPanel from '../components/feed/NotificationPanel';
 import ShotOfWeekBanner from '../components/feed/ShotOfWeekBanner';
 import PostActionsSheet from '../components/feed/PostActionsSheet';
+import MediaWatermarker from '../components/feed/MediaWatermarker';
 import MentionText from '../components/social/MentionText';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { feedPosts as mockFeedPosts, filterPills } from '../data/mockData';
-import { HEADER_CONTENT_HEIGHT, PILL_ROW_HEIGHT, TAB_BAR_HEIGHT } from '../theme/layout';
+import { HEADER_CONTENT_HEIGHT, PILL_ROW_HEIGHT, TAB_BAR_HEIGHT, FILTERED_FEED_HEADER_HEIGHT } from '../theme/layout';
 import { useAuth } from '../context/AuthContext';
-import { getFeedPosts } from '../services/posts';
+import { getFeedPosts, getCourseFeedPosts, UNGROUPED_NINE } from '../services/posts';
 import { getFollowingIds } from '../services/social';
 import { likePost, unlikePost, getLikedPostIds } from '../services/likes';
 import { createNotification, getUnreadNotificationCount } from '../services/notifications';
 import { getCurrentShotOfWeek } from '../services/shotOfWeek';
 import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
-import { saveMediaToDevice } from '../utils/saveMedia';
+import { saveMediaToDevice, saveImageWithWatermarkWeb, saveLocalUriToLibrary } from '../utils/saveMedia';
 import { haversineMiles } from '../utils/distance';
 
 const UNREAD_POLL_INTERVAL_MS = 30000;
@@ -64,12 +65,16 @@ function PostSlide({
   onMorePress,
   onMentionPress,
   onToast,
+  onSaveMedia,
 }) {
   const [liked, setLiked] = useState(initiallyLiked);
   const [likeCount, setLikeCount] = useState(post.likes);
   const [saved, setSaved] = useState(initiallySaved);
   const [savingMedia, setSavingMedia] = useState(false);
   const isVideo = post.isVideo ?? Boolean(post.video);
+  // Fix 3: only images get the SaveitGolf watermark baked in — there's no
+  // video-processing story here, so videos keep the plain save.
+  const saveMediaForPost = (mediaUrl) => (isVideo ? saveMediaToDevice(mediaUrl) : onSaveMedia(mediaUrl));
 
   async function toggleLike() {
     if (!currentUserId) return;
@@ -108,7 +113,7 @@ function PostSlide({
       if (next && post.mediaUrl) {
         setSavingMedia(true);
         try {
-          await saveMediaToDevice(post.mediaUrl);
+          await saveMediaForPost(post.mediaUrl);
           onToast?.('Saved to Camera Roll', 'success');
         } catch (mediaErr) {
           console.error('Failed to save demo post media to camera roll:', mediaErr);
@@ -132,7 +137,7 @@ function PostSlide({
         if (post.mediaUrl) {
           setSavingMedia(true);
           try {
-            await saveMediaToDevice(post.mediaUrl);
+            await saveMediaForPost(post.mediaUrl);
             onToast?.('Saved to Camera Roll', 'success');
           } catch (mediaErr) {
             console.error('Failed to save media to camera roll:', mediaErr);
@@ -187,6 +192,11 @@ function PostSlide({
         >
           <Text style={styles.topLeftCourseName}>{post.course}</Text>
         </TouchableOpacity>
+        {post.compositeName ? (
+          <Text style={styles.topLeftCompositeName} numberOfLines={1}>
+            {post.compositeName}
+          </Text>
+        ) : null}
         {post.hole != null && (
           <View style={styles.holeWrap}>
             <Text style={styles.holeLabel}>Hole</Text>
@@ -279,10 +289,20 @@ function PostSlide({
   );
 }
 
-export default function FeedScreen({ navigation }) {
+const COURSE_FEED_PAGE_SIZE = 10;
+
+export default function FeedScreen({ navigation, route }) {
   const { user, profile } = useAuth();
+  // Course/hole full-screen feed mode (pushed as the "CourseFeed" stack
+  // route from CourseDetailScreen) — undefined/null here means this is the
+  // normal main-feed tab. See getCourseFeedPosts in services/posts.js.
+  const filter = route?.params?.filter ?? null;
   const [activeFilter, setActiveFilter] = useState('Feed');
+  const [sortMode, setSortMode] = useState('likes'); // 'likes' | 'recent' — filtered mode only, resets on remount
   const [posts, setPosts] = useState([]);
+  const [courseFeedOffset, setCourseFeedOffset] = useState(0);
+  const [courseFeedHasMore, setCourseFeedHasMore] = useState(true);
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
   const [likedPostIds, setLikedPostIds] = useState(new Set());
   const [savedPostIds, setSavedPostIds] = useState(new Set());
   const [shotOfWeekPostId, setShotOfWeekPostId] = useState(null);
@@ -297,9 +317,25 @@ export default function FeedScreen({ navigation }) {
   const [actionsSheetPost, setActionsSheetPost] = useState(null);
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
-  const containerHeight =
-    windowHeight - insets.top - HEADER_CONTENT_HEIGHT - PILL_ROW_HEIGHT - TAB_BAR_HEIGHT;
+  const containerHeight = filter
+    ? windowHeight - insets.top - FILTERED_FEED_HEADER_HEIGHT
+    : windowHeight - insets.top - HEADER_CONTENT_HEIGHT - PILL_ROW_HEIGHT - TAB_BAR_HEIGHT;
   const postsListRef = useRef(null);
+  // Off-screen capture rig for the watermarked save (Fix 3) — mounted once
+  // here rather than per-slide so pagingthrough posts doesn't spin up a new
+  // ViewShot for every card.
+  const watermarkerRef = useRef(null);
+
+  // Adds the SaveitGolf watermark before saving an image post to the device
+  // — web composites it with <canvas> directly; native renders it off-screen
+  // via `watermarkerRef` first, then saves the resulting local file.
+  async function saveImageWithWatermark(mediaUrl) {
+    if (Platform.OS === 'web') {
+      return saveImageWithWatermarkWeb(mediaUrl);
+    }
+    const uri = await watermarkerRef.current.capture(mediaUrl);
+    return saveLocalUriToLibrary(uri);
+  }
 
   const loadFeed = useCallback(async () => {
     setLoadingFeed(true);
@@ -379,8 +415,84 @@ export default function FeedScreen({ navigation }) {
   }, [activeFilter, user?.id]);
 
   useEffect(() => {
+    if (filter) return; // filtered mode has its own loader below
     loadFeed();
-  }, [loadFeed]);
+  }, [loadFeed, filter]);
+
+  // Filtered mode's initial load (and reload whenever the course/hole/nine
+  // being viewed or the sort mode changes) — separate from loadFeed above
+  // since it's a different query shape (paginated, no Following/Nearby
+  // pills, no mock-post fallback) rather than another branch of it.
+  useEffect(() => {
+    if (!filter) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingFeed(true);
+      setPosts([]);
+      setCourseFeedOffset(0);
+      setCourseFeedHasMore(true);
+      try {
+        const first = await getCourseFeedPosts({
+          courseId: filter.courseId,
+          courseName: filter.courseName,
+          hole: filter.hole,
+          compositeName: filter.compositeName,
+          sort: sortMode,
+          offset: 0,
+          limit: COURSE_FEED_PAGE_SIZE,
+        });
+        if (cancelled) return;
+        setPosts(first);
+        setCourseFeedOffset(first.length);
+        setCourseFeedHasMore(first.length === COURSE_FEED_PAGE_SIZE);
+        if (user?.id && first.length) {
+          const ids = first.map((p) => p.id);
+          const [liked, saved] = await Promise.all([getLikedPostIds(user.id, ids), getSavedPostIds(user.id, ids)]);
+          if (cancelled) return;
+          setLikedPostIds(new Set(liked));
+          setSavedPostIds(new Set(saved));
+        }
+      } catch (err) {
+        console.error('Failed to load course feed:', err);
+        if (!cancelled) setPosts([]);
+      } finally {
+        if (!cancelled) setLoadingFeed(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter?.courseId, filter?.courseName, filter?.hole, filter?.compositeName, sortMode, user?.id]);
+
+  const loadMoreCourseFeedPosts = useCallback(async () => {
+    if (!filter || !courseFeedHasMore || loadingMorePosts) return;
+    setLoadingMorePosts(true);
+    try {
+      const next = await getCourseFeedPosts({
+        courseId: filter.courseId,
+        courseName: filter.courseName,
+        hole: filter.hole,
+        compositeName: filter.compositeName,
+        sort: sortMode,
+        offset: courseFeedOffset,
+        limit: COURSE_FEED_PAGE_SIZE,
+      });
+      setPosts((prev) => [...prev, ...next]);
+      setCourseFeedOffset((prev) => prev + next.length);
+      setCourseFeedHasMore(next.length === COURSE_FEED_PAGE_SIZE);
+      if (user?.id && next.length) {
+        const ids = next.map((p) => p.id);
+        const [liked, saved] = await Promise.all([getLikedPostIds(user.id, ids), getSavedPostIds(user.id, ids)]);
+        setLikedPostIds((prev) => new Set([...prev, ...liked]));
+        setSavedPostIds((prev) => new Set([...prev, ...saved]));
+      }
+    } catch (err) {
+      console.error('Failed to load more posts:', err);
+    } finally {
+      setLoadingMorePosts(false);
+    }
+  }, [filter, courseFeedHasMore, loadingMorePosts, courseFeedOffset, sortMode, user?.id]);
 
   useEffect(() => {
     setActivePostId(posts[0]?.id ?? null);
@@ -404,8 +516,22 @@ export default function FeedScreen({ navigation }) {
     };
   }, [user?.id]);
 
+  // In the normal tab mode, 'Map' is a sibling screen inside the same Tab
+  // navigator so a plain navigate('Map', ...) resolves directly. In filtered
+  // mode, FeedScreen is pushed as its own top-level stack screen (see
+  // RootNavigator's "CourseFeed" route) — from there 'Map' only exists
+  // nested inside 'Tabs', so it has to be addressed explicitly (same pattern
+  // CourseDetailScreen already uses for its own "View on Map" button).
+  const navigateToMap = (screenParams) => {
+    if (filter) {
+      navigation.navigate('Tabs', { screen: 'Map', params: screenParams });
+    } else {
+      navigation.navigate('Map', screenParams);
+    }
+  };
+
   const handleStatePress = (post) => {
-    navigation.navigate('Map', {
+    navigateToMap({
       focusCourse: {
         id: post.courseId ?? null,
         name: post.course,
@@ -419,9 +545,12 @@ export default function FeedScreen({ navigation }) {
   };
 
   const handleCoursePress = (post) => {
-    navigation.navigate('Map', {
+    navigateToMap({
       zoomToState: {
+        postId: post.id ?? null,
+        courseId: post.courseId ?? null,
         courseName: post.course,
+        city: post.city ?? null,
         state: post.state ?? null,
         lat: post.lat ?? null,
         lng: post.lng ?? null,
@@ -522,45 +651,91 @@ export default function FeedScreen({ navigation }) {
     }
   }).current;
 
+  const filteredTitle = filter
+    ? filter.hole != null
+      ? `Hole ${filter.hole}${
+          filter.compositeName && filter.compositeName !== UNGROUPED_NINE ? ` — ${filter.compositeName}` : ''
+        } — ${filter.courseName}`
+      : filter.courseName
+    : null;
+  const filteredEmptyText =
+    filter?.hole != null ? 'No posts on this hole yet.' : 'No posts at this course yet. Be the first to post!';
+
   return (
     <View style={styles.screen}>
-      <Header
-        right={
-          <View style={styles.headerActions}>
+      {filter ? (
+        <View style={[styles.filteredHeader, { paddingTop: insets.top + 8 }]}>
+          <View style={styles.filteredHeaderTopRow}>
             <TouchableOpacity
-              style={styles.headerIconButton}
-              onPress={() => setNotificationsVisible(true)}
+              onPress={() => navigation.goBack()}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="notifications-outline" size={22} color={colors.white} />
-              {unreadCount > 0 && <View style={styles.unreadDot} />}
+              <Ionicons name="chevron-back" size={24} color={colors.red} />
+            </TouchableOpacity>
+            <Text style={styles.filteredHeaderTitle} numberOfLines={1}>
+              {filteredTitle}
+            </Text>
+          </View>
+          <View style={styles.sortToggleRow}>
+            <TouchableOpacity
+              style={[styles.sortToggleOption, sortMode === 'likes' && styles.sortToggleOptionActive]}
+              onPress={() => setSortMode('likes')}
+            >
+              <Text style={[styles.sortToggleText, sortMode === 'likes' && styles.sortToggleTextActive]}>
+                Most Liked
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.headerIconButton}
-              onPress={() => setAddFriendsVisible(true)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={[styles.sortToggleOption, sortMode === 'recent' && styles.sortToggleOptionActive]}
+              onPress={() => setSortMode('recent')}
             >
-              <Ionicons name="person-add" size={22} color={colors.white} />
+              <Text style={[styles.sortToggleText, sortMode === 'recent' && styles.sortToggleTextActive]}>
+                Most Recent
+              </Text>
             </TouchableOpacity>
           </View>
-        }
-      />
-      <View style={styles.pillRow}>
-        <FlatList
-          data={filterPills}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          keyExtractor={(item) => item}
-          contentContainerStyle={{ paddingHorizontal: 16 }}
-          renderItem={({ item }) => (
-            <FilterPill
-              label={item}
-              active={activeFilter === item}
-              onPress={() => setActiveFilter(item)}
+        </View>
+      ) : (
+        <>
+          <Header
+            right={
+              <View style={styles.headerActions}>
+                <TouchableOpacity
+                  style={styles.headerIconButton}
+                  onPress={() => setNotificationsVisible(true)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="notifications-outline" size={22} color={colors.white} />
+                  {unreadCount > 0 && <View style={styles.unreadDot} />}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.headerIconButton}
+                  onPress={() => setAddFriendsVisible(true)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="person-add" size={22} color={colors.white} />
+                </TouchableOpacity>
+              </View>
+            }
+          />
+          <View style={styles.pillRow}>
+            <FlatList
+              data={filterPills}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item) => item}
+              contentContainerStyle={{ paddingHorizontal: 16 }}
+              renderItem={({ item }) => (
+                <FilterPill
+                  label={item}
+                  active={activeFilter === item}
+                  onPress={() => setActiveFilter(item)}
+                />
+              )}
             />
-          )}
-        />
-      </View>
+          </View>
+        </>
+      )}
 
       <View style={styles.pagerContainer}>
         {loadingFeed ? (
@@ -569,7 +744,7 @@ export default function FeedScreen({ navigation }) {
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={36} color={colors.muted} />
             <Text style={styles.emptyStateText}>
-              Follow golfers to see their posts here — tap the Add Friends icon above.
+              {filter ? filteredEmptyText : 'Follow golfers to see their posts here — tap the Add Friends icon above.'}
             </Text>
           </View>
         ) : (
@@ -594,6 +769,7 @@ export default function FeedScreen({ navigation }) {
                   onMorePress={setActionsSheetPost}
                   onMentionPress={handleMentionPress}
                   onToast={showToast}
+                  onSaveMedia={saveImageWithWatermark}
                 />
               )}
               pagingEnabled
@@ -613,6 +789,13 @@ export default function FeedScreen({ navigation }) {
               }}
               viewabilityConfig={viewabilityConfig}
               onViewableItemsChanged={onViewableItemsChanged}
+              onEndReached={filter ? loadMoreCourseFeedPosts : undefined}
+              onEndReachedThreshold={0.6}
+              ListFooterComponent={
+                filter && loadingMorePosts ? (
+                  <ActivityIndicator color={colors.red} size="small" style={styles.loadMoreSpinner} />
+                ) : null
+              }
               initialNumToRender={2}
               maxToRenderPerBatch={2}
               windowSize={3}
@@ -661,6 +844,8 @@ export default function FeedScreen({ navigation }) {
           setToastType(null);
         }}
       />
+
+      <MediaWatermarker ref={watermarkerRef} />
     </View>
   );
 }
@@ -691,6 +876,56 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
     borderWidth: 1.5,
     borderColor: colors.navy,
+  },
+  // Course/hole filtered mode's header — back button + title, then the
+  // Most Liked/Most Recent sort toggle below it — in place of the normal
+  // Header + filter pills (see FeedScreen's `filter` prop).
+  filteredHeader: {
+    backgroundColor: colors.navy,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.navyBorder,
+  },
+  filteredHeaderTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  filteredHeaderTitle: {
+    flex: 1,
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 16,
+    color: colors.white,
+  },
+  sortToggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
+  sortToggleOption: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+  },
+  sortToggleOptionActive: {
+    backgroundColor: colors.red,
+    borderColor: colors.red,
+  },
+  sortToggleText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  sortToggleTextActive: {
+    color: colors.white,
+  },
+  loadMoreSpinner: {
+    paddingVertical: 20,
   },
   pillRow: {
     paddingVertical: 12,
@@ -765,6 +1000,16 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.7)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
+  },
+  topLeftCompositeName: {
+    fontFamily: 'Cinzel_700Bold',
+    fontStyle: 'italic',
+    fontSize: 11,
+    color: '#a8c0e0',
+    marginTop: 2,
+    textShadowColor: 'rgba(0, 0, 0, 0.7)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   holeWrap: {
     marginTop: 6,

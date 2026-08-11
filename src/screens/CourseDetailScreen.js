@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
 import { getCourseById } from '../services/golfCourseApi';
-import { getPostsForCourse } from '../services/posts';
+import { getCourseHoleStats, UNGROUPED_NINE } from '../services/posts';
 import { getScorecardsForCourse } from '../services/scorecards';
 import { getAverageRatingForCourse } from '../services/courseRankings';
 import { getCoursePhoto } from '../data/coursePhotos';
@@ -20,23 +20,6 @@ function scoreDiffLabel(score, par) {
   const diff = score - par;
   if (diff === 0) return 'E';
   return diff > 0 ? `+${diff}` : `${diff}`;
-}
-
-function PostTile({ post }) {
-  return (
-    <View style={styles.postTile}>
-      <Image source={{ uri: post.mediaUrl }} style={styles.postTileImage} resizeMode="cover" />
-      {post.isVideo && (
-        <View style={styles.playButton}>
-          <Ionicons name="play" size={9} color={colors.white} />
-        </View>
-      )}
-      <View style={styles.tileLikeRow}>
-        <Ionicons name="heart" size={12} color={colors.white} />
-        <Text style={styles.tileLikeText}>{post.likes}</Text>
-      </View>
-    </View>
-  );
 }
 
 function HoleCard({ number, par, yardage, postCount, isMostPopular, image, onPress }) {
@@ -117,9 +100,15 @@ export default function CourseDetailScreen({ route, navigation }) {
   const { courseId, courseName, city, state, lat, lng } = route.params ?? {};
   const insets = useSafeAreaInsets();
   const [tees, setTees] = useState(null);
-  const [activeTab, setActiveTab] = useState(TABS[0]);
-  const [selectedHole, setSelectedHole] = useState(null);
+  // 'All Posts' never renders inline — tapping it navigates straight to the
+  // full-screen course feed (see handleSelectTab) — so it can't be the
+  // resting tab.
+  const [activeTab, setActiveTab] = useState('Hole by Hole');
   const [coursePosts, setCoursePosts] = useState([]);
+  // Gates the stats bar / tab row / tab content behind a spinner — the
+  // header and hero above render immediately from route params regardless,
+  // so the screen never looks blank while this is in flight.
+  const [postsLoading, setPostsLoading] = useState(true);
   const [scorecards, setScorecards] = useState([]);
   const [avgRating, setAvgRating] = useState(null);
   const [courseCoords, setCourseCoords] = useState({ lat: lat ?? null, lng: lng ?? null });
@@ -145,11 +134,15 @@ export default function CourseDetailScreen({ route, navigation }) {
     let cancelled = false;
     if (!courseId && !courseName) return undefined;
 
-    getPostsForCourse({ courseId, courseName })
-      .then((posts) => {
-        if (!cancelled) setCoursePosts(posts);
+    setPostsLoading(true);
+    getCourseHoleStats({ courseId, courseName })
+      .then((stats) => {
+        if (!cancelled) setCoursePosts(stats);
       })
-      .catch((err) => console.error('Failed to load course posts:', err));
+      .catch((err) => console.error('Failed to load course posts:', err))
+      .finally(() => {
+        if (!cancelled) setPostsLoading(false);
+      });
 
     getScorecardsForCourse({ courseId, courseName })
       .then((rows) => {
@@ -191,20 +184,69 @@ export default function CourseDetailScreen({ route, navigation }) {
     [holes]
   );
 
-  // coursePosts is already sorted most-liked-first by getPostsForCourse.
-  const filteredPosts = useMemo(() => {
-    if (selectedHole == null) return coursePosts;
-    return coursePosts.filter((p) => p.hole === selectedHole);
-  }, [coursePosts, selectedHole]);
+  // Distinct composite nine names among this course's posts, in first-seen
+  // order — drives the Hole by Hole tab's grouping (Step 5). Empty when no
+  // post here has ever tagged a nine, which keeps that tab's classic
+  // single-grid layout unchanged.
+  const compositeNames = useMemo(() => {
+    const seen = new Set();
+    const ordered = [];
+    coursePosts.forEach((p) => {
+      if (p.compositeName && !seen.has(p.compositeName)) {
+        seen.add(p.compositeName);
+        ordered.push(p.compositeName);
+      }
+    });
+    return ordered;
+  }, [coursePosts]);
 
-  function handleSelectTab(tab) {
-    setActiveTab(tab);
-    if (tab !== 'All Posts') setSelectedHole(null);
+  // A composite-named nine is always holes 1-9 regardless of which real
+  // 9 of the course it maps to — same holes/par/image metadata as the
+  // course's front nine, just re-scoped to whichever posts named `nine`.
+  function nineHoles(nine) {
+    return Array.from({ length: 9 }, (_, index) => {
+      const liveHole = primaryTee?.holes?.[index];
+      const number = index + 1;
+      return {
+        number,
+        par: liveHole?.par ?? DEFAULT_HOLE_PATTERN[index % DEFAULT_HOLE_PATTERN.length],
+        yardage: liveHole?.yardage ?? null,
+        postCount: coursePosts.filter((p) => p.hole === number && p.compositeName === nine).length,
+        image: getCoursePhoto(courseName, number),
+      };
+    });
   }
 
-  function handleSelectHole(number) {
-    setSelectedHole(number);
-    setActiveTab('All Posts');
+  // Posts logged at this course without ever toggling "multiple nines" —
+  // shown as their own "Other Holes" section (full hole range) once at
+  // least one composite-named nine exists, so they don't just disappear.
+  const otherHoles = useMemo(
+    () => holes.map((h) => ({ ...h, postCount: coursePosts.filter((p) => p.hole === h.number && !p.compositeName).length })),
+    [holes, coursePosts]
+  );
+
+  // All Posts and Hole by Hole's individual hole cards both open the
+  // full-screen swipe feed (reusing FeedScreen — see its `filter` prop and
+  // RootNavigator's "CourseFeed" route) rather than rendering inline.
+  // `compositeName` mirrors the three states getCourseFeedPosts expects:
+  // omitted (no nine filter — classic non-composite course), a real nine
+  // name, or UNGROUPED_NINE for the "Other Holes" bucket.
+  function navigateToCourseFeed({ hole = null, compositeName = null } = {}) {
+    navigation.navigate('CourseFeed', {
+      filter: { courseId, courseName, hole, compositeName },
+    });
+  }
+
+  function handleSelectTab(tab) {
+    if (tab === 'All Posts') {
+      navigateToCourseFeed();
+      return;
+    }
+    setActiveTab(tab);
+  }
+
+  function handleSelectHole(number, nine = null) {
+    navigateToCourseFeed({ hole: number, compositeName: nine });
   }
 
   const goToTab = (screen) => navigation.navigate('Tabs', { screen });
@@ -263,80 +305,109 @@ export default function CourseDetailScreen({ route, navigation }) {
           </Text>
         </LinearGradient>
 
-        <View style={styles.statsBar}>
-          {avgRating != null && (
-            <>
+        {postsLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator color={colors.red} size="large" />
+          </View>
+        ) : (
+          <>
+            <View style={styles.statsBar}>
+              {avgRating != null && (
+                <>
+                  <View style={styles.statHalf}>
+                    <Ionicons name="star" size={15} color={colors.gold} style={{ marginRight: 6 }} />
+                    <Text style={styles.statValue}>{avgRating.toFixed(1)}</Text>
+                    <Text style={styles.statLabel}>Rating</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                </>
+              )}
               <View style={styles.statHalf}>
-                <Ionicons name="star" size={15} color={colors.gold} style={{ marginRight: 6 }} />
-                <Text style={styles.statValue}>{avgRating.toFixed(1)}</Text>
-                <Text style={styles.statLabel}>Rating</Text>
+                <Text style={styles.statValue}>{coursePosts.length}</Text>
+                <Text style={styles.statLabel}>Posts</Text>
               </View>
-              <View style={styles.statDivider} />
-            </>
-          )}
-          <View style={styles.statHalf}>
-            <Text style={styles.statValue}>{coursePosts.length}</Text>
-            <Text style={styles.statLabel}>Posts</Text>
-          </View>
-        </View>
+            </View>
 
-        <View style={styles.tabRow}>
-          {TABS.map((tab) => (
-            <TouchableOpacity key={tab} style={styles.tabButton} onPress={() => handleSelectTab(tab)}>
-              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
-              {activeTab === tab && <View style={styles.tabIndicator} />}
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {activeTab === 'All Posts' && (
-          <View style={styles.tabContent}>
-            {selectedHole != null && (
-              <TouchableOpacity style={styles.holeFilterBanner} onPress={() => setSelectedHole(null)}>
-                <Text style={styles.holeFilterBannerText}>Hole {selectedHole}</Text>
-                <Ionicons name="close-circle" size={16} color={colors.muted} />
-              </TouchableOpacity>
-            )}
-            {filteredPosts.length === 0 ? (
-              <Text style={styles.helperText}>No posts here yet.</Text>
-            ) : (
-              <View style={styles.postsGrid}>
-                {filteredPosts.map((post) => (
-                  <PostTile key={post.id} post={post} />
-                ))}
-              </View>
-            )}
-          </View>
-        )}
-
-        {activeTab === 'Hole by Hole' && (
-          <View style={styles.tabContent}>
-            <Text style={styles.helperText}>Tap any hole to see posts</Text>
-            <View style={styles.holeGrid}>
-              {holes.map((hole) => (
-                <HoleCard
-                  key={hole.number}
-                  number={hole.number}
-                  par={hole.par}
-                  yardage={hole.yardage}
-                  postCount={hole.postCount}
-                  isMostPopular={hole.number === mostPopularHole.number}
-                  image={hole.image}
-                  onPress={() => handleSelectHole(hole.number)}
-                />
+            <View style={styles.tabRow}>
+              {TABS.map((tab) => (
+                <TouchableOpacity key={tab} style={styles.tabButton} onPress={() => handleSelectTab(tab)}>
+                  <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
+                  {activeTab === tab && <View style={styles.tabIndicator} />}
+                </TouchableOpacity>
               ))}
             </View>
-          </View>
-        )}
 
-        {activeTab === 'Scorecards' && (
-          <View style={styles.tabContent}>
-            {scorecards.length === 0 ? (
-              <Text style={styles.helperText}>No scorecards logged at this course yet.</Text>
-            ) : (
-              scorecards.map((entry) => <ScorecardRow key={entry.id} entry={entry} />)
+            {activeTab === 'Hole by Hole' && (
+              <View style={styles.tabContent}>
+                <Text style={styles.helperText}>Tap any hole to see posts</Text>
+                {compositeNames.length === 0 ? (
+                  <View style={styles.holeGrid}>
+                    {holes.map((hole) => (
+                      <HoleCard
+                        key={hole.number}
+                        number={hole.number}
+                        par={hole.par}
+                        yardage={hole.yardage}
+                        postCount={hole.postCount}
+                        isMostPopular={hole.number === mostPopularHole.number}
+                        image={hole.image}
+                        onPress={() => handleSelectHole(hole.number)}
+                      />
+                    ))}
+                  </View>
+                ) : (
+                  <>
+                    {compositeNames.map((nine) => (
+                      <View key={nine} style={styles.nineSection}>
+                        <Text style={styles.nineSectionHeader}>{nine}</Text>
+                        <View style={styles.holeGrid}>
+                          {nineHoles(nine).map((hole) => (
+                            <HoleCard
+                              key={hole.number}
+                              number={hole.number}
+                              par={hole.par}
+                              yardage={hole.yardage}
+                              postCount={hole.postCount}
+                              image={hole.image}
+                              onPress={() => handleSelectHole(hole.number, nine)}
+                            />
+                          ))}
+                        </View>
+                      </View>
+                    ))}
+                    {coursePosts.some((p) => !p.compositeName) && (
+                      <View style={styles.nineSection}>
+                        <Text style={styles.nineSectionHeader}>Other Holes</Text>
+                        <View style={styles.holeGrid}>
+                          {otherHoles.map((hole) => (
+                            <HoleCard
+                              key={hole.number}
+                              number={hole.number}
+                              par={hole.par}
+                              yardage={hole.yardage}
+                              postCount={hole.postCount}
+                              image={hole.image}
+                              onPress={() => handleSelectHole(hole.number, UNGROUPED_NINE)}
+                            />
+                          ))}
+                        </View>
+                      </View>
+                    )}
+                  </>
+                )}
+              </View>
             )}
-          </View>
+
+            {activeTab === 'Scorecards' && (
+              <View style={styles.tabContent}>
+                {scorecards.length === 0 ? (
+                  <Text style={styles.helperText}>No scorecards logged at this course yet.</Text>
+                ) : (
+                  scorecards.map((entry) => <ScorecardRow key={entry.id} entry={entry} />)
+                )}
+              </View>
+            )}
+          </>
         )}
       </ScrollView>
 
@@ -456,6 +527,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 6,
   },
+  loadingContainer: {
+    paddingVertical: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   statsBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -513,69 +589,19 @@ const styles = StyleSheet.create({
   tabContent: {
     padding: 16,
   },
-  holeFilterBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 6,
-    backgroundColor: colors.navyCard,
-    borderWidth: 1,
-    borderColor: colors.navyBorder,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: 14,
-  },
-  holeFilterBannerText: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  postsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  postTile: {
-    width: '32%',
-    aspectRatio: 1,
-    borderRadius: 10,
-    marginBottom: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  postTileImage: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  playButton: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: colors.red,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tileLikeRow: {
-    position: 'absolute',
-    left: 6,
-    bottom: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  tileLikeText: {
-    color: colors.white,
-    fontSize: 10,
-    fontWeight: '700',
-    marginLeft: 3,
-  },
   helperText: {
     color: colors.muted,
     fontSize: 12,
     marginBottom: 14,
+  },
+  nineSection: {
+    marginBottom: 18,
+  },
+  nineSectionHeader: {
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 14,
+    color: colors.white,
+    marginBottom: 10,
   },
   holeGrid: {
     flexDirection: 'row',

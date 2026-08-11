@@ -40,6 +40,15 @@ export default function CoursePopupCard({ course, detail, onClose, onViewHoles }
         <Text style={styles.ratingPosts}>{mockCourseDetail.postsCount} posts</Text>
       </View>
 
+      {detail?.nines?.length > 0 && (
+        <View style={styles.ninesRow}>
+          <Ionicons name="flag-outline" size={12} color={colors.lightBlue} />
+          <Text style={styles.ninesText} numberOfLines={1}>
+            Posts tagged: {detail.nines.join(', ')}
+          </Text>
+        </View>
+      )}
+
       <TouchableOpacity style={styles.popupButton} onPress={onViewHoles}>
         <Text style={styles.popupButtonText}>View holes & shots</Text>
         <Ionicons name="arrow-forward" size={16} color={colors.white} />
@@ -104,6 +113,18 @@ const styles = StyleSheet.create({
   ratingPosts: {
     color: colors.muted,
     fontSize: 13,
+  },
+  ninesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 14,
+  },
+  ninesText: {
+    flex: 1,
+    color: colors.lightBlue,
+    fontSize: 12,
+    fontStyle: 'italic',
   },
   popupButton: {
     flexDirection: 'row',

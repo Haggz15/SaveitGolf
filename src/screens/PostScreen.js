@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,16 +12,131 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Header from '../components/Header';
 import MentionTextInput from '../components/social/MentionTextInput';
+import GolfBallMark, { useGolfBallFont } from '../components/common/GolfBallMark';
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { createPost } from '../services/posts';
 import { searchCourses } from '../services/golfCourseApi';
 import { notifyFollowersOfPost } from '../services/notifications';
+import { geocodeCourseCoordinates } from '../services/geocoding';
+import { courseHasValidCoordinates } from '../utils/mapCoords';
+
+// Nominal content height of the upload progress banner — the actual
+// rendered height also adds the device's safe-area top inset, same as
+// Header.js's own HEADER_CONTENT_HEIGHT convention.
+const BANNER_CONTENT_HEIGHT = 56;
+
+// Slides down from the very top of the screen while a post is uploading —
+// same Animated-driven approach on both native and web (react-native-web's
+// Animated implementation handles this fine; `width` interpolation never
+// supports the native driver on either platform anyway, so there's no need
+// for a separate CSS-transition code path). Owns its own slide/progress
+// animations, driven purely by the `visible`/`phase` props the parent sets.
+function UploadBanner({ visible, phase, onRetry }) {
+  const insets = useSafeAreaInsets();
+  const ballFont = useGolfBallFont();
+  const bannerHeight = BANNER_CONTENT_HEIGHT + insets.top;
+  const bannerY = useRef(new Animated.Value(-bannerHeight)).current;
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(bannerY, {
+      toValue: visible ? 0 : -bannerHeight,
+      duration: 300,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: Platform.OS !== 'web',
+    }).start();
+  }, [visible, bannerHeight, bannerY]);
+
+  useEffect(() => {
+    // There's no real byte-level upload progress available from Supabase
+    // Storage's client helper, so this is a deliberately simulated fill —
+    // crawls toward 85% while the actual request is in flight, nudges
+    // further once "processing", then snaps to 100% on success. On error it
+    // just freezes wherever it was.
+    if (phase === 'uploading') {
+      progress.setValue(0);
+      Animated.timing(progress, {
+        toValue: 0.85,
+        duration: 4000,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: false,
+      }).start();
+    } else if (phase === 'processing') {
+      Animated.timing(progress, {
+        toValue: 0.95,
+        duration: 1200,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: false,
+      }).start();
+    } else if (phase === 'success') {
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [phase, progress]);
+
+  const isError = phase === 'error';
+  const isSuccess = phase === 'success';
+  const label =
+    phase === 'uploading'
+      ? 'Uploading your shot…'
+      : phase === 'processing'
+      ? 'Almost there…'
+      : isSuccess
+      ? 'Posted!'
+      : isError
+      ? 'Upload failed — tap to retry'
+      : '';
+
+  return (
+    <Animated.View
+      style={[styles.uploadBanner, { height: bannerHeight, transform: [{ translateY: bannerY }] }]}
+      pointerEvents={visible ? 'auto' : 'none'}
+    >
+      <TouchableOpacity
+        style={styles.uploadBannerTouchable}
+        activeOpacity={isError ? 0.8 : 1}
+        disabled={!isError}
+        onPress={onRetry}
+      >
+        <View style={[styles.uploadBannerRow, { paddingTop: insets.top }]}>
+          <GolfBallMark fontFamily={ballFont} displayWidth={24} />
+          {!isSuccess && !isError && <ActivityIndicator size="small" color={colors.white} />}
+          <Text
+            style={[
+              styles.uploadBannerText,
+              isSuccess && styles.uploadBannerTextSuccess,
+              isError && styles.uploadBannerTextError,
+            ]}
+            numberOfLines={1}
+          >
+            {label}
+          </Text>
+        </View>
+      </TouchableOpacity>
+      <View style={styles.uploadBannerTrack}>
+        <Animated.View
+          style={[
+            styles.uploadBannerFill,
+            isError && styles.uploadBannerFillError,
+            { width: progress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) },
+          ]}
+        />
+      </View>
+    </Animated.View>
+  );
+}
 
 // Static (paused) preview of the picked video with a play-button overlay —
 // the player never calls .play(), so the first frame doubles as a thumbnail.
@@ -47,6 +162,27 @@ function VideoThumbnail({ uri }) {
 }
 
 const SEARCH_DEBOUNCE_MS = 400;
+const MAX_VIDEO_DURATION_SECONDS = 60;
+
+function isVideoTooLong(durationSeconds) {
+  return typeof durationSeconds === 'number' && durationSeconds > MAX_VIDEO_DURATION_SECONDS;
+}
+
+function alertVideoTooLong() {
+  Alert.alert('Video too long', `Videos must be under ${MAX_VIDEO_DURATION_SECONDS} seconds. Please choose a shorter clip.`);
+}
+
+// Web has no equivalent of expo-image-picker's asset.duration, so read it
+// off a throwaway <video> element instead.
+function getVideoDurationSecondsWeb(uri) {
+  return new Promise((resolve, reject) => {
+    const videoEl = document.createElement('video');
+    videoEl.preload = 'metadata';
+    videoEl.onloadedmetadata = () => resolve(videoEl.duration);
+    videoEl.onerror = () => reject(new Error('Could not read video metadata'));
+    videoEl.src = uri;
+  });
+}
 
 export default function PostScreen({ navigation }) {
   const { user } = useAuth();
@@ -54,12 +190,26 @@ export default function PostScreen({ navigation }) {
   const [courseResults, setCourseResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
+  const [hasMultipleNines, setHasMultipleNines] = useState(false);
+  const [compositeName, setCompositeName] = useState('');
   const [hole, setHole] = useState('');
   const [par, setPar] = useState('');
   const [caption, setCaption] = useState('');
   const [media, setMedia] = useState(null); // { uri, type: 'photo' | 'video' }
   const [posting, setPosting] = useState(false);
+  // null | 'uploading' | 'processing' | 'success' | 'error' — drives the
+  // UploadBanner below; null means it's hidden.
+  const [uploadPhase, setUploadPhase] = useState(null);
   const searchTimer = useRef(null);
+  const processingTimerRef = useRef(null);
+  const hideTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (processingTimerRef.current) clearTimeout(processingTimerRef.current);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, []);
 
   const handleChangeCourseQuery = (text) => {
     setCourseQuery(text);
@@ -92,6 +242,21 @@ export default function PostScreen({ navigation }) {
     setCourseResults([]);
   };
 
+  // Toggling on narrows the hole picker from 1-18 down to 1-9 (see the Hole
+  // label below) — if a hole beyond 9 was already picked it no longer fits
+  // that range, so it's cleared rather than left silently invalid.
+  function handleToggleMultipleNines() {
+    setHasMultipleNines((prev) => {
+      const next = !prev;
+      if (!next) {
+        setCompositeName('');
+      } else if (hole && Number(hole) > 9) {
+        setHole('');
+      }
+      return next;
+    });
+  }
+
   function handlePickMediaWeb() {
     // Created on demand rather than kept mounted: an <input type="file">
     // opens the native file/camera-roll picker on .click() whether or not
@@ -99,11 +264,26 @@ export default function PostScreen({ navigation }) {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*,video/*';
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
       const uri = URL.createObjectURL(file);
-      setMedia({ uri, type: file.type.startsWith('video') ? 'video' : 'photo' });
+      const type = file.type.startsWith('video') ? 'video' : 'photo';
+
+      if (type === 'video') {
+        try {
+          const duration = await getVideoDurationSecondsWeb(uri);
+          if (isVideoTooLong(duration)) {
+            URL.revokeObjectURL(uri);
+            alertVideoTooLong();
+            return;
+          }
+        } catch (err) {
+          console.error('Could not read video duration:', err);
+        }
+      }
+
+      setMedia({ uri, type });
     };
     input.click();
   }
@@ -119,10 +299,18 @@ export default function PostScreen({ navigation }) {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
         quality: 0.9,
+        videoMaxDuration: MAX_VIDEO_DURATION_SECONDS,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
-        setMedia({ uri: asset.uri, type: asset.type === 'video' ? 'video' : 'photo' });
+        const type = asset.type === 'video' ? 'video' : 'photo';
+        // videoMaxDuration caps recording length, but check the result too
+        // in case a platform doesn't enforce it.
+        if (type === 'video' && isVideoTooLong(asset.duration != null ? asset.duration / 1000 : null)) {
+          alertVideoTooLong();
+          return;
+        }
+        setMedia({ uri: asset.uri, type });
       }
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not open your camera. Please try again.');
@@ -143,7 +331,14 @@ export default function PostScreen({ navigation }) {
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
-        setMedia({ uri: asset.uri, type: asset.type === 'video' ? 'video' : 'photo' });
+        const type = asset.type === 'video' ? 'video' : 'photo';
+        // Library picks aren't capped at selection time like camera
+        // recordings are, so this is the only enforcement point for them.
+        if (type === 'video' && isVideoTooLong(asset.duration != null ? asset.duration / 1000 : null)) {
+          alertVideoTooLong();
+          return;
+        }
+        setMedia({ uri: asset.uri, type });
       }
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not open your photo library. Please try again.');
@@ -162,6 +357,27 @@ export default function PostScreen({ navigation }) {
     ]);
   }
 
+  // golfcourseapi.com's search results never include usable coordinates, so
+  // a freshly-selected (or free-typed) course almost always needs geocoding
+  // here — doing it once at post creation means tapping this post's course
+  // name later (see FeedScreen.handleCoursePress) can zoom straight to it
+  // instead of geocoding on demand. Falls back to the course as-is (no
+  // coordinates) if geocoding comes up empty; the post still saves either way.
+  async function resolveCourseCoordinates(course) {
+    if (courseHasValidCoordinates(course)) return course;
+    try {
+      // geocodeCourseCoordinates caches by id — a free-typed course (no real
+      // golfcourseapi.com id) still needs one to key off of, just not one
+      // that gets persisted as course_id.
+      const cacheableCourse = course.id ? course : { ...course, id: `${course.name}-${course.state || ''}` };
+      const coords = await geocodeCourseCoordinates(cacheableCourse);
+      return coords ? { ...course, ...coords } : course;
+    } catch (err) {
+      console.error('Failed to geocode course for new post:', err);
+      return course;
+    }
+  }
+
   async function handleSharePost() {
     if (!user?.id) return;
     if (!media) {
@@ -174,38 +390,79 @@ export default function PostScreen({ navigation }) {
       return;
     }
 
+    if (processingTimerRef.current) clearTimeout(processingTimerRef.current);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+
     setPosting(true);
+    setUploadPhase('uploading');
+    processingTimerRef.current = setTimeout(() => setUploadPhase('processing'), 2200);
+
     try {
+      const course = await resolveCourseCoordinates(selectedCourse ?? { id: null, name: courseName });
       const post = await createPost({
         userId: user.id,
-        course: selectedCourse ?? { id: null, name: courseName },
+        course,
         hole: hole ? Number(hole) : null,
         par: par ? Number(par) : null,
         caption: caption.trim(),
         mediaUri: media.uri,
         mediaType: media.type,
+        compositeName: hasMultipleNines ? compositeName.trim() || null : null,
       });
 
+      clearTimeout(processingTimerRef.current);
       notifyFollowersOfPost(user.id, post.id, courseName).catch((err) =>
         console.error('Failed to notify followers of post:', err)
       );
 
       setCourseQuery('');
       setSelectedCourse(null);
+      setHasMultipleNines(false);
+      setCompositeName('');
       setHole('');
       setPar('');
       setCaption('');
       setMedia(null);
 
-      Alert.alert('Posted!', 'Your post is live on the feed.');
-      navigation.navigate('Tabs', { screen: 'Feed' });
+      setUploadPhase('success');
+      hideTimerRef.current = setTimeout(() => {
+        setUploadPhase(null);
+        navigation.navigate('Tabs', { screen: 'Feed' });
+      }, 1500);
     } catch (err) {
       console.error('Failed to create post:', err);
-      Alert.alert('Something went wrong', 'Could not share your post. Please try again.');
+      clearTimeout(processingTimerRef.current);
+      setUploadPhase('error');
+      hideTimerRef.current = setTimeout(() => setUploadPhase(null), 3000);
     } finally {
       setPosting(false);
     }
   }
+
+  function handleRetryUpload() {
+    if (posting) return;
+    handleSharePost();
+  }
+
+  // Only media is worth a confirmation — course/hole/caption are easy to
+  // redo, but a picked photo or video is the one thing that'd be annoying
+  // to lose to an accidental tap.
+  function handleBackPress() {
+    if (media) {
+      Alert.alert(
+        'Discard Post?',
+        'You have a photo or video selected. Are you sure you want to go back?',
+        [
+          { text: 'Keep Editing', style: 'cancel' },
+          { text: 'Discard', style: 'destructive', onPress: () => navigation.navigate('Feed') },
+        ]
+      );
+      return;
+    }
+    navigation.navigate('Feed');
+  }
+
+  const insets = useSafeAreaInsets();
 
   return (
     <KeyboardAvoidingView
@@ -213,6 +470,15 @@ export default function PostScreen({ navigation }) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Header />
+
+      <TouchableOpacity
+        onPress={handleBackPress}
+        style={[styles.backButton, { top: insets.top + 12 }]}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Ionicons name="chevron-back" size={22} color={colors.white} />
+      </TouchableOpacity>
+
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>New Hole Post</Text>
 
@@ -273,30 +539,63 @@ export default function PostScreen({ navigation }) {
           </View>
         )}
 
-        <View style={styles.row}>
-          <View style={styles.rowItem}>
-            <Text style={styles.label}>Hole</Text>
+        {courseQuery.trim().length > 0 && (
+          <TouchableOpacity
+            style={styles.compositeToggleRow}
+            onPress={handleToggleMultipleNines}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={hasMultipleNines ? 'checkbox' : 'square-outline'}
+              size={18}
+              color={hasMultipleNines ? colors.red : colors.muted}
+            />
+            <Text style={styles.compositeToggleText}>This course has multiple nines</Text>
+          </TouchableOpacity>
+        )}
+
+        {hasMultipleNines && (
+          <>
+            <Text style={styles.label}>Name of nine you played</Text>
             <TextInput
               style={styles.input}
-              value={hole}
-              onChangeText={setHole}
-              keyboardType="number-pad"
-              placeholder="#"
+              value={compositeName}
+              onChangeText={setCompositeName}
+              placeholder="e.g. Blue, Ridge, Trail, North, South"
               placeholderTextColor={colors.muted}
+              autoCorrect={false}
             />
-          </View>
-          <View style={styles.rowItem}>
-            <Text style={styles.label}>Par</Text>
-            <TextInput
-              style={styles.input}
-              value={par}
-              onChangeText={setPar}
-              keyboardType="number-pad"
-              placeholder="#"
-              placeholderTextColor={colors.muted}
-            />
-          </View>
+          </>
+        )}
+
+        <Text style={styles.label}>{hasMultipleNines ? 'Hole (1–9)' : 'Hole'}</Text>
+        <View style={styles.holePickerGrid}>
+          {Array.from({ length: hasMultipleNines ? 9 : 18 }, (_, i) => i + 1).map((n) => {
+            const selected = hole === String(n);
+            return (
+              <TouchableOpacity
+                key={n}
+                style={[styles.holePickerCell, selected && styles.holePickerCellSelected]}
+                onPress={() => setHole(String(n))}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.holePickerCellText, selected && styles.holePickerCellTextSelected]}>
+                  {n}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
+
+        <Text style={styles.label}>Par</Text>
+        <TextInput
+          style={styles.input}
+          value={par}
+          onChangeText={setPar}
+          keyboardType="number-pad"
+          placeholder="#"
+          placeholderTextColor={colors.muted}
+        />
 
         <Text style={styles.label}>Caption</Text>
         <MentionTextInput
@@ -317,6 +616,8 @@ export default function PostScreen({ navigation }) {
           <Text style={styles.submitButtonText}>{posting ? 'Posting…' : 'Share Post'}</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <UploadBanner visible={uploadPhase != null} phase={uploadPhase} onRetry={handleRetryUpload} />
     </KeyboardAvoidingView>
   );
 }
@@ -325,6 +626,65 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.navy,
+  },
+  backButton: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 100,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadBanner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 9999,
+    backgroundColor: colors.navy,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
+  },
+  uploadBannerTouchable: {
+    flex: 1,
+  },
+  uploadBannerRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  uploadBannerText: {
+    flex: 1,
+    color: colors.white,
+    fontSize: 13,
+  },
+  uploadBannerTextSuccess: {
+    color: colors.brightGreen,
+    fontWeight: '700',
+  },
+  uploadBannerTextError: {
+    color: colors.red,
+  },
+  uploadBannerTrack: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  uploadBannerFill: {
+    height: 3,
+    backgroundColor: colors.brightGreen,
+  },
+  uploadBannerFillError: {
+    backgroundColor: colors.red,
   },
   content: {
     padding: 20,
@@ -426,12 +786,44 @@ const styles = StyleSheet.create({
     height: 100,
     textAlignVertical: 'top',
   },
-  row: {
+  compositeToggleRow: {
     flexDirection: 'row',
-    gap: 10,
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
   },
-  rowItem: {
-    flex: 1,
+  compositeToggleText: {
+    color: colors.offWhite,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  holePickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  holePickerCell: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  holePickerCellSelected: {
+    borderColor: colors.red,
+    backgroundColor: colors.navyLight,
+  },
+  holePickerCellText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  holePickerCellTextSelected: {
+    color: colors.red,
   },
   submitButton: {
     backgroundColor: colors.red,
