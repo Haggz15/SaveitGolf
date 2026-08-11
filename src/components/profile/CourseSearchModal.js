@@ -209,7 +209,7 @@ export default function CourseSearchModal({ visible, onClose, onAddCourse, onAdd
             />
 
             {query.trim().length < 2 ? (
-              <Text style={styles.statusText}>Search by course name to add it to My Courses.</Text>
+              <Text style={styles.statusText}>Search by course name to add it to Courses Played.</Text>
             ) : searching ? (
               <View style={styles.statusRow}>
                 <ActivityIndicator size="small" color={colors.red} />

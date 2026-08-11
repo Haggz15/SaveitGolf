@@ -92,12 +92,13 @@ function ScoreCell({ score, par, variant }) {
   );
 }
 
-// One nine: each hole row is [hole number, right-aligned | score cell], then
-// a total row below reading "<score> FRONT"/"<score> BACK". `variant` is
-// 'compact' (default, alongside a photo), 'wide18' (full-width, 18 holes —
-// front/back centered in their own half) or 'wide9' (full-width, 9 holes —
-// single centered column with bigger type since there's more room).
-function NineColumn({ holes, label, variant = 'compact' }) {
+// One nine's hole rows only — [hole number, right-aligned | score cell].
+// `variant` is 'compact' (default, alongside a photo), 'wide18' (full-width,
+// 18 holes — front/back centered in their own half) or 'wide9' (full-width,
+// 9 holes — single centered column with bigger type since there's more
+// room). The front/back totals live in the separate NineTotalsRow below,
+// not nested in here.
+function NineColumn({ holes, variant = 'compact' }) {
   const isWide = variant !== 'compact';
   return (
     <View style={styles.nineColumn}>
@@ -107,10 +108,26 @@ function NineColumn({ holes, label, variant = 'compact' }) {
           <ScoreCell score={h.score} par={h.par} variant={variant} />
         </View>
       ))}
-      <View style={[styles.nineTotalRow, isWide && styles.nineTotalRowWide]}>
-        <Text style={styles.nineTotalLabel}>{label}</Text>
-        <Text style={styles.nineTotalScore}>{sumScore(holes)}</Text>
+    </View>
+  );
+}
+
+// Sits directly below the hole-scores row: "Front <n>" / "Back <n>" as two
+// flex:1 items spread across the full width of the scores column, each with
+// a small label + bold score. Back is omitted for a 9-hole round.
+function NineTotalsRow({ frontTotal, backTotal, isNineHoleRound }) {
+  return (
+    <View style={styles.nineTotalsRow}>
+      <View style={styles.nineTotalsItem}>
+        <Text style={styles.nineTotalsLabel}>Front</Text>
+        <Text style={styles.nineTotalsScore}>{frontTotal}</Text>
       </View>
+      {!isNineHoleRound && (
+        <View style={styles.nineTotalsItem}>
+          <Text style={styles.nineTotalsLabel}>Back</Text>
+          <Text style={styles.nineTotalsScore}>{backTotal}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -138,18 +155,17 @@ function TextWatermark({ style }) {
   );
 }
 
-// Centered pill showing the grand total + over/under, sat between the front
-// and back nines (18 holes) or below the single nine (9 holes) — see
-// `ScorecardCard` below for how the two layouts differ (Fix 1). `compact`
-// shrinks it for the with-photo layout, where the scores column is only
-// ~48% of the card width and a full-size pill would crowd the nines.
-function TotalPill({ totalScore, diffLabel, diffTextColor, compact }) {
+// Full-width block sat directly below the front/back (or single) nine
+// totals row — never floating between or beside the nines (Fix 3). Same
+// fixed sizing for both the with-photo and no-photo layouts; it's always a
+// child of `scoresColumn`, so it naturally spans that column's width only
+// (with-photo) or the full card width (no-photo, where scoresColumn itself
+// expands — see `scoresColumnFullWidth`).
+function TotalBlock({ totalScore, diffLabel, diffTextColor }) {
   return (
-    <View style={[styles.totalPill, compact && styles.totalPillCompact]}>
-      <Text style={[styles.totalPillScore, compact && styles.totalPillScoreCompact]}>{totalScore}</Text>
-      <Text style={[styles.totalPillDiff, compact && styles.totalPillDiffCompact, { color: diffTextColor }]}>
-        ({diffLabel})
-      </Text>
+    <View style={styles.totalBlock}>
+      <Text style={styles.totalBlockScore}>{totalScore}</Text>
+      <Text style={[styles.totalBlockDiff, { color: diffTextColor }]}> ({diffLabel})</Text>
     </View>
   );
 }
@@ -191,20 +207,27 @@ function PhotoColumn({ photoUri, onRequestPhoto, onRemovePhoto, fontFamily }) {
 // existing photo is tapped) — past scorecards fetched from Supabase render
 // read-only. The "Add Photo" action itself lives outside this component, as
 // a button overlaid on the card by ScorecardScreen, so it's never part of
-// the captured share image.
-// `hidePhotoColumn` drives the hidden no-photo share-card capture: when
-// true the photo column is omitted entirely even if a photoUri is passed,
-// so it never ends up in a saved image.
-export default function ScorecardCard({ scorecard, fullName, photoUri, onRequestPhoto, onRemovePhoto, hidePhotoColumn }) {
+// the captured share image. `captureId`, when passed, becomes a real DOM
+// `id` on web (see ScorecardScreen's handleShare) so the share capture can
+// target this exact element — no photo column means no extra space on the
+// right, and with a photo the column already sits flush with the card's own
+// right edge (see cardBodyWithPhoto), so capturing this node directly needs
+// no cropping. Left undefined by every other caller (e.g.
+// ScorecardDetailModal) so two instances never collide on the same id when
+// both happen to be mounted at once (the detail modal open over the main
+// screen).
+export default function ScorecardCard({ scorecard, fullName, photoUri, onRequestPhoto, onRemovePhoto, captureId }) {
   const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(scorecard);
   const diffTextColor = diffColor(diff);
   const compositeName = compositeNameFor(scorecard, isNineHoleRound);
-  const hasPhoto = Boolean(photoUri) && !hidePhotoColumn;
+  const hasPhoto = Boolean(photoUri);
   const nineVariant = hasPhoto ? 'compact' : isNineHoleRound ? 'wide9' : 'wide18';
   const ballFont = useGolfBallFont();
+  const frontTotal = sumScore(scorecard.front);
+  const backTotal = isNineHoleRound ? null : sumScore(scorecard.back);
 
   return (
-    <View style={[styles.cardBody, hasPhoto && styles.cardBodyWithPhoto]}>
+    <View nativeID={captureId} style={[styles.cardBody, hasPhoto && styles.cardBodyWithPhoto]}>
       <View style={[styles.scoresColumn, !hasPhoto && styles.scoresColumnFullWidth]}>
         <StyledPlayerName fullName={fullName} />
         <Text style={styles.courseNameText} numberOfLines={2}>
@@ -217,34 +240,16 @@ export default function ScorecardCard({ scorecard, fullName, photoUri, onRequest
         ) : null}
         <View style={styles.divider} />
 
-        {isNineHoleRound ? (
-          <>
-            <View style={styles.ninesRow}>
-              <NineColumn holes={scorecard.front} label="FRONT" variant={nineVariant} />
-            </View>
-            <View style={styles.totalBlockBelow}>
-              <TotalPill
-                totalScore={totalScore}
-                diffLabel={diffLabel}
-                diffTextColor={diffTextColor}
-                compact={hasPhoto}
-              />
-            </View>
-          </>
-        ) : (
-          <View style={[styles.ninesRow, styles.ninesRowWithTotal]}>
-            <NineColumn holes={scorecard.front} label="FRONT" variant={nineVariant} />
-            <View style={styles.totalBlockBetween}>
-              <TotalPill
-                totalScore={totalScore}
-                diffLabel={diffLabel}
-                diffTextColor={diffTextColor}
-                compact={hasPhoto}
-              />
-            </View>
-            <NineColumn holes={scorecard.back} label="BACK" variant={nineVariant} />
-          </View>
-        )}
+        <View style={styles.ninesRow}>
+          <NineColumn holes={scorecard.front} variant={nineVariant} />
+          {!isNineHoleRound && <NineColumn holes={scorecard.back} variant={nineVariant} />}
+        </View>
+
+        <View style={styles.divider} />
+        <NineTotalsRow frontTotal={frontTotal} backTotal={backTotal} isNineHoleRound={isNineHoleRound} />
+
+        <View style={styles.divider} />
+        <TotalBlock totalScore={totalScore} diffLabel={diffLabel} diffTextColor={diffTextColor} />
 
         <TextWatermark style={styles.cardWatermarkPosition} />
       </View>
@@ -310,7 +315,7 @@ const styles = StyleSheet.create({
   },
   courseNameText: {
     fontFamily: 'Cinzel_700Bold',
-    fontSize: 7,
+    fontSize: 9,
     color: colors.lightBlue,
     marginTop: 5,
   },
@@ -331,11 +336,6 @@ const styles = StyleSheet.create({
   ninesRow: {
     flexDirection: 'row',
     gap: 12,
-  },
-  // 18 holes: front/back nines flank the total pill (Fix 1) — bottom-align
-  // the row so the pill sits level with the per-nine mini totals below it.
-  ninesRowWithTotal: {
-    alignItems: 'flex-end',
   },
   nineColumn: {
     flex: 1,
@@ -403,72 +403,52 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 2,
   },
-  nineTotalRow: {
+  // Front/back totals row (Fix 5) — one shared row below the hole scores,
+  // not nested per-column, so both items line up on flex:1 and spread
+  // across the full width of the scores column.
+  nineTotalsRow: {
+    flexDirection: 'row',
+  },
+  nineTotalsItem: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: 4,
-    marginTop: 2,
-    paddingTop: 2,
-    borderTopWidth: 0.5,
-    borderTopColor: 'rgba(255,255,255,0.15)',
+    gap: 3,
   },
-  nineTotalRowWide: {
-    justifyContent: 'center',
-  },
-  nineTotalScore: {
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  nineTotalLabel: {
+  nineTotalsLabel: {
     color: '#6a8ab0',
     fontSize: 7,
     fontWeight: '700',
-    letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
-  // Grand total pill (Fix 1): sits between the front/back nines for 18
-  // holes, or centered below the single nine for 9 holes — never a
-  // full-width block.
-  totalBlockBetween: {
-    alignItems: 'center',
-    paddingBottom: 4,
+  nineTotalsScore: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700',
   },
-  totalBlockBelow: {
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  totalPill: {
+  // Grand total block (Fix 3/5): sits directly below the front/back (or
+  // single) nine totals row, spanning the full width of `scoresColumn` —
+  // which is either the card's whole width (no photo) or just the scores
+  // side (with photo) — never floating between or beside the nines.
+  totalBlock: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.07)',
-    borderRadius: 6,
+    borderRadius: 5,
     borderWidth: 0.5,
     borderColor: 'rgba(255,255,255,0.12)',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    minWidth: 60,
+    paddingVertical: 5,
+    paddingHorizontal: 4,
   },
-  totalPillScore: {
-    fontSize: 26,
+  totalBlockScore: {
+    fontSize: 22,
     fontWeight: '700',
     color: colors.white,
-    lineHeight: 28,
   },
-  totalPillDiff: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  totalPillCompact: {
-    minWidth: 40,
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-  },
-  totalPillScoreCompact: {
-    fontSize: 15,
-    lineHeight: 17,
-  },
-  totalPillDiffCompact: {
-    fontSize: 9,
+  totalBlockDiff: {
+    fontSize: 14,
+    fontWeight: '700',
   },
   // Bottom-right ball mark watermark (Fix 2) — only ever used over the photo
   // now; the scores side gets the text watermark below instead.

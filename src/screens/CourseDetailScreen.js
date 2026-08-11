@@ -194,11 +194,6 @@ export default function CourseDetailScreen({ route, navigation }) {
     });
   }, [primaryTee, holesCount, courseName, coursePosts]);
 
-  const mostPopularHole = useMemo(
-    () => holes.reduce((max, hole) => (hole.postCount > max.postCount ? hole : max), holes[0]),
-    [holes]
-  );
-
   // Distinct composite nine names among this course's posts, in first-seen
   // order — drives the Hole by Hole tab's grouping (Step 5). Empty when no
   // post here has ever tagged a nine, which keeps that tab's classic
@@ -239,6 +234,44 @@ export default function CourseDetailScreen({ route, navigation }) {
     () => holes.map((h) => ({ ...h, postCount: coursePosts.filter((p) => p.hole === h.number && !p.compositeName).length })),
     [holes, coursePosts]
   );
+
+  // The single most-posted-to hole card across whichever grouping is
+  // actually rendered below (plain grid, or nine-grouped + "Other Holes") —
+  // highlighted in red (see HoleCard's isMostPopular). Keyed by
+  // {number, nine} so the same hole number under two different nines is
+  // judged independently rather than lumped together.
+  const mostPopularEntry = useMemo(() => {
+    let entries;
+    if (compositeNames.length === 0) {
+      entries = holes.map((h) => ({ number: h.number, nine: null, postCount: h.postCount }));
+    } else {
+      entries = [];
+      compositeNames.forEach((nine) => {
+        for (let number = 1; number <= 9; number++) {
+          entries.push({
+            number,
+            nine,
+            postCount: coursePosts.filter((p) => p.hole === number && p.compositeName === nine).length,
+          });
+        }
+      });
+      if (coursePosts.some((p) => !p.compositeName)) {
+        holes.forEach((h) => {
+          entries.push({
+            number: h.number,
+            nine: UNGROUPED_NINE,
+            postCount: coursePosts.filter((p) => p.hole === h.number && !p.compositeName).length,
+          });
+        });
+      }
+    }
+    if (entries.length === 0) return null;
+    return entries.reduce((max, e) => (e.postCount > max.postCount ? e : max), entries[0]);
+  }, [compositeNames, holes, coursePosts]);
+
+  function isMostPopular(number, nine = null) {
+    return !!mostPopularEntry && mostPopularEntry.number === number && mostPopularEntry.nine === nine;
+  }
 
   // All Posts and Hole by Hole's individual hole cards both open the
   // full-screen swipe feed (reusing FeedScreen — see its `filter` prop and
@@ -364,7 +397,7 @@ export default function CourseDetailScreen({ route, navigation }) {
                         par={hole.par}
                         yardage={hole.yardage}
                         postCount={hole.postCount}
-                        isMostPopular={hole.number === mostPopularHole.number}
+                        isMostPopular={isMostPopular(hole.number)}
                         image={hole.image}
                         onPress={() => handleSelectHole(hole.number)}
                       />
@@ -383,6 +416,7 @@ export default function CourseDetailScreen({ route, navigation }) {
                               par={hole.par}
                               yardage={hole.yardage}
                               postCount={hole.postCount}
+                              isMostPopular={isMostPopular(hole.number, nine)}
                               image={hole.image}
                               onPress={() => handleSelectHole(hole.number, nine)}
                             />
@@ -401,6 +435,7 @@ export default function CourseDetailScreen({ route, navigation }) {
                               par={hole.par}
                               yardage={hole.yardage}
                               postCount={hole.postCount}
+                              isMostPopular={isMostPopular(hole.number, UNGROUPED_NINE)}
                               image={hole.image}
                               onPress={() => handleSelectHole(hole.number, UNGROUPED_NINE)}
                             />

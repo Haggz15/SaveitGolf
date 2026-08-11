@@ -1,24 +1,16 @@
 import { useRef, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Image, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
-import { searchProfiles } from '../../services/social';
+import { searchProfilesByUsernamePrefix } from '../../services/social';
 
 const SEARCH_DEBOUNCE_MS = 350;
 
 export default function FriendSearchBar({ currentUserId, onSelectFriend }) {
-  const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef(null);
-
-  const collapse = () => {
-    setExpanded(false);
-    setQuery('');
-    setResults([]);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-  };
 
   const handleChangeQuery = (text) => {
     setQuery(text);
@@ -34,7 +26,7 @@ export default function FriendSearchBar({ currentUserId, onSelectFriend }) {
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
       try {
-        const rows = await searchProfiles(trimmed, currentUserId);
+        const rows = await searchProfilesByUsernamePrefix(trimmed, currentUserId);
         setResults(rows);
       } catch (err) {
         console.error('Friend search failed:', err);
@@ -45,19 +37,17 @@ export default function FriendSearchBar({ currentUserId, onSelectFriend }) {
     }, SEARCH_DEBOUNCE_MS);
   };
 
-  const handleSelect = (profile) => {
-    onSelectFriend(profile);
-    collapse();
+  const clearQuery = () => {
+    setQuery('');
+    setResults([]);
+    setSearching(false);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
   };
 
-  if (!expanded) {
-    return (
-      <TouchableOpacity style={styles.collapsedRow} onPress={() => setExpanded(true)} activeOpacity={0.8}>
-        <Ionicons name="people-outline" size={16} color={colors.muted} style={{ marginRight: 8 }} />
-        <Text style={styles.collapsedText}>Search Friends</Text>
-      </TouchableOpacity>
-    );
-  }
+  const handleSelect = (profile) => {
+    onSelectFriend(profile);
+    clearQuery();
+  };
 
   return (
     <View style={styles.wrapper}>
@@ -67,16 +57,17 @@ export default function FriendSearchBar({ currentUserId, onSelectFriend }) {
           style={styles.input}
           value={query}
           onChangeText={handleChangeQuery}
-          placeholder="Search a friend's username"
+          placeholder="Search a friend's courses..."
           placeholderTextColor={colors.muted}
           autoCorrect={false}
           autoCapitalize="none"
-          autoFocus
           returnKeyType="search"
         />
-        <TouchableOpacity onPress={collapse} style={styles.clearButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="close-circle" size={18} color={colors.muted} />
-        </TouchableOpacity>
+        {query.length > 0 && (
+          <TouchableOpacity onPress={clearQuery} style={styles.clearButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close-circle" size={18} color={colors.muted} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {query.trim().length > 0 && (
@@ -98,7 +89,11 @@ export default function FriendSearchBar({ currentUserId, onSelectFriend }) {
               style={styles.resultsList}
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.resultRow} onPress={() => handleSelect(item)}>
-                  <Ionicons name="person-circle-outline" size={20} color={colors.red} style={styles.resultIcon} />
+                  {item.avatar_url ? (
+                    <Image source={{ uri: item.avatar_url }} style={styles.resultAvatar} />
+                  ) : (
+                    <Ionicons name="person-circle-outline" size={20} color={colors.red} style={styles.resultIcon} />
+                  )}
                   <View style={styles.resultTextWrap}>
                     <Text style={styles.resultName} numberOfLines={1}>
                       {item.full_name || 'Golfer'}
@@ -118,24 +113,6 @@ export default function FriendSearchBar({ currentUserId, onSelectFriend }) {
 }
 
 const styles = StyleSheet.create({
-  collapsedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    paddingHorizontal: 14,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: colors.navyCard,
-    borderWidth: 1,
-    borderColor: colors.navyBorder,
-    alignSelf: 'flex-start',
-  },
-  collapsedText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '600',
-  },
   wrapper: {
     paddingHorizontal: 16,
     paddingBottom: 12,
@@ -187,6 +164,11 @@ const styles = StyleSheet.create({
   },
   resultIcon: {
     marginTop: 1,
+  },
+  resultAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
   },
   resultTextWrap: {
     flex: 1,

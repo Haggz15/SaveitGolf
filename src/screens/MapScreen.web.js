@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Switch } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { MapContainer, TileLayer, Marker, CircleMarker, Tooltip, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -11,14 +11,14 @@ import FriendSearchBar from '../components/map/FriendSearchBar';
 import FilterPills from '../components/map/FilterPills';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
+import FeedCoursePopupCard from '../components/map/FeedCoursePopupCard';
 import MapErrorBoundary from '../components/map/MapErrorBoundary';
 import SilentMarkerBoundary from '../components/map/SilentMarkerBoundary';
-import { MapWarningBanner, MapLoadingBanner, MapAutoNavigateCountdown } from '../components/map/MapMessageBanner';
+import { MapWarningBanner } from '../components/map/MapMessageBanner';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { useCourseMapData, US_INITIAL_REGION, MAP_FILTERS, ZOOM_LEVEL } from '../hooks/useCourseMapData';
 import { useAuth } from '../context/AuthContext';
-import { getFriendMyCourses } from '../services/friendMap';
 import { filterCoursesWithValidCoordinates, hasValidCoordinates } from '../utils/mapCoords';
 
 // react-native-maps has no web renderer, so web gets its own map surface here
@@ -137,11 +137,14 @@ function boundsToRegion(map) {
 }
 
 // Bridges Leaflet's imperative map instance to the platform-agnostic hook:
-// reports viewport changes up, and reacts to focus requests (initial user
-// location fix, or a state jumped to from the feed) coming down.
-function MapSync({ mapInstanceRef, onRegionChange, focusRegion }) {
+// reports viewport changes up, reacts to focus requests (initial user
+// location fix, or a state jumped to from the feed) coming down, and — same
+// as MapScreen.js's MapView onPress — reports a background (non-marker) tap
+// so the feed course-tap popup can be dismissed by tapping elsewhere.
+function MapSync({ mapInstanceRef, onRegionChange, focusRegion, onMapClick }) {
   const map = useMapEvents({
     moveend: () => onRegionChange(boundsToRegion(map)),
+    click: () => onMapClick?.(),
   });
 
   useEffect(() => {
@@ -163,7 +166,6 @@ function MapSync({ mapInstanceRef, onRegionChange, focusRegion }) {
 export default function MapScreen({ navigation, route }) {
   const { user } = useAuth();
   const mapInstanceRef = useRef(null);
-  const [friendFilter, setFriendFilter] = useState(null); // { displayName, courses, loading }
   const [emptyMyCoursesToast, setEmptyMyCoursesToast] = useState(null);
   const playedEmptyToastShownRef = useRef(false);
   const {
@@ -173,7 +175,12 @@ export default function MapScreen({ navigation, route }) {
     stateMarkers,
     currentStateName,
     handleSelectStateMarker,
-    visibleCourses,
+    mapMarkers,
+    friendFilter,
+    showOwnCourses,
+    setShowOwnCourses,
+    loadFriendCourses,
+    clearFriendFilter,
     quotaExceeded,
     locationDenied,
     selectedCourse,
@@ -182,9 +189,9 @@ export default function MapScreen({ navigation, route }) {
     clearSelectedCourse,
     goToCourseDetail,
     feedFocusPin,
-    courseAutoNavigate,
-    autoNavigateSecondsLeft,
-    skipCourseAutoNavigate,
+    feedCoursePopup,
+    dismissFeedCoursePopup,
+    goToCourseDetailFromFeedPopup,
     filter,
     setFilter,
     myCoursesList,
@@ -204,6 +211,10 @@ export default function MapScreen({ navigation, route }) {
     routeTimestamp: route?.params?.timestamp,
     routeZoomToState: route?.params?.zoomToState,
     routeZoomToStateTimestamp: route?.params?.zoomToStateAt,
+    routeViewFriendUserId: route?.params?.viewFriendUserId,
+    routeViewFriendUsername: route?.params?.viewFriendUsername,
+    routeViewFriendName: route?.params?.viewFriendName,
+    routeViewFriendTimestamp: route?.params?.viewFriendAt,
     userId: user?.id,
   });
 
@@ -272,24 +283,6 @@ export default function MapScreen({ navigation, route }) {
     setEmptyMyCoursesToast('Add courses in your profile to see them here');
   }, [myCoursesLoading, myCoursesLoaded, myCoursesList]);
 
-  const handleSelectFriend = async (profile) => {
-    clearSelectedCourse();
-    const displayName = profile.full_name || profile.username || 'this golfer';
-    setFriendFilter({ displayName, courses: [], loading: true });
-    try {
-      const courses = await getFriendMyCourses(profile.user_id);
-      setFriendFilter({ displayName, courses, loading: false });
-    } catch (err) {
-      console.error("Failed to load friend's courses:", err);
-      setFriendFilter({ displayName, courses: [], loading: false });
-    }
-  };
-
-  const handleClearFriendFilter = () => {
-    setFriendFilter(null);
-    clearSelectedCourse();
-  };
-
   return (
     <View style={styles.screen}>
       <Header />
@@ -307,7 +300,7 @@ export default function MapScreen({ navigation, route }) {
           />
         </>
       )}
-      <FriendSearchBar currentUserId={user?.id} onSelectFriend={handleSelectFriend} />
+      <FriendSearchBar currentUserId={user?.id} onSelectFriend={loadFriendCourses} />
       <FilterPills value={filter} onChange={setFilter} />
 
       {friendFilter && (
@@ -320,7 +313,16 @@ export default function MapScreen({ navigation, route }) {
               ? `Viewing ${friendFilter.displayName}'s courses`
               : `${friendFilter.displayName} hasn't added any courses yet`}
           </Text>
-          <TouchableOpacity onPress={handleClearFriendFilter} style={styles.friendBannerClear}>
+          <View style={styles.friendBannerToggle}>
+            <Text style={styles.friendBannerToggleLabel}>Courses Played</Text>
+            <Switch
+              value={showOwnCourses}
+              onValueChange={setShowOwnCourses}
+              trackColor={{ false: colors.navyBorder, true: colors.brightGreen }}
+              thumbColor={colors.white}
+            />
+          </View>
+          <TouchableOpacity onPress={clearFriendFilter} style={styles.friendBannerClear}>
             <Text style={styles.friendBannerClearText}>Clear</Text>
           </TouchableOpacity>
         </View>
@@ -368,7 +370,12 @@ export default function MapScreen({ navigation, route }) {
               attribution='&copy; <a href="https://carto.com/attributions">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             />
 
-            <MapSync mapInstanceRef={mapInstanceRef} onRegionChange={guard(setRegion)} focusRegion={focusRegion} />
+            <MapSync
+              mapInstanceRef={mapInstanceRef}
+              onRegionChange={guard(setRegion)}
+              focusRegion={focusRegion}
+              onMapClick={guard(() => feedCoursePopup && dismissFeedCoursePopup())}
+            />
 
             {!friendFilter &&
               filter !== MAP_FILTERS.PLAYED &&
@@ -382,11 +389,11 @@ export default function MapScreen({ navigation, route }) {
                   />
                 </SilentMarkerBoundary>
               ))}
-            {withCoords(friendFilter ? friendFilter.courses : visibleCourses, 'render markers').map((course) => {
+            {withCoords(mapMarkers, 'render markers').map((course) => {
               const isHighlighted = selectedCourse?.id === course.id;
-              const isGreen = !friendFilter && course.isMine;
+              const isGreen = course.isMine || course.isFriend;
               return (
-                <SilentMarkerBoundary key={course.id}>
+                <SilentMarkerBoundary key={`${course.id}-${course.isFriend ? 'friend' : 'mine'}`}>
                   <Marker
                     position={[course.lat, course.lng]}
                     icon={isHighlighted ? highlightedCourseIcon : isGreen ? greenCourseIcon : courseIcon}
@@ -435,11 +442,8 @@ export default function MapScreen({ navigation, route }) {
           />
         )}
 
-        {courseAutoNavigate && (
-          <>
-            <MapLoadingBanner>Viewing {courseAutoNavigate.courseName} — heading to course page...</MapLoadingBanner>
-            <MapAutoNavigateCountdown secondsLeft={autoNavigateSecondsLeft} onPress={skipCourseAutoNavigate} />
-          </>
+        {feedCoursePopup && (
+          <FeedCoursePopupCard course={feedCoursePopup} onViewHoles={goToCourseDetailFromFeedPopup} />
         )}
       </View>
 
@@ -470,6 +474,7 @@ const styles = StyleSheet.create({
   },
   friendBanner: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     marginHorizontal: 16,
     marginBottom: 12,
@@ -483,8 +488,19 @@ const styles = StyleSheet.create({
   },
   friendBannerText: {
     flex: 1,
+    minWidth: '60%',
     color: colors.white,
     fontSize: 13,
+    fontWeight: '600',
+  },
+  friendBannerToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  friendBannerToggleLabel: {
+    color: colors.offWhite,
+    fontSize: 11,
     fontWeight: '600',
   },
   friendBannerClear: {

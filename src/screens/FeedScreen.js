@@ -601,6 +601,19 @@ export default function FeedScreen({ navigation, route }) {
     });
   };
 
+  // Sort bar's third pill (filtered/course-feed mode only) — jumps to the
+  // Hole by Hole grid for this course rather than toggling a sort mode, so
+  // it always navigates instead of setting sortMode. CourseDetailScreen
+  // defaults its own activeTab to 'Hole by Hole', so a plain navigate lands
+  // there directly.
+  const handleGoToHoleByHole = () => {
+    if (!filter) return;
+    navigation.navigate('CourseDetail', {
+      courseId: filter.courseId,
+      courseName: filter.courseName,
+    });
+  };
+
   const handleUserPress = (post) => {
     if (!post.user) return;
     navigation.navigate('UserProfile', { username: post.user });
@@ -734,6 +747,9 @@ export default function FeedScreen({ navigation, route }) {
               <Text style={[styles.sortToggleText, sortMode === 'recent' && styles.sortToggleTextActive]}>
                 Most Recent
               </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.sortToggleOption} onPress={handleGoToHoleByHole}>
+              <Text style={styles.sortToggleText}>Hole by Hole</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -968,13 +984,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 14,
-    backgroundColor: colors.navyCard,
-    borderWidth: 1,
-    borderColor: colors.navyBorder,
+    backgroundColor: '#1a2e4a',
   },
   sortToggleOptionActive: {
     backgroundColor: colors.red,
-    borderColor: colors.red,
   },
   // Profile-feed mode's header — back button + the viewed user's @username,
   // in place of the normal Header + filter pills (see FeedScreen's
@@ -1001,7 +1014,7 @@ const styles = StyleSheet.create({
     width: 24,
   },
   sortToggleText: {
-    color: colors.muted,
+    color: colors.white,
     fontSize: 11,
     fontWeight: '700',
   },

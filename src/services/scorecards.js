@@ -135,8 +135,9 @@ export async function getScorecardsForCourse({ courseId, courseName }) {
   });
 }
 
-// Best (lowest) score per course, top 5 lowest scores — used by the Other
-// User Profile screen's "Top Courses" tab.
+// Best (lowest) score per course, top 5 lowest scores. No longer used by
+// OtherUserProfileScreen (its tabs are Uploads/Course Rankings/Courses
+// Played), kept for any other best-score-per-course use case.
 export async function getTopCoursesForUser(userId) {
   const { data, error } = await supabase
     .from('scorecards')

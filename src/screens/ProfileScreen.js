@@ -19,6 +19,8 @@ import HandicapInputModal from '../components/profile/HandicapInputModal';
 import CourseRankingModal from '../components/profile/CourseRankingModal';
 import CourseSearchModal from '../components/profile/CourseSearchModal';
 import FollowListModal from '../components/profile/FollowListModal';
+import CourseActionSheet from '../components/profile/CourseActionSheet';
+import { navigateToCourseOnMap, navigateToCourseDetail } from '../utils/courseNavigation';
 import { uploadAvatar } from '../services/profiles';
 import { getCourseRankings, addCourseRanking, updateCourseRanking } from '../services/courseRankings';
 import { getMyCourses, addMyCourse, removeMyCourse, getSavedCourseCoordinates } from '../services/myCourses';
@@ -27,9 +29,9 @@ import { submitNewCourse } from '../services/golfCourseApi';
 import { getUserPosts } from '../services/posts';
 import { getFollowerCount, getFollowingCount } from '../services/social';
 
-const TABS = ['Course Rankings', 'My Courses', 'Uploads'];
+const TABS = ['Course Rankings', 'Courses Played', 'Uploads'];
 
-function RankingsList({ rankings, loading, onUpdate, onAdd }) {
+function RankingsList({ rankings, loading, onUpdate, onAdd, onPressCourse }) {
   return (
     <View>
       <TouchableOpacity style={styles.addRankingButton} onPress={onAdd} activeOpacity={0.8}>
@@ -43,7 +45,12 @@ function RankingsList({ rankings, loading, onUpdate, onAdd }) {
         <Text style={styles.emptyText}>You haven't ranked any courses yet.</Text>
       ) : (
         rankings.map((item, index) => (
-          <View key={item.id} style={styles.listRow}>
+          <TouchableOpacity
+            key={item.id}
+            style={styles.listRow}
+            onPress={() => onPressCourse(item)}
+            activeOpacity={0.8}
+          >
             <View style={styles.rankBadge}>
               <Text style={styles.rankBadgeText}>{index + 1}</Text>
             </View>
@@ -54,14 +61,14 @@ function RankingsList({ rankings, loading, onUpdate, onAdd }) {
             <TouchableOpacity style={styles.updateButton} onPress={() => onUpdate(item)} hitSlop={8}>
               <Text style={styles.updateButtonText}>Update</Text>
             </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
         ))
       )}
     </View>
   );
 }
 
-function MyCoursesList({ courses, loading, editMode, onToggleEdit, onAdd, onRemove }) {
+function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, onRemove }) {
   return (
     <View>
       <View style={styles.myCoursesHeaderRow}>
@@ -178,6 +185,30 @@ export default function ProfileScreen({ navigation }) {
   const [followingCount, setFollowingCount] = useState(0);
   const [followListVisible, setFollowListVisible] = useState(false);
   const [followListMode, setFollowListMode] = useState('followers');
+  const [actionSheetCourse, setActionSheetCourse] = useState(null);
+
+  function handlePressRanking(item) {
+    setActionSheetCourse({
+      courseId: item.courseId,
+      courseName: item.courseName,
+      city: null,
+      state: null,
+      lat: null,
+      lng: null,
+    });
+  }
+
+  function handleViewCourseOnMap() {
+    const course = actionSheetCourse;
+    setActionSheetCourse(null);
+    navigateToCourseOnMap(navigation, { viaTabs: false, course });
+  }
+
+  function handleViewCourseDetail() {
+    const course = actionSheetCourse;
+    setActionSheetCourse(null);
+    navigateToCourseDetail(navigation, course);
+  }
 
   const loadFollowCounts = useCallback(async () => {
     if (!user?.id) return;
@@ -354,7 +385,7 @@ export default function ProfileScreen({ navigation }) {
   }
 
   function handleRemoveMyCourse(course) {
-    Alert.alert('Remove course?', `Remove ${course.courseName} from My Courses?`, [
+    Alert.alert('Remove course?', `Remove ${course.courseName} from Courses Played?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
@@ -641,10 +672,11 @@ export default function ProfileScreen({ navigation }) {
               loading={rankingsLoading}
               onUpdate={handleOpenUpdateRanking}
               onAdd={handleOpenAddRanking}
+              onPressCourse={handlePressRanking}
             />
           )}
-          {activeTab === 'My Courses' && (
-            <MyCoursesList
+          {activeTab === 'Courses Played' && (
+            <CoursesPlayedList
               courses={myCourses}
               loading={myCoursesLoading}
               editMode={myCoursesEditMode}
@@ -681,6 +713,14 @@ export default function ProfileScreen({ navigation }) {
         onClose={() => setFollowListVisible(false)}
         navigation={navigation}
         onFollowChange={loadFollowCounts}
+      />
+
+      <CourseActionSheet
+        visible={!!actionSheetCourse}
+        course={actionSheetCourse}
+        onClose={() => setActionSheetCourse(null)}
+        onViewMap={handleViewCourseOnMap}
+        onViewCourseDetail={handleViewCourseDetail}
       />
     </View>
   );

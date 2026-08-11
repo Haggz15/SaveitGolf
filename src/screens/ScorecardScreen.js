@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   Platform,
   Alert,
-  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
@@ -25,14 +24,12 @@ import { useAuth } from '../context/AuthContext';
 
 export default function ScorecardScreen() {
   const { user, profile } = useAuth();
-  const { width: windowWidth } = useWindowDimensions();
   const shareCardRef = useRef(null);
-  // Hidden off-screen copy of the card with no photo column at all (rather
-  // than the dashed "Add Photo" placeholder) — captured instead of
-  // `shareCardRef` whenever the user shares without having added a photo,
-  // so the placeholder never ends up in the saved image (Fix 4).
-  const noPhotoShareCardRef = useRef(null);
   const [isSharing, setIsSharing] = useState(false);
+  // True while the web share capture is in flight — hides the New
+  // Scorecard button and the Add Photo (+) button so neither ends up in
+  // the captured image, then both reappear once capture finishes.
+  const [capturing, setCapturing] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
   const [activeScorecard, setActiveScorecard] = useState(mockScorecard);
   const [modalVisible, setModalVisible] = useState(false);
@@ -127,21 +124,38 @@ export default function ScorecardScreen() {
   }
 
   async function handleShare() {
-    const captureRef = photoUri ? shareCardRef : noPhotoShareCardRef;
-
     if (Platform.OS === 'web') {
       try {
         setIsSharing(true);
-        const dataUrl = await captureRef.current.capture();
+        setCapturing(true);
+        // Let the hide re-render actually commit to the DOM before reading
+        // it — otherwise html2canvas can grab a frame from just before the
+        // buttons disappear.
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+        // Required lazily: a browser-DOM library, not meaningful (and not
+        // necessarily safe to even load) on native.
+        const html2canvas = require('html2canvas');
+        const node = document.getElementById('scorecard-card');
+        const canvas = await html2canvas(node, { backgroundColor: null, useCORS: true });
+        const dataUrl = canvas.toDataURL('image/png');
+
         const link = document.createElement('a');
         link.href = dataUrl;
-        link.download = `${activeScorecard.courseName || 'scorecard'}.png`;
+        link.download = 'SaveitGolf-Scorecard.png';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+
+        // Not the browser's native window.alert() — that's a blocking modal
+        // dialog (freezes the tab until dismissed), which is a worse
+        // experience here than the same non-blocking Toast the native path
+        // below already uses for its own success message.
+        setToastMessage({ text: 'Scorecard saved to Downloads', type: 'success' });
       } catch (err) {
         Alert.alert('Something went wrong', 'Could not export your scorecard. Please try again.');
       } finally {
+        setCapturing(false);
         setIsSharing(false);
       }
       return;
@@ -160,7 +174,7 @@ export default function ScorecardScreen() {
         return;
       }
 
-      const uri = await captureRef.current.capture();
+      const uri = await shareCardRef.current.capture();
 
       await MediaLibrary.saveToLibraryAsync(uri);
       setToastMessage({ text: 'Scorecard saved to Camera Roll', type: 'success' });
@@ -175,14 +189,16 @@ export default function ScorecardScreen() {
     <View style={styles.screen}>
       <Header />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <TouchableOpacity
-          style={styles.newScorecardButton}
-          onPress={() => setModalVisible(true)}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="add-circle" size={20} color={colors.white} />
-          <Text style={styles.newScorecardButtonText}>New Scorecard</Text>
-        </TouchableOpacity>
+        {!capturing && (
+          <TouchableOpacity
+            style={styles.newScorecardButton}
+            onPress={() => setModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="add-circle" size={20} color={colors.white} />
+            <Text style={styles.newScorecardButtonText}>New Scorecard</Text>
+          </TouchableOpacity>
+        )}
 
         <View style={styles.cardWrapper}>
           <ViewShot ref={shareCardRef} options={{ format: 'png', quality: 1 }}>
@@ -192,11 +208,12 @@ export default function ScorecardScreen() {
               photoUri={photoUri}
               onRequestPhoto={handlePickPhoto}
               onRemovePhoto={() => setPhotoUri(null)}
+              captureId="scorecard-card"
             />
           </ViewShot>
 
           <View style={styles.topRightButtons}>
-            {!photoUri && (
+            {!photoUri && !capturing && (
               <TouchableOpacity
                 onPress={handlePickPhoto}
                 style={styles.addPhotoPlusButton}
@@ -216,12 +233,6 @@ export default function ScorecardScreen() {
               <Text style={styles.shareButtonText}>{isSharing ? 'Saving…' : 'Share'}</Text>
             </TouchableOpacity>
           </View>
-        </View>
-
-        <View style={[styles.offscreen, { width: windowWidth - 32 }]} pointerEvents="none">
-          <ViewShot ref={noPhotoShareCardRef} options={{ format: 'png', quality: 1 }}>
-            <ScorecardCard scorecard={activeScorecard} fullName={fullName} hidePhotoColumn />
-          </ViewShot>
         </View>
 
         <View style={styles.pastSection}>
@@ -333,14 +344,6 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 12,
     fontWeight: '700',
-  },
-  // Positioned off-screen (not display:none/opacity:0) so it still lays out
-  // and renders normally — react-native-view-shot needs a real, visible
-  // layout to capture from.
-  offscreen: {
-    position: 'absolute',
-    top: -10000,
-    left: 0,
   },
   pastSection: {
     marginTop: 28,

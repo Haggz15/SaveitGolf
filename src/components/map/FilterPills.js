@@ -4,7 +4,7 @@ import { MAP_FILTERS } from '../../hooks/useCourseMapData';
 
 const PILLS = [
   { value: MAP_FILTERS.ALL, label: 'All Courses' },
-  { value: MAP_FILTERS.PLAYED, label: 'My Courses' },
+  { value: MAP_FILTERS.PLAYED, label: 'Courses Played' },
 ];
 
 export default function FilterPills({ value, onChange }) {

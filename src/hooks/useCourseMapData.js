@@ -5,6 +5,7 @@ import { getCourseById, searchCourses, RateLimitError } from '../services/golfCo
 import { getPostsForCourse, updatePostCoordinates } from '../services/posts';
 import { geocodeCourseCoordinates } from '../services/geocoding';
 import { getMyCourses, updateMyCourseCoordinates, getSavedCourseCoordinates } from '../services/myCourses';
+import { getFriendMyCourses } from '../services/friendMap';
 import { getAllCoursesInState } from '../services/stateCourses';
 import { courseHasValidCoordinates } from '../utils/mapCoords';
 import { getStateZoomCenter, zoomLevelToDelta, STATE_ZOOM_LEVEL } from '../utils/stateZoomCenters';
@@ -30,10 +31,9 @@ export const SEARCH_FOCUS_DELTA = 0.02;
 export const STATE_FOCUS_DELTA = 4;
 const SEARCH_DEBOUNCE_MS = 400;
 
-// How long the feed course-name-tap flow waits, once the flag is down, before
-// auto-navigating to Course Detail — the countdown pill counts down these
-// same seconds (see `autoNavigateSecondsLeft` below).
-const AUTO_NAVIGATE_SECONDS = 3;
+// How long the feed course-name-tap flow waits, once the flag is down,
+// before showing the "View Holes and Shots" popup card.
+const FEED_POPUP_DELAY_MS = 1000;
 
 export const MAP_FILTERS = { ALL: 'all', PLAYED: 'played' };
 
@@ -80,6 +80,10 @@ export function useCourseMapData({
   routeTimestamp,
   routeZoomToState,
   routeZoomToStateTimestamp,
+  routeViewFriendUserId,
+  routeViewFriendUsername,
+  routeViewFriendName,
+  routeViewFriendTimestamp,
   userId,
 } = {}) {
   const [region, setRegionState] = useState(US_INITIAL_REGION);
@@ -96,13 +100,13 @@ export function useCourseMapData({
   // from selectedCourse since it's a passive labeled pin (no detail fetch,
   // no popup card), shown alongside whatever the current filter renders.
   const [feedFocusPin, setFeedFocusPin] = useState(null);
-  // Set once that same feed-tap flow successfully resolves a course (see the
-  // routeZoomToState effect below) — drives the "heading to course page…"
-  // banner and the countdown pill that auto-navigates to Course Detail.
-  // `key` uniquely identifies each tap so the countdown effect below only
-  // (re)starts when it actually changes, not on every re-render.
-  const [courseAutoNavigate, setCourseAutoNavigate] = useState(null);
-  const [autoNavigateSecondsLeft, setAutoNavigateSecondsLeft] = useState(AUTO_NAVIGATE_SECONDS);
+  // Set (after a 1s delay, once the flag is down) by the routeZoomToState
+  // effect below — drives the bottom-of-map "View Holes and Shots" popup.
+  // Unlike the old courseAutoNavigate flow, this never auto-dismisses or
+  // auto-navigates anywhere on its own; it only closes when the user taps
+  // elsewhere on the map (dismissFeedCoursePopup) or taps its own button
+  // (goToCourseDetailFromFeedPopup).
+  const [feedCoursePopup, setFeedCoursePopup] = useState(null);
   // Defaults to the user's saved courses (My Courses) — the map opens
   // showing only those pins rather than an empty "All Courses" view.
   const [filter, setFilter] = useState(MAP_FILTERS.PLAYED);
@@ -271,6 +275,10 @@ export function useCourseMapData({
     const requestId = ++courseDetailRequestIdRef.current;
     setSelectedCourse(course);
     setSelectedDetail({ loading: true });
+    // A marker tap opens CoursePopupCard, which occupies the same bottom-of-
+    // map slot as the feed course-tap popup — clear the latter so they never
+    // stack on top of each other.
+    setFeedCoursePopup(null);
     getCourseById(course.id)
       .then((detail) => {
         if (requestId !== courseDetailRequestIdRef.current) return;
@@ -366,23 +374,24 @@ export function useCourseMapData({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeFocusCourse, routeTimestamp]);
 
-  // Feed's course-name tap (see FeedScreen.handleCoursePress). Three stages:
-  // (1) immediately zoom out to the course's whole state — using a small
-  // set of specified centers for a few states and each other state's
-  // capital otherwise (see stateZoomCenters) — so the screen shows
-  // *something* right away instead of sitting on the old region while the
-  // course is located; (2) once real coordinates are in hand (already on
-  // the post, or geocoded via Nominatim as a fallback), animate in tight on
-  // the course itself and drop the 1.5x flag there; (3) arm the auto-navigate
-  // countdown so the screen doesn't just sit there afterward — see
-  // `courseAutoNavigate` below, which the countdown effect and the
-  // banner/pill UI (MapScreen/MapScreen.web) key off of. A post with no
-  // stored coordinates that successfully geocodes gets them written back
-  // (see updatePostCoordinates) so the next tap on it skips straight to
-  // stage 2.
+  // Feed's course-name tap (see FeedScreen.handleCoursePress). Two stages:
+  // (1) zoom to the course's whole state at STATE_ZOOM_LEVEL (7) — using a
+  // small set of specified centers for a few states and each other state's
+  // capital otherwise (see stateZoomCenters) — and drop the flag pin at the
+  // course's exact coordinates (already on the post, or geocoded via
+  // Nominatim as a fallback) without re-focusing the camera on it, so the
+  // state stays fully visible; (2) once the flag is down, wait
+  // FEED_POPUP_DELAY_MS and then show the "View Holes and Shots" popup card
+  // (`feedCoursePopup`) — which, unlike the old courseAutoNavigate flow,
+  // never auto-dismisses or auto-navigates; the user decides whether/when to
+  // go to Course Detail (see goToCourseDetailFromFeedPopup) or dismiss it
+  // (dismissFeedCoursePopup). A post with no stored coordinates that
+  // successfully geocodes gets them written back (see updatePostCoordinates)
+  // so the next tap on it skips straight to placing the pin.
   useEffect(() => {
     if (!routeZoomToState) return;
     let cancelled = false;
+    let popupTimer = null;
 
     const center = getStateZoomCenter(routeZoomToState.state);
     if (center) {
@@ -398,6 +407,8 @@ export function useCourseMapData({
     } else {
       console.warn(`[useCourseMapData] no zoom center found for state "${routeZoomToState.state}"`);
     }
+
+    setFeedCoursePopup(null);
 
     (async () => {
       let { lat, lng } = routeZoomToState;
@@ -422,96 +433,56 @@ export function useCourseMapData({
 
       if (courseHasValidCoordinates({ lat, lng })) {
         setFeedFocusPin({ name: routeZoomToState.courseName, lat, lng });
-        const nextRegion = {
-          latitude: lat,
-          longitude: lng,
-          latitudeDelta: SEARCH_FOCUS_DELTA,
-          longitudeDelta: SEARCH_FOCUS_DELTA,
-        };
-        setRegionState(nextRegion);
-        setFocusRegion({
-          ...nextRegion,
-          key: `feed-course-${routeZoomToState.courseName}-${routeZoomToStateTimestamp}`,
-        });
         if (!hadStoredCoordinates && routeZoomToState.postId) {
           updatePostCoordinates(routeZoomToState.postId, lat, lng);
         }
-        setCourseAutoNavigate({
-          courseId: routeZoomToState.courseId ?? null,
-          courseName: routeZoomToState.courseName,
-          city: routeZoomToState.city ?? null,
-          state: routeZoomToState.state ?? null,
-          lat,
-          lng,
-          key: `feed-course-${routeZoomToState.courseName}-${routeZoomToStateTimestamp}`,
-        });
+        popupTimer = setTimeout(() => {
+          if (cancelled) return;
+          setFeedCoursePopup({
+            courseId: routeZoomToState.courseId ?? null,
+            courseName: routeZoomToState.courseName,
+            city: routeZoomToState.city ?? null,
+            state: routeZoomToState.state ?? null,
+            lat,
+            lng,
+          });
+        }, FEED_POPUP_DELAY_MS);
       } else {
         // Geocoding came up empty — stay at the stage-1 state-wide view
         // rather than dropping a pin at a coordinate that isn't actually
         // this course.
         setFeedFocusPin(null);
-        setCourseAutoNavigate(null);
       }
     })();
 
     return () => {
       cancelled = true;
+      if (popupTimer) clearTimeout(popupTimer);
     };
   }, [routeZoomToState, routeZoomToStateTimestamp]);
 
-  // Where the auto-navigate countdown (below) sends the user once it fires —
-  // switches the Tabs navigator's active tab to Feed *first* so that when
-  // Course Detail (and the Course Feed it immediately opens into, see
-  // CourseDetailScreen's `autoOpenAllPosts`) is later backed out of, it lands
-  // on Feed rather than back on this Map screen.
-  const navigateToCourseDetailFromFeedTap = useCallback(
-    (info) => {
-      if (!navigation || !info) return;
-      navigation.navigate('Tabs', { screen: 'Feed' });
-      navigation.navigate('CourseDetail', {
-        courseId: info.courseId,
-        courseName: info.courseName,
-        city: info.city,
-        state: info.state,
-        lat: info.lat,
-        lng: info.lng,
-        autoOpenAllPosts: true,
-      });
-    },
-    [navigation]
-  );
+  // Dismisses the popup without navigating anywhere — used when the user
+  // taps elsewhere on the map (see MapScreen/MapScreen.web's MapView
+  // onPress). The flag pin stays put.
+  const dismissFeedCoursePopup = useCallback(() => {
+    setFeedCoursePopup(null);
+  }, []);
 
-  // Drives the countdown pill (Fix, Step 3): once `courseAutoNavigate` is
-  // armed by the routeZoomToState effect above, ticks
-  // `autoNavigateSecondsLeft` down once a second and navigates to Course
-  // Detail when it reaches 0. Keyed on `courseAutoNavigate?.key` rather than
-  // the object itself so it doesn't restart on unrelated re-renders.
-  useEffect(() => {
-    if (!courseAutoNavigate) return undefined;
-    setAutoNavigateSecondsLeft(AUTO_NAVIGATE_SECONDS);
-    const interval = setInterval(() => {
-      setAutoNavigateSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          navigateToCourseDetailFromFeedTap(courseAutoNavigate);
-          setCourseAutoNavigate(null);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [courseAutoNavigate?.key]);
-
-  // Tapping the countdown pill skips straight to Course Detail instead of
-  // waiting out the rest of the countdown.
-  const skipCourseAutoNavigate = useCallback(() => {
-    if (!courseAutoNavigate) return;
-    const info = courseAutoNavigate;
-    setCourseAutoNavigate(null);
-    navigateToCourseDetailFromFeedTap(info);
-  }, [courseAutoNavigate, navigateToCourseDetailFromFeedTap]);
+  // The popup's own "View Holes and Shots" button — the only way this flow
+  // ever navigates to Course Detail now that there's no auto-navigate timer.
+  const goToCourseDetailFromFeedPopup = useCallback(() => {
+    if (!navigation || !feedCoursePopup) return;
+    const info = feedCoursePopup;
+    setFeedCoursePopup(null);
+    navigation.navigate('CourseDetail', {
+      courseId: info.courseId,
+      courseName: info.courseName,
+      city: info.city,
+      state: info.state,
+      lat: info.lat,
+      lng: info.lng,
+    });
+  }, [navigation, feedCoursePopup]);
 
   // My Courses pins are always part of the visible set — a permanent layer,
   // independent of the ALL/PLAYED filter and zoom level. The filter only
@@ -578,6 +549,65 @@ export function useCourseMapData({
     setSelectedCourse(null);
     setSelectedDetail(null);
   }, []);
+
+  // Viewing a friend's courses — driven either by the map's own Friend
+  // Search input (handleSelectFriend, called directly) or by a route param
+  // set from another screen's "View [friend]'s Courses on Map" button (the
+  // effect below). `showOwnCourses` is a display toggle only (see
+  // mapMarkers) — the user's own pins stay loaded underneath regardless so
+  // toggling it back on doesn't need a refetch.
+  const [friendFilter, setFriendFilter] = useState(null); // { userId, displayName, courses, loading }
+  const [showOwnCourses, setShowOwnCourses] = useState(true);
+
+  const loadFriendCourses = useCallback(
+    async (profile) => {
+      clearSelectedCourse();
+      const displayName = profile.username || profile.full_name || 'this golfer';
+      setShowOwnCourses(true);
+      setFriendFilter({ userId: profile.user_id, displayName, courses: [], loading: true });
+      try {
+        const courses = await getFriendMyCourses(profile.user_id);
+        setFriendFilter({ userId: profile.user_id, displayName, courses, loading: false });
+      } catch (err) {
+        console.error("[useCourseMapData] failed to load friend's courses:", err.message);
+        setFriendFilter({ userId: profile.user_id, displayName, courses: [], loading: false });
+      }
+    },
+    [clearSelectedCourse]
+  );
+
+  const clearFriendFilter = useCallback(() => {
+    setFriendFilter(null);
+    setShowOwnCourses(true);
+    clearSelectedCourse();
+  }, [clearSelectedCourse]);
+
+  // Entry point for the "View [friend]'s Courses on Map" button on a
+  // profile screen (see OtherUserProfileScreen) — that screen isn't the one
+  // driving the map, so it hands off via route params instead of calling
+  // loadFriendCourses directly. Keyed on the timestamp (not just the user
+  // id) so tapping the button again for the same friend re-triggers it.
+  useEffect(() => {
+    if (!routeViewFriendUserId) return;
+    loadFriendCourses({
+      user_id: routeViewFriendUserId,
+      username: routeViewFriendUsername,
+      full_name: routeViewFriendName,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeViewFriendUserId, routeViewFriendTimestamp]);
+
+  // While a friend filter is active, their courses (tagged `isFriend` so
+  // callers can color them green same as `isMine`) replace the state/all-
+  // courses layer, but the user's own pins stay in the mix — via the
+  // `showOwnCourses` toggle — so the two can be compared side by side rather
+  // than the friend's view fully replacing the user's own, as it used to.
+  const mapMarkers = useMemo(() => {
+    if (!friendFilter) return visibleCourses;
+    const own = showOwnCourses ? visibleCourses.filter((c) => c.isMine) : [];
+    const friends = friendFilter.courses.map((c) => ({ ...c, isMine: false, isFriend: true }));
+    return [...own, ...friends];
+  }, [friendFilter, showOwnCourses, visibleCourses]);
 
   const clearPlayedFilter = useCallback(() => {
     setFilter(MAP_FILTERS.ALL);
@@ -656,6 +686,12 @@ export function useCourseMapData({
     currentStateName: currentStateAbbr ? stateCenters[currentStateAbbr].name : null,
     handleSelectStateMarker,
     visibleCourses,
+    mapMarkers,
+    friendFilter,
+    showOwnCourses,
+    setShowOwnCourses,
+    loadFriendCourses,
+    clearFriendFilter,
     quotaExceeded,
     locationDenied,
     selectedCourse,
@@ -664,9 +700,9 @@ export function useCourseMapData({
     clearSelectedCourse,
     goToCourseDetail,
     feedFocusPin,
-    courseAutoNavigate,
-    autoNavigateSecondsLeft,
-    skipCourseAutoNavigate,
+    feedCoursePopup,
+    dismissFeedCoursePopup,
+    goToCourseDetailFromFeedPopup,
     filter,
     setFilter,
     clearPlayedFilter,

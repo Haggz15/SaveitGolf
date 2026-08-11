@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity, Switch } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,9 +10,10 @@ import FilterPills from '../components/map/FilterPills';
 import StatePushPin from '../components/map/StatePushPin';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
+import FeedCoursePopupCard from '../components/map/FeedCoursePopupCard';
 import MapErrorBoundary from '../components/map/MapErrorBoundary';
 import SilentMarkerBoundary from '../components/map/SilentMarkerBoundary';
-import { MapWarningBanner, MapLoadingBanner, MapAutoNavigateCountdown } from '../components/map/MapMessageBanner';
+import { MapWarningBanner } from '../components/map/MapMessageBanner';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { darkSlateMapStyle } from '../theme/mapStyle';
@@ -24,7 +25,6 @@ import {
   ZOOM_LEVEL,
 } from '../hooks/useCourseMapData';
 import { useAuth } from '../context/AuthContext';
-import { getFriendMyCourses } from '../services/friendMap';
 import { filterCoursesWithValidCoordinates } from '../utils/mapCoords';
 
 const ZOOM_MIN_DELTA = 0.01;
@@ -53,9 +53,10 @@ function withCoords(courses, context) {
   return filterCoursesWithValidCoordinates(courses, context);
 }
 
-// `green` marks pins from the user's own My Courses list (the map's default
-// view) so they read distinctly from the red flag used for search results
-// and course-detail "View on Map" focus.
+// `green` marks pins from the user's own Courses Played list, or a friend's
+// when a friend filter is active (the map's mapMarkers already tags both
+// `isMine`/`isFriend`), so they read distinctly from the red flag used for
+// search results and course-detail "View on Map" focus.
 function CourseMarker({ course, highlighted, green, onPress }) {
   return (
     <Marker
@@ -125,7 +126,6 @@ function StateMarker({ state, onPress }) {
 export default function MapScreen({ navigation, route }) {
   const { user } = useAuth();
   const mapRef = useRef(null);
-  const [friendFilter, setFriendFilter] = useState(null); // { displayName, courses, loading }
   const [emptyMyCoursesToast, setEmptyMyCoursesToast] = useState(null);
   const playedEmptyToastShownRef = useRef(false);
   const {
@@ -136,7 +136,12 @@ export default function MapScreen({ navigation, route }) {
     stateMarkers,
     currentStateName,
     handleSelectStateMarker,
-    visibleCourses,
+    mapMarkers,
+    friendFilter,
+    showOwnCourses,
+    setShowOwnCourses,
+    loadFriendCourses,
+    clearFriendFilter,
     quotaExceeded,
     locationDenied,
     selectedCourse,
@@ -145,9 +150,9 @@ export default function MapScreen({ navigation, route }) {
     clearSelectedCourse,
     goToCourseDetail,
     feedFocusPin,
-    courseAutoNavigate,
-    autoNavigateSecondsLeft,
-    skipCourseAutoNavigate,
+    feedCoursePopup,
+    dismissFeedCoursePopup,
+    goToCourseDetailFromFeedPopup,
     filter,
     setFilter,
     myCoursesList,
@@ -166,6 +171,10 @@ export default function MapScreen({ navigation, route }) {
     routeTimestamp: route?.params?.timestamp,
     routeZoomToState: route?.params?.zoomToState,
     routeZoomToStateTimestamp: route?.params?.zoomToStateAt,
+    routeViewFriendUserId: route?.params?.viewFriendUserId,
+    routeViewFriendUsername: route?.params?.viewFriendUsername,
+    routeViewFriendName: route?.params?.viewFriendName,
+    routeViewFriendTimestamp: route?.params?.viewFriendAt,
     userId: user?.id,
   });
 
@@ -216,24 +225,6 @@ export default function MapScreen({ navigation, route }) {
     setEmptyMyCoursesToast('Add courses in your profile to see them here');
   }, [myCoursesLoading, myCoursesLoaded, myCoursesList]);
 
-  const handleSelectFriend = async (profile) => {
-    clearSelectedCourse();
-    const displayName = profile.full_name || profile.username || 'this golfer';
-    setFriendFilter({ displayName, courses: [], loading: true });
-    try {
-      const courses = await getFriendMyCourses(profile.user_id);
-      setFriendFilter({ displayName, courses, loading: false });
-    } catch (err) {
-      console.error("Failed to load friend's courses:", err);
-      setFriendFilter({ displayName, courses: [], loading: false });
-    }
-  };
-
-  const handleClearFriendFilter = () => {
-    setFriendFilter(null);
-    clearSelectedCourse();
-  };
-
   const handleZoomIn = () => {
     mapRef.current?.animateToRegion(
       {
@@ -273,7 +264,7 @@ export default function MapScreen({ navigation, route }) {
           />
         </>
       )}
-      <FriendSearchBar currentUserId={user?.id} onSelectFriend={handleSelectFriend} />
+      <FriendSearchBar currentUserId={user?.id} onSelectFriend={loadFriendCourses} />
       <FilterPills value={filter} onChange={setFilter} />
 
       {friendFilter && (
@@ -286,7 +277,16 @@ export default function MapScreen({ navigation, route }) {
               ? `Viewing ${friendFilter.displayName}'s courses`
               : `${friendFilter.displayName} hasn't added any courses yet`}
           </Text>
-          <TouchableOpacity onPress={handleClearFriendFilter} style={styles.friendBannerClear}>
+          <View style={styles.friendBannerToggle}>
+            <Text style={styles.friendBannerToggleLabel}>Courses Played</Text>
+            <Switch
+              value={showOwnCourses}
+              onValueChange={setShowOwnCourses}
+              trackColor={{ false: colors.navyBorder, true: colors.brightGreen }}
+              thumbColor={colors.white}
+            />
+          </View>
+          <TouchableOpacity onPress={clearFriendFilter} style={styles.friendBannerClear}>
             <Text style={styles.friendBannerClearText}>Clear</Text>
           </TouchableOpacity>
         </View>
@@ -314,6 +314,7 @@ export default function MapScreen({ navigation, route }) {
             initialRegion={US_INITIAL_REGION}
             showsUserLocation={!locationDenied}
             onRegionChangeComplete={guard(setRegion)}
+            onPress={guard(() => feedCoursePopup && dismissFeedCoursePopup())}
           >
             {!friendFilter &&
               filter !== MAP_FILTERS.PLAYED &&
@@ -323,12 +324,12 @@ export default function MapScreen({ navigation, route }) {
                   <StateMarker state={state} onPress={guard(handleSelectStateMarker)} />
                 </SilentMarkerBoundary>
               ))}
-            {withCoords(friendFilter ? friendFilter.courses : visibleCourses, 'render markers').map((course) => (
-              <SilentMarkerBoundary key={course.id}>
+            {withCoords(mapMarkers, 'render markers').map((course) => (
+              <SilentMarkerBoundary key={`${course.id}-${course.isFriend ? 'friend' : 'mine'}`}>
                 <CourseMarker
                   course={course}
                   highlighted={selectedCourse?.id === course.id}
-                  green={!friendFilter && course.isMine}
+                  green={course.isMine || course.isFriend}
                   onPress={guard(handleSelectCourse)}
                 />
               </SilentMarkerBoundary>
@@ -353,11 +354,8 @@ export default function MapScreen({ navigation, route }) {
           />
         )}
 
-        {courseAutoNavigate && (
-          <>
-            <MapLoadingBanner>Viewing {courseAutoNavigate.courseName} — heading to course page...</MapLoadingBanner>
-            <MapAutoNavigateCountdown secondsLeft={autoNavigateSecondsLeft} onPress={skipCourseAutoNavigate} />
-          </>
+        {feedCoursePopup && (
+          <FeedCoursePopupCard course={feedCoursePopup} onViewHoles={goToCourseDetailFromFeedPopup} />
         )}
       </View>
 
@@ -388,6 +386,7 @@ const styles = StyleSheet.create({
   },
   friendBanner: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     marginHorizontal: 16,
     marginBottom: 12,
@@ -401,8 +400,19 @@ const styles = StyleSheet.create({
   },
   friendBannerText: {
     flex: 1,
+    minWidth: '60%',
     color: colors.white,
     fontSize: 13,
+    fontWeight: '600',
+  },
+  friendBannerToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  friendBannerToggleLabel: {
+    color: colors.offWhite,
+    fontSize: 11,
     fontWeight: '600',
   },
   friendBannerClear: {

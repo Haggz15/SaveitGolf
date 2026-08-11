@@ -22,6 +22,29 @@ export async function searchProfiles(query, currentUserId) {
   return data ?? [];
 }
 
+// Prefix match on username only, capped at 5 — used by the Map screen's
+// Friend Search input (see FriendSearchBar), which is narrower on purpose
+// than searchProfiles above (no full_name match, no cap-20 dropdown) since
+// it's meant to resolve a single specific friend quickly, not browse.
+export async function searchProfilesByUsernamePrefix(query, currentUserId) {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  let request = supabase
+    .from('profiles')
+    .select('username, full_name, avatar_url, user_id')
+    .ilike('username', `${trimmed}%`)
+    .limit(5);
+
+  if (currentUserId) {
+    request = request.neq('user_id', currentUserId);
+  }
+
+  const { data, error } = await request;
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function getProfileByUsername(username) {
   const { data, error } = await supabase
     .from('profiles')

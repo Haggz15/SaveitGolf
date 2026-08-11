@@ -13,9 +13,12 @@ import {
   getFollowingCount,
 } from '../services/social';
 import { getUserPosts, getPostsCount } from '../services/posts';
-import { getTopCoursesForUser } from '../services/scorecards';
+import { getCourseRankings } from '../services/courseRankings';
+import { getMyCourses } from '../services/myCourses';
+import CourseActionSheet from '../components/profile/CourseActionSheet';
+import { navigateToCourseOnMap, navigateToCourseDetail } from '../utils/courseNavigation';
 
-const TABS = ['Top Courses', 'Uploads'];
+const TABS = ['Uploads', 'Course Rankings', 'Courses Played'];
 
 function getInitials(fullName) {
   if (!fullName) return '';
@@ -29,40 +32,65 @@ function getInitials(fullName) {
     .toUpperCase();
 }
 
-function scoreDiffLabel(score, par) {
-  const diff = score - par;
-  if (diff === 0) return 'E';
-  return diff > 0 ? `+${diff}` : `${diff}`;
-}
-
-function TopCoursesList({ courses, loading }) {
+function RankingsList({ rankings, loading, onPressCourse }) {
   if (loading) {
     return <ActivityIndicator color={colors.red} style={{ marginTop: 24 }} />;
   }
-  if (courses.length === 0) {
-    return <Text style={styles.emptyText}>No scorecards logged yet.</Text>;
+  if (rankings.length === 0) {
+    return <Text style={styles.emptyText}>No courses ranked yet.</Text>;
   }
   return (
     <View>
-      {courses.map((item) => (
-        <View key={item.courseId || item.courseName} style={styles.listRow}>
+      {rankings.map((item, index) => (
+        <TouchableOpacity
+          key={item.id}
+          style={styles.listRow}
+          onPress={() => onPressCourse(item)}
+          activeOpacity={0.8}
+        >
           <View style={styles.rankBadge}>
-            <Text style={styles.rankBadgeText}>{item.rank}</Text>
+            <Text style={styles.rankBadgeText}>{index + 1}</Text>
           </View>
           <Text style={styles.listRowTitle} numberOfLines={1}>
             {item.courseName}
           </Text>
-          <View style={styles.scoreBlock}>
-            <Text style={styles.listRowScore}>{item.bestScore}</Text>
-            <Text style={styles.listRowDiff}>{scoreDiffLabel(item.bestScore, item.par)}</Text>
-          </View>
-        </View>
+          <Text style={styles.listRowRating}>{item.rating.toFixed(1)}</Text>
+        </TouchableOpacity>
       ))}
     </View>
   );
 }
 
-function UploadsGrid({ posts, loading }) {
+function CoursesPlayedList({ courses, loading, onPressCourse }) {
+  if (loading) {
+    return <ActivityIndicator color={colors.red} style={{ marginTop: 24 }} />;
+  }
+  if (courses.length === 0) {
+    return <Text style={styles.emptyText}>No courses played yet.</Text>;
+  }
+  return (
+    <View>
+      {courses.map((item) => (
+        <TouchableOpacity
+          key={item.id}
+          style={styles.listRow}
+          onPress={() => onPressCourse(item)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="flag-outline" size={18} color={colors.red} style={{ marginRight: 12 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.listRowTitle}>{item.courseName}</Text>
+            <Text style={styles.listRowSubtitle}>
+              {[item.city, item.state].filter(Boolean).join(', ') || 'Location unknown'}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+function UploadsGrid({ posts, loading, onPressPost }) {
   if (loading) {
     return <ActivityIndicator color={colors.red} style={{ marginTop: 24 }} />;
   }
@@ -77,15 +105,19 @@ function UploadsGrid({ posts, loading }) {
       scrollEnabled={false}
       columnWrapperStyle={{ gap: 8 }}
       contentContainerStyle={{ gap: 8 }}
-      renderItem={({ item }) => (
-        <View style={styles.uploadTile}>
+      renderItem={({ item, index }) => (
+        <TouchableOpacity
+          style={styles.uploadTile}
+          onPress={() => onPressPost(item, index)}
+          activeOpacity={0.85}
+        >
           <Image source={{ uri: item.mediaUrl }} style={styles.uploadTileImage} resizeMode="cover" />
           {item.isVideo && (
             <View style={styles.uploadPlayBadge}>
               <Ionicons name="play" size={10} color={colors.white} />
             </View>
           )}
-        </View>
+        </TouchableOpacity>
       )}
     />
   );
@@ -103,10 +135,13 @@ export default function OtherUserProfileScreen({ route, navigation }) {
   const [stats, setStats] = useState({ followers: 0, following: 0, posts: 0 });
   const [isFollowing, setIsFollowing] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
-  const [topCourses, setTopCourses] = useState([]);
-  const [topCoursesLoading, setTopCoursesLoading] = useState(true);
+  const [rankings, setRankings] = useState([]);
+  const [rankingsLoading, setRankingsLoading] = useState(true);
+  const [coursesPlayed, setCoursesPlayed] = useState([]);
+  const [coursesPlayedLoading, setCoursesPlayedLoading] = useState(true);
   const [uploads, setUploads] = useState([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
+  const [actionSheetCourse, setActionSheetCourse] = useState(null);
 
   const loadProfile = useCallback(async () => {
     if (!username) return;
@@ -132,11 +167,17 @@ export default function OtherUserProfileScreen({ route, navigation }) {
         setIsFollowing(await getFollowStatus(currentUser.id, row.user_id));
       }
 
-      setTopCoursesLoading(true);
-      getTopCoursesForUser(row.user_id)
-        .then(setTopCourses)
-        .catch((err) => console.error('Failed to load top courses:', err))
-        .finally(() => setTopCoursesLoading(false));
+      setRankingsLoading(true);
+      getCourseRankings(row.user_id)
+        .then(setRankings)
+        .catch((err) => console.error('Failed to load course rankings:', err))
+        .finally(() => setRankingsLoading(false));
+
+      setCoursesPlayedLoading(true);
+      getMyCourses(row.user_id)
+        .then(setCoursesPlayed)
+        .catch((err) => console.error('Failed to load courses played:', err))
+        .finally(() => setCoursesPlayedLoading(false));
 
       setUploadsLoading(true);
       getUserPosts(row.user_id)
@@ -154,6 +195,69 @@ export default function OtherUserProfileScreen({ route, navigation }) {
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
+
+  function handlePressRanking(item) {
+    setActionSheetCourse({
+      courseId: item.courseId,
+      courseName: item.courseName,
+      city: null,
+      state: null,
+      lat: null,
+      lng: null,
+    });
+  }
+
+  function handlePressCoursePlayed(item) {
+    setActionSheetCourse({
+      courseId: item.courseId,
+      courseName: item.courseName,
+      city: item.city,
+      state: item.state,
+      lat: item.latitude,
+      lng: item.longitude,
+    });
+  }
+
+  function handleViewCourseOnMap() {
+    const course = actionSheetCourse;
+    setActionSheetCourse(null);
+    navigateToCourseOnMap(navigation, { viaTabs: true, course });
+  }
+
+  function handleViewCourseDetail() {
+    const course = actionSheetCourse;
+    setActionSheetCourse(null);
+    navigateToCourseDetail(navigation, course);
+  }
+
+  function handlePostTap(post, index) {
+    // uploads comes straight from getUserPosts, which has no profile join
+    // (see mapRow) — stamp in this profile's name/avatar/username so the
+    // ProfileFeed slides show the right author instead of "golfer".
+    const posts = uploads.map((p) => ({
+      ...p,
+      user: profile?.username || p.user,
+      fullName: profile?.full_name || p.fullName,
+      avatarUrl: profile?.avatar_url || p.avatarUrl,
+    }));
+    navigation.navigate('ProfileFeed', {
+      posts,
+      startIndex: index,
+      username: profile?.username,
+    });
+  }
+
+  function handleViewOnMapButton() {
+    navigation.navigate('Tabs', {
+      screen: 'Map',
+      params: {
+        viewFriendUserId: profile?.user_id,
+        viewFriendUsername: profile?.username,
+        viewFriendName: profile?.full_name,
+        viewFriendAt: Date.now(),
+      },
+    });
+  }
 
   const handleToggleFollow = async () => {
     if (!currentUser?.id || !profile?.user_id || followBusy) return;
@@ -233,6 +337,12 @@ export default function OtherUserProfileScreen({ route, navigation }) {
               </View>
             </View>
 
+            <TouchableOpacity style={styles.viewOnMapButton} onPress={handleViewOnMapButton} activeOpacity={0.85}>
+              <Text style={styles.viewOnMapButtonText} numberOfLines={1}>
+                View {profile?.username || profile?.full_name || 'this golfer'}'s Courses on Map
+              </Text>
+            </TouchableOpacity>
+
             {!isSelf && (
               <TouchableOpacity
                 style={[styles.followButton, isFollowing && styles.followingButton]}
@@ -270,13 +380,29 @@ export default function OtherUserProfileScreen({ route, navigation }) {
             ))}
           </View>
 
-          {activeTab === 'Top Courses' ? (
-            <TopCoursesList courses={topCourses} loading={topCoursesLoading} />
-          ) : (
-            <UploadsGrid posts={uploads} loading={uploadsLoading} />
+          {activeTab === 'Uploads' && (
+            <UploadsGrid posts={uploads} loading={uploadsLoading} onPressPost={handlePostTap} />
+          )}
+          {activeTab === 'Course Rankings' && (
+            <RankingsList rankings={rankings} loading={rankingsLoading} onPressCourse={handlePressRanking} />
+          )}
+          {activeTab === 'Courses Played' && (
+            <CoursesPlayedList
+              courses={coursesPlayed}
+              loading={coursesPlayedLoading}
+              onPressCourse={handlePressCoursePlayed}
+            />
           )}
         </ScrollView>
       )}
+
+      <CourseActionSheet
+        visible={!!actionSheetCourse}
+        course={actionSheetCourse}
+        onClose={() => setActionSheetCourse(null)}
+        onViewMap={handleViewCourseOnMap}
+        onViewCourseDetail={handleViewCourseDetail}
+      />
     </View>
   );
 }
@@ -389,6 +515,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
+  viewOnMapButton: {
+    backgroundColor: colors.brightGreen,
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+  },
+  viewOnMapButtonText: {
+    color: colors.brightGreenText,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   followButton: {
     width: '100%',
     paddingVertical: 13,
@@ -485,20 +623,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flex: 1,
   },
-  scoreBlock: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
+  listRowSubtitle: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 2,
   },
-  listRowScore: {
-    color: colors.white,
-    fontSize: 16,
-    fontWeight: '800',
-    marginRight: 6,
-  },
-  listRowDiff: {
+  listRowRating: {
     color: colors.gold,
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: 14,
   },
   uploadTile: {
     flex: 1 / 3,

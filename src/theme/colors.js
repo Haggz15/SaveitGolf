@@ -11,6 +11,7 @@ export const colors = {
   green: '#2e8b57',
   greenLight: '#6fbd94',
   brightGreen: '#4dd860',
+  brightGreenText: '#0d2a0d',
   blue: '#4a90e2',
   lightBlue: '#a8c0e0',
 };
