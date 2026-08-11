@@ -5,3 +5,6 @@ export const TAB_BAR_HEIGHT = 82;
 // below it — used by FeedScreen's course/hole filtered mode in place of the
 // normal Header + filter pills (see FeedScreen's `filter` prop).
 export const FILTERED_FEED_HEADER_HEIGHT = 80;
+// Same back button + title row as above, minus the sort toggle row — used by
+// FeedScreen's profile-feed mode (see FeedScreen's `profileFeedPosts`).
+export const PROFILE_FEED_HEADER_HEIGHT = 52;

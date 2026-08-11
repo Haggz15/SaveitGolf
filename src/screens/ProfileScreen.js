@@ -18,12 +18,14 @@ import { useAuth } from '../context/AuthContext';
 import HandicapInputModal from '../components/profile/HandicapInputModal';
 import CourseRankingModal from '../components/profile/CourseRankingModal';
 import CourseSearchModal from '../components/profile/CourseSearchModal';
+import FollowListModal from '../components/profile/FollowListModal';
 import { uploadAvatar } from '../services/profiles';
 import { getCourseRankings, addCourseRanking, updateCourseRanking } from '../services/courseRankings';
 import { getMyCourses, addMyCourse, removeMyCourse, getSavedCourseCoordinates } from '../services/myCourses';
 import { geocodeCourseCoordinates } from '../services/geocoding';
 import { submitNewCourse } from '../services/golfCourseApi';
 import { getUserPosts } from '../services/posts';
+import { getFollowerCount, getFollowingCount } from '../services/social';
 
 const TABS = ['Course Rankings', 'My Courses', 'Uploads'];
 
@@ -102,7 +104,7 @@ function MyCoursesList({ courses, loading, editMode, onToggleEdit, onAdd, onRemo
   );
 }
 
-function UploadsGrid({ posts, loading }) {
+function UploadsGrid({ posts, loading, onPressPost }) {
   if (loading) {
     return <ActivityIndicator color={colors.red} style={{ marginTop: 16 }} />;
   }
@@ -117,23 +119,22 @@ function UploadsGrid({ posts, loading }) {
       scrollEnabled={false}
       columnWrapperStyle={{ gap: 8 }}
       contentContainerStyle={{ gap: 8 }}
-      renderItem={({ item }) => (
-        <View style={styles.uploadTile}>
+      renderItem={({ item, index }) => (
+        <TouchableOpacity
+          style={styles.uploadTile}
+          onPress={() => onPressPost(item, index)}
+          activeOpacity={0.85}
+        >
           <Image source={{ uri: item.mediaUrl }} style={styles.uploadTileImage} resizeMode="cover" />
           {item.isVideo && (
             <View style={styles.uploadPlayBadge}>
               <Ionicons name="play" size={10} color={colors.white} />
             </View>
           )}
-        </View>
+        </TouchableOpacity>
       )}
     />
   );
-}
-
-function handleOpenSettings() {
-  // Settings screen doesn't exist yet.
-  Alert.alert('Settings', 'App settings are coming soon.');
 }
 
 // AuthContext's onAuthStateChange listener swaps in the auth stack once the
@@ -173,6 +174,50 @@ export default function ProfileScreen({ navigation }) {
   const [myCoursesLoading, setMyCoursesLoading] = useState(true);
   const [myCoursesEditMode, setMyCoursesEditMode] = useState(false);
   const [courseSearchVisible, setCourseSearchVisible] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [followListVisible, setFollowListVisible] = useState(false);
+  const [followListMode, setFollowListMode] = useState('followers');
+
+  const loadFollowCounts = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const [followers, following] = await Promise.all([
+        getFollowerCount(user.id),
+        getFollowingCount(user.id),
+      ]);
+      setFollowerCount(followers);
+      setFollowingCount(following);
+    } catch (err) {
+      console.error('Failed to load follow counts:', err);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadFollowCounts();
+  }, [loadFollowCounts]);
+
+  function openFollowList(mode) {
+    setFollowListMode(mode);
+    setFollowListVisible(true);
+  }
+
+  function handlePostTap(post, index) {
+    // uploadPosts comes straight from getUserPosts, which has no profile
+    // join (see mapRow) — stamp in this user's own name/avatar/username so
+    // the ProfileFeed slides show the right author instead of "golfer".
+    const posts = uploadPosts.map((p) => ({
+      ...p,
+      user: profileData?.username || p.user,
+      fullName: profileData?.full_name || p.fullName,
+      avatarUrl: profileData?.avatar_url || p.avatarUrl,
+    }));
+    navigation.navigate('ProfileFeed', {
+      posts,
+      startIndex: index,
+      username: profileData?.username,
+    });
+  }
 
   const loadMyCourses = useCallback(async () => {
     if (!user?.id) return;
@@ -457,17 +502,12 @@ export default function ProfileScreen({ navigation }) {
     <View style={styles.screen}>
       <Header
         right={
-          <View style={styles.headerActions}>
-            <TouchableOpacity onPress={handleOpenSettings} hitSlop={10} style={styles.headerActionButton}>
-              <Ionicons name="settings-outline" size={22} color={colors.muted} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleLogout}
-              style={{ padding: 10, backgroundColor: '#c0001a', borderRadius: 8 }}
-            >
-              <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 14 }}>Log Out</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            onPress={handleLogout}
+            style={{ padding: 10, backgroundColor: '#c0001a', borderRadius: 8 }}
+          >
+            <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 14 }}>Log Out</Text>
+          </TouchableOpacity>
         }
       />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -518,17 +558,25 @@ export default function ProfileScreen({ navigation }) {
 
               <View style={styles.statsRow}>
                 <View style={styles.statItem}>
-                  <Text style={styles.statValue}>128</Text>
+                  <Text style={styles.statValue}>{uploadPosts.length}</Text>
                   <Text style={styles.statLabel}>Posts</Text>
                 </View>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>1.4k</Text>
+                <TouchableOpacity
+                  style={styles.statItem}
+                  onPress={() => openFollowList('followers')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.statValue}>{followerCount}</Text>
                   <Text style={styles.statLabel}>Followers</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>312</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.statItem}
+                  onPress={() => openFollowList('following')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.statValue}>{followingCount}</Text>
                   <Text style={styles.statLabel}>Following</Text>
-                </View>
+                </TouchableOpacity>
               </View>
 
               <View style={styles.handicapBox}>
@@ -605,7 +653,9 @@ export default function ProfileScreen({ navigation }) {
               onRemove={handleRemoveMyCourse}
             />
           )}
-          {activeTab === 'Uploads' && <UploadsGrid posts={uploadPosts} loading={uploadsLoading} />}
+          {activeTab === 'Uploads' && (
+            <UploadsGrid posts={uploadPosts} loading={uploadsLoading} onPressPost={handlePostTap} />
+          )}
         </View>
       </ScrollView>
 
@@ -623,6 +673,15 @@ export default function ProfileScreen({ navigation }) {
         onAddManualCourse={handleAddManualCourse}
       />
 
+      <FollowListModal
+        visible={followListVisible}
+        mode={followListMode}
+        profileUserId={user?.id}
+        currentUserId={user?.id}
+        onClose={() => setFollowListVisible(false)}
+        navigation={navigation}
+        onFollowChange={loadFollowCounts}
+      />
     </View>
   );
 }
@@ -631,13 +690,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.navy,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerActionButton: {
-    marginLeft: 16,
   },
   content: {
     paddingBottom: 40,

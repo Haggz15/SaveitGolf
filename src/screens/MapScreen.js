@@ -12,7 +12,7 @@ import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
 import MapErrorBoundary from '../components/map/MapErrorBoundary';
 import SilentMarkerBoundary from '../components/map/SilentMarkerBoundary';
-import { MapWarningBanner } from '../components/map/MapMessageBanner';
+import { MapWarningBanner, MapLoadingBanner, MapAutoNavigateCountdown } from '../components/map/MapMessageBanner';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { darkSlateMapStyle } from '../theme/mapStyle';
@@ -145,6 +145,9 @@ export default function MapScreen({ navigation, route }) {
     clearSelectedCourse,
     goToCourseDetail,
     feedFocusPin,
+    courseAutoNavigate,
+    autoNavigateSecondsLeft,
+    skipCourseAutoNavigate,
     filter,
     setFilter,
     myCoursesList,
@@ -348,6 +351,13 @@ export default function MapScreen({ navigation, route }) {
             onClose={clearSelectedCourse}
             onViewHoles={goToCourseDetail}
           />
+        )}
+
+        {courseAutoNavigate && (
+          <>
+            <MapLoadingBanner>Viewing {courseAutoNavigate.courseName} — heading to course page...</MapLoadingBanner>
+            <MapAutoNavigateCountdown secondsLeft={autoNavigateSecondsLeft} onPress={skipCourseAutoNavigate} />
+          </>
         )}
       </View>
 

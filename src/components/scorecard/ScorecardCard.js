@@ -2,7 +2,7 @@ import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import colors from '../../theme/colors';
 import GolfBallMark, { useGolfBallFont } from '../common/GolfBallMark';
 
-const WATERMARK_WIDTH = 32;
+const PHOTO_WATERMARK_WIDTH = 34;
 
 export function sumPar(holes) {
   return holes.reduce((sum, h) => sum + h.par, 0);
@@ -108,21 +108,33 @@ function NineColumn({ holes, label, variant = 'compact' }) {
         </View>
       ))}
       <View style={[styles.nineTotalRow, isWide && styles.nineTotalRowWide]}>
-        <Text style={styles.nineTotalScore}>{sumScore(holes)}</Text>
         <Text style={styles.nineTotalLabel}>{label}</Text>
+        <Text style={styles.nineTotalScore}>{sumScore(holes)}</Text>
       </View>
     </View>
   );
 }
 
 // The real SaveitGolf mark (ball + wordmark + pin, see GolfBallMark), scaled
-// down to 32px wide and faded to read as a subtle watermark rather than a
-// logo — used both in the card's bottom-right corner and over the photo.
+// down to 34px wide and faded to read as a subtle watermark rather than a
+// logo — used over the photo only (Fix 2); the scores side gets a plain text
+// watermark instead (see TextWatermark below).
 function WatermarkLogo({ fontFamily, style }) {
   return (
     <View style={[styles.watermarkLogo, style]} pointerEvents="none">
-      <GolfBallMark fontFamily={fontFamily} displayWidth={WATERMARK_WIDTH} />
+      <GolfBallMark fontFamily={fontFamily} displayWidth={PHOTO_WATERMARK_WIDTH} />
     </View>
+  );
+}
+
+// "Save it Golf" in Dancing Script, right-aligned — sits under the scores in
+// both the with-photo and no-photo layouts (Fix 2). Deliberately just text,
+// no ball art, so it stays legible at 11px without crowding the totals.
+function TextWatermark({ style }) {
+  return (
+    <Text style={[styles.textWatermark, style]} numberOfLines={1} pointerEvents="none">
+      Save it<Text style={styles.textWatermarkGolf}> Golf</Text>
+    </Text>
   );
 }
 
@@ -144,9 +156,9 @@ function TotalPill({ totalScore, diffLabel, diffTextColor, compact }) {
 
 // Full-height photo column, only ever rendered when a photo exists (see
 // `hasPhoto` below — the no-photo state renders full-width scores plus an
-// "Add Photo" button instead). Fills the column, gets a centered watermark
-// pill along the bottom edge, and (when `onRemovePhoto` is passed) a red
-// "Remove" pill top-right to clear it back to the no-photo layout.
+// "Add Photo" button instead). Fills the column, gets the ball-mark
+// watermark in its bottom-right corner, and (when `onRemovePhoto` is passed)
+// a red "Remove" pill top-right to clear it back to the no-photo layout.
 function PhotoColumn({ photoUri, onRequestPhoto, onRemovePhoto, fontFamily }) {
   const Wrapper = onRequestPhoto ? TouchableOpacity : View;
 
@@ -157,9 +169,7 @@ function PhotoColumn({ photoUri, onRequestPhoto, onRemovePhoto, fontFamily }) {
       activeOpacity={onRequestPhoto ? 0.85 : 1}
     >
       <Image source={{ uri: photoUri }} style={styles.photoImage} resizeMode="cover" />
-      <View style={styles.photoWatermarkPill}>
-        <WatermarkLogo fontFamily={fontFamily} />
-      </View>
+      <WatermarkLogo fontFamily={fontFamily} style={styles.photoWatermarkCorner} />
       {onRemovePhoto && (
         <TouchableOpacity
           onPress={onRemovePhoto}
@@ -194,7 +204,7 @@ export default function ScorecardCard({ scorecard, fullName, photoUri, onRequest
   const ballFont = useGolfBallFont();
 
   return (
-    <View style={styles.cardBody}>
+    <View style={[styles.cardBody, hasPhoto && styles.cardBodyWithPhoto]}>
       <View style={[styles.scoresColumn, !hasPhoto && styles.scoresColumnFullWidth]}>
         <StyledPlayerName fullName={fullName} />
         <Text style={styles.courseNameText} numberOfLines={2}>
@@ -236,7 +246,7 @@ export default function ScorecardCard({ scorecard, fullName, photoUri, onRequest
           </View>
         )}
 
-        <WatermarkLogo fontFamily={ballFont} style={styles.cardWatermarkPosition} />
+        <TextWatermark style={styles.cardWatermarkPosition} />
       </View>
 
       {hasPhoto && (
@@ -258,6 +268,16 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 14,
     backgroundColor: colors.navy,
+    // This is the root of the ViewShot-captured subtree (Fix 3) — clip and
+    // round it to match the on-screen card exactly, so the exported image
+    // never bleeds past the intended edge.
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  // With a photo, the photo column must reach the card's right edge with
+  // nothing beyond it (Fix 3) — the no-photo layout keeps its right padding.
+  cardBodyWithPhoto: {
+    paddingRight: 0,
   },
   scoresColumn: {
     flexGrow: 48,
@@ -450,10 +470,22 @@ const styles = StyleSheet.create({
   totalPillDiffCompact: {
     fontSize: 9,
   },
-  // Bottom-right SaveitGolf mark (Fix 2) — sits in the corner of the scores
-  // side of the card, independent of the total pill's position.
+  // Bottom-right ball mark watermark (Fix 2) — only ever used over the photo
+  // now; the scores side gets the text watermark below instead.
   watermarkLogo: {
     opacity: 0.45,
+  },
+  // "Save it Golf" text watermark under the scores (Fix 2) — used in both
+  // the with-photo and no-photo layouts.
+  textWatermark: {
+    fontFamily: 'DancingScript_700Bold',
+    fontSize: 11,
+    color: colors.white,
+    opacity: 0.5,
+    textAlign: 'right',
+  },
+  textWatermarkGolf: {
+    color: colors.red,
   },
   cardWatermarkPosition: {
     position: 'absolute',
@@ -464,21 +496,24 @@ const styles = StyleSheet.create({
   photoColumn: {
     flexGrow: 52,
     flexBasis: 0,
-    borderRadius: 8,
+    // Only the left edge rounds — the right edge is flush with the card's
+    // own edge, whose corners are already rounded by cardBody (Fix 3), so
+    // this doesn't leave a mismatched double-rounded seam there.
+    borderTopLeftRadius: 8,
+    borderBottomLeftRadius: 8,
     overflow: 'hidden',
     position: 'relative',
   },
   photoImage: {
     ...StyleSheet.absoluteFillObject,
   },
-  photoWatermarkPill: {
+  // Ball-mark watermark over the photo (Fix 2) — bottom-right corner, no
+  // pill background and no text beside it.
+  photoWatermarkCorner: {
     position: 'absolute',
     bottom: 8,
-    alignSelf: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: 'rgba(13,31,60,0.65)',
+    right: 8,
+    opacity: 0.72,
   },
   removePhotoButton: {
     position: 'absolute',

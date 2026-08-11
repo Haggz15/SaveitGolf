@@ -30,6 +30,11 @@ export const SEARCH_FOCUS_DELTA = 0.02;
 export const STATE_FOCUS_DELTA = 4;
 const SEARCH_DEBOUNCE_MS = 400;
 
+// How long the feed course-name-tap flow waits, once the flag is down, before
+// auto-navigating to Course Detail — the countdown pill counts down these
+// same seconds (see `autoNavigateSecondsLeft` below).
+const AUTO_NAVIGATE_SECONDS = 3;
+
 export const MAP_FILTERS = { ALL: 'all', PLAYED: 'played' };
 
 // Two zoom tiers: COUNTRY (full US view — 50 one-per-state pins, no course
@@ -91,6 +96,13 @@ export function useCourseMapData({
   // from selectedCourse since it's a passive labeled pin (no detail fetch,
   // no popup card), shown alongside whatever the current filter renders.
   const [feedFocusPin, setFeedFocusPin] = useState(null);
+  // Set once that same feed-tap flow successfully resolves a course (see the
+  // routeZoomToState effect below) — drives the "heading to course page…"
+  // banner and the countdown pill that auto-navigates to Course Detail.
+  // `key` uniquely identifies each tap so the countdown effect below only
+  // (re)starts when it actually changes, not on every re-render.
+  const [courseAutoNavigate, setCourseAutoNavigate] = useState(null);
+  const [autoNavigateSecondsLeft, setAutoNavigateSecondsLeft] = useState(AUTO_NAVIGATE_SECONDS);
   // Defaults to the user's saved courses (My Courses) — the map opens
   // showing only those pins rather than an empty "All Courses" view.
   const [filter, setFilter] = useState(MAP_FILTERS.PLAYED);
@@ -354,16 +366,20 @@ export function useCourseMapData({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeFocusCourse, routeTimestamp]);
 
-  // Feed's course-name tap (see FeedScreen.handleCoursePress). Two stages:
+  // Feed's course-name tap (see FeedScreen.handleCoursePress). Three stages:
   // (1) immediately zoom out to the course's whole state — using a small
   // set of specified centers for a few states and each other state's
   // capital otherwise (see stateZoomCenters) — so the screen shows
   // *something* right away instead of sitting on the old region while the
   // course is located; (2) once real coordinates are in hand (already on
   // the post, or geocoded via Nominatim as a fallback), animate in tight on
-  // the course itself and drop the 1.5x flag there. A post with no stored
-  // coordinates that successfully geocodes gets them written back (see
-  // updatePostCoordinates) so the next tap on it skips straight to stage 2.
+  // the course itself and drop the 1.5x flag there; (3) arm the auto-navigate
+  // countdown so the screen doesn't just sit there afterward — see
+  // `courseAutoNavigate` below, which the countdown effect and the
+  // banner/pill UI (MapScreen/MapScreen.web) key off of. A post with no
+  // stored coordinates that successfully geocodes gets them written back
+  // (see updatePostCoordinates) so the next tap on it skips straight to
+  // stage 2.
   useEffect(() => {
     if (!routeZoomToState) return;
     let cancelled = false;
@@ -420,11 +436,21 @@ export function useCourseMapData({
         if (!hadStoredCoordinates && routeZoomToState.postId) {
           updatePostCoordinates(routeZoomToState.postId, lat, lng);
         }
+        setCourseAutoNavigate({
+          courseId: routeZoomToState.courseId ?? null,
+          courseName: routeZoomToState.courseName,
+          city: routeZoomToState.city ?? null,
+          state: routeZoomToState.state ?? null,
+          lat,
+          lng,
+          key: `feed-course-${routeZoomToState.courseName}-${routeZoomToStateTimestamp}`,
+        });
       } else {
         // Geocoding came up empty — stay at the stage-1 state-wide view
         // rather than dropping a pin at a coordinate that isn't actually
         // this course.
         setFeedFocusPin(null);
+        setCourseAutoNavigate(null);
       }
     })();
 
@@ -432,6 +458,60 @@ export function useCourseMapData({
       cancelled = true;
     };
   }, [routeZoomToState, routeZoomToStateTimestamp]);
+
+  // Where the auto-navigate countdown (below) sends the user once it fires —
+  // switches the Tabs navigator's active tab to Feed *first* so that when
+  // Course Detail (and the Course Feed it immediately opens into, see
+  // CourseDetailScreen's `autoOpenAllPosts`) is later backed out of, it lands
+  // on Feed rather than back on this Map screen.
+  const navigateToCourseDetailFromFeedTap = useCallback(
+    (info) => {
+      if (!navigation || !info) return;
+      navigation.navigate('Tabs', { screen: 'Feed' });
+      navigation.navigate('CourseDetail', {
+        courseId: info.courseId,
+        courseName: info.courseName,
+        city: info.city,
+        state: info.state,
+        lat: info.lat,
+        lng: info.lng,
+        autoOpenAllPosts: true,
+      });
+    },
+    [navigation]
+  );
+
+  // Drives the countdown pill (Fix, Step 3): once `courseAutoNavigate` is
+  // armed by the routeZoomToState effect above, ticks
+  // `autoNavigateSecondsLeft` down once a second and navigates to Course
+  // Detail when it reaches 0. Keyed on `courseAutoNavigate?.key` rather than
+  // the object itself so it doesn't restart on unrelated re-renders.
+  useEffect(() => {
+    if (!courseAutoNavigate) return undefined;
+    setAutoNavigateSecondsLeft(AUTO_NAVIGATE_SECONDS);
+    const interval = setInterval(() => {
+      setAutoNavigateSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          navigateToCourseDetailFromFeedTap(courseAutoNavigate);
+          setCourseAutoNavigate(null);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseAutoNavigate?.key]);
+
+  // Tapping the countdown pill skips straight to Course Detail instead of
+  // waiting out the rest of the countdown.
+  const skipCourseAutoNavigate = useCallback(() => {
+    if (!courseAutoNavigate) return;
+    const info = courseAutoNavigate;
+    setCourseAutoNavigate(null);
+    navigateToCourseDetailFromFeedTap(info);
+  }, [courseAutoNavigate, navigateToCourseDetailFromFeedTap]);
 
   // My Courses pins are always part of the visible set — a permanent layer,
   // independent of the ALL/PLAYED filter and zoom level. The filter only
@@ -584,6 +664,9 @@ export function useCourseMapData({
     clearSelectedCourse,
     goToCourseDetail,
     feedFocusPin,
+    courseAutoNavigate,
+    autoNavigateSecondsLeft,
+    skipCourseAutoNavigate,
     filter,
     setFilter,
     clearPlayedFilter,

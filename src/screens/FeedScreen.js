@@ -25,7 +25,13 @@ import MentionText from '../components/social/MentionText';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { feedPosts as mockFeedPosts, filterPills } from '../data/mockData';
-import { HEADER_CONTENT_HEIGHT, PILL_ROW_HEIGHT, TAB_BAR_HEIGHT, FILTERED_FEED_HEADER_HEIGHT } from '../theme/layout';
+import {
+  HEADER_CONTENT_HEIGHT,
+  PILL_ROW_HEIGHT,
+  TAB_BAR_HEIGHT,
+  FILTERED_FEED_HEADER_HEIGHT,
+  PROFILE_FEED_HEADER_HEIGHT,
+} from '../theme/layout';
 import { useAuth } from '../context/AuthContext';
 import { getFeedPosts, getCourseFeedPosts, UNGROUPED_NINE } from '../services/posts';
 import { getFollowingIds } from '../services/social';
@@ -297,6 +303,14 @@ export default function FeedScreen({ navigation, route }) {
   // route from CourseDetailScreen) — undefined/null here means this is the
   // normal main-feed tab. See getCourseFeedPosts in services/posts.js.
   const filter = route?.params?.filter ?? null;
+  // Profile's Uploads-grid tap (pushed as the "ProfileFeed" stack route from
+  // ProfileScreen) — a fixed, already-fetched list of one user's own posts
+  // rather than a Supabase query, opened at whichever post was tapped. Reads
+  // straight off route.params (not a derived object) so its identity stays
+  // stable across re-renders — see the loader effect below.
+  const profileFeedPosts = route?.params?.posts ?? null;
+  const profileFeedStartIndex = route?.params?.startIndex ?? 0;
+  const profileFeedUsername = route?.params?.username ?? null;
   const [activeFilter, setActiveFilter] = useState('Feed');
   const [sortMode, setSortMode] = useState('likes'); // 'likes' | 'recent' — filtered mode only, resets on remount
   const [posts, setPosts] = useState([]);
@@ -319,6 +333,8 @@ export default function FeedScreen({ navigation, route }) {
   const { height: windowHeight } = useWindowDimensions();
   const containerHeight = filter
     ? windowHeight - insets.top - FILTERED_FEED_HEADER_HEIGHT
+    : profileFeedPosts
+    ? windowHeight - insets.top - PROFILE_FEED_HEADER_HEIGHT
     : windowHeight - insets.top - HEADER_CONTENT_HEIGHT - PILL_ROW_HEIGHT - TAB_BAR_HEIGHT;
   const postsListRef = useRef(null);
   // Off-screen capture rig for the watermarked save (Fix 3) — mounted once
@@ -415,9 +431,28 @@ export default function FeedScreen({ navigation, route }) {
   }, [activeFilter, user?.id]);
 
   useEffect(() => {
-    if (filter) return; // filtered mode has its own loader below
+    if (filter || profileFeedPosts) return; // filtered/profile-feed modes have their own loaders
     loadFeed();
-  }, [loadFeed, filter]);
+  }, [loadFeed, filter, profileFeedPosts]);
+
+  // Profile-feed mode's "loader" — the posts are already fetched (see
+  // ProfileScreen.handlePostTap), so this just seats them straight into
+  // state instead of querying Supabase, then fetches like/save state for
+  // just this user's posts the same way loadFeed does for the main feed.
+  useEffect(() => {
+    if (!profileFeedPosts) return;
+    setPosts(profileFeedPosts);
+    setLoadingFeed(false);
+    if (user?.id && profileFeedPosts.length) {
+      const postIds = profileFeedPosts.map((p) => p.id);
+      Promise.all([getLikedPostIds(user.id, postIds), getSavedPostIds(user.id, postIds)])
+        .then(([liked, saved]) => {
+          setLikedPostIds(new Set(liked));
+          setSavedPostIds(new Set(saved));
+        })
+        .catch((err) => console.error('Failed to load liked/saved state for profile feed:', err));
+    }
+  }, [profileFeedPosts, user?.id]);
 
   // Filtered mode's initial load (and reload whenever the course/hole/nine
   // being viewed or the sort mode changes) — separate from loadFeed above
@@ -495,7 +530,13 @@ export default function FeedScreen({ navigation, route }) {
   }, [filter, courseFeedHasMore, loadingMorePosts, courseFeedOffset, sortMode, user?.id]);
 
   useEffect(() => {
-    setActivePostId(posts[0]?.id ?? null);
+    // Profile-feed mode opens on whichever post was tapped in the grid, not
+    // necessarily the first one — see FlatList's initialScrollIndex below,
+    // which this keeps in sync with so the right slide starts active
+    // (autoplaying video, etc.) before the user scrolls at all.
+    const startIndex = profileFeedPosts ? profileFeedStartIndex : 0;
+    setActivePostId(posts[startIndex]?.id ?? posts[0]?.id ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts]);
 
   useEffect(() => {
@@ -518,12 +559,13 @@ export default function FeedScreen({ navigation, route }) {
 
   // In the normal tab mode, 'Map' is a sibling screen inside the same Tab
   // navigator so a plain navigate('Map', ...) resolves directly. In filtered
-  // mode, FeedScreen is pushed as its own top-level stack screen (see
-  // RootNavigator's "CourseFeed" route) — from there 'Map' only exists
-  // nested inside 'Tabs', so it has to be addressed explicitly (same pattern
-  // CourseDetailScreen already uses for its own "View on Map" button).
+  // or profile-feed mode, FeedScreen is pushed as its own top-level stack
+  // screen (see RootNavigator's "CourseFeed"/"ProfileFeed" routes) — from
+  // there 'Map' only exists nested inside 'Tabs', so it has to be addressed
+  // explicitly (same pattern CourseDetailScreen already uses for its own
+  // "View on Map" button).
   const navigateToMap = (screenParams) => {
-    if (filter) {
+    if (filter || profileFeedPosts) {
       navigation.navigate('Tabs', { screen: 'Map', params: screenParams });
     } else {
       navigation.navigate('Map', screenParams);
@@ -695,6 +737,19 @@ export default function FeedScreen({ navigation, route }) {
             </TouchableOpacity>
           </View>
         </View>
+      ) : profileFeedPosts ? (
+        <View style={[styles.profileFeedHeader, { paddingTop: insets.top + 8 }]}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="chevron-back" size={24} color={colors.red} />
+          </TouchableOpacity>
+          <Text style={styles.profileFeedHeaderTitle} numberOfLines={1}>
+            {profileFeedUsername ? `@${profileFeedUsername}` : 'Posts'}
+          </Text>
+          <View style={styles.profileFeedHeaderSpacer} />
+        </View>
       ) : (
         <>
           <Header
@@ -744,7 +799,11 @@ export default function FeedScreen({ navigation, route }) {
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={36} color={colors.muted} />
             <Text style={styles.emptyStateText}>
-              {filter ? filteredEmptyText : 'Follow golfers to see their posts here — tap the Add Friends icon above.'}
+              {filter
+                ? filteredEmptyText
+                : profileFeedPosts
+                ? 'No posts yet.'
+                : 'Follow golfers to see their posts here — tap the Add Friends icon above.'}
             </Text>
           </View>
         ) : (
@@ -777,6 +836,7 @@ export default function FeedScreen({ navigation, route }) {
               decelerationRate="fast"
               snapToInterval={containerHeight}
               snapToAlignment="start"
+              initialScrollIndex={profileFeedPosts ? profileFeedStartIndex : undefined}
               getItemLayout={(_, index) => ({
                 length: containerHeight,
                 offset: containerHeight * index,
@@ -915,6 +975,30 @@ const styles = StyleSheet.create({
   sortToggleOptionActive: {
     backgroundColor: colors.red,
     borderColor: colors.red,
+  },
+  // Profile-feed mode's header — back button + the viewed user's @username,
+  // in place of the normal Header + filter pills (see FeedScreen's
+  // `profileFeedPosts`). Same back-button/title row as filteredHeader above,
+  // just without the sort toggle row below it.
+  profileFeedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.navy,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.navyBorder,
+  },
+  profileFeedHeaderTitle: {
+    flex: 1,
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 16,
+    color: colors.white,
+    textAlign: 'center',
+  },
+  profileFeedHeaderSpacer: {
+    width: 24,
   },
   sortToggleText: {
     color: colors.muted,

@@ -106,3 +106,29 @@ export async function getFollowingIds(userId) {
   if (error) throw error;
   return (data ?? []).map((row) => row.following_id);
 }
+
+// Full profile rows (not just ids) for the Followers/Following list modal —
+// relies on the explicitly-named followers_*_profiles_fkey constraints (see
+// schema.sql) so PostgREST can embed the profile in one query rather than a
+// separate lookup per row.
+export async function getFollowersList(userId) {
+  const { data, error } = await supabase
+    .from('followers')
+    .select('profiles!followers_follower_id_profiles_fkey(user_id, username, full_name, avatar_url)')
+    .eq('following_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []).map((row) => row.profiles).filter(Boolean);
+}
+
+export async function getFollowingList(userId) {
+  const { data, error } = await supabase
+    .from('followers')
+    .select('profiles!followers_following_id_profiles_fkey(user_id, username, full_name, avatar_url)')
+    .eq('follower_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []).map((row) => row.profiles).filter(Boolean);
+}

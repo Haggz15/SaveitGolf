@@ -97,7 +97,7 @@ function BottomNavButton({ icon, iconFocused, label, focused, onPress }) {
 }
 
 export default function CourseDetailScreen({ route, navigation }) {
-  const { courseId, courseName, city, state, lat, lng } = route.params ?? {};
+  const { courseId, courseName, city, state, lat, lng, autoOpenAllPosts } = route.params ?? {};
   const insets = useSafeAreaInsets();
   const [tees, setTees] = useState(null);
   // 'All Posts' never renders inline — tapping it navigates straight to the
@@ -112,6 +112,21 @@ export default function CourseDetailScreen({ route, navigation }) {
   const [scorecards, setScorecards] = useState([]);
   const [avgRating, setAvgRating] = useState(null);
   const [courseCoords, setCourseCoords] = useState({ lat: lat ?? null, lng: lng ?? null });
+
+  // Arriving here from the feed's course-name-tap-on-map flow (see
+  // useCourseMapData's courseAutoNavigate) — default straight into the All
+  // Posts full-screen swipe feed rather than landing on Hole by Hole.
+  // `replace` (not `navigate`) so this screen drops out of the stack: the
+  // feed's own back button then returns straight to the Feed tab instead of
+  // bouncing back through this intermediate screen.
+  useEffect(() => {
+    if (!autoOpenAllPosts) return;
+    navigation.replace('CourseFeed', {
+      filter: { courseId: courseId ?? null, courseName, hole: null, compositeName: null },
+    });
+    // Runs once on mount only — this screen is about to be replaced.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

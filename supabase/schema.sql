@@ -74,6 +74,31 @@ create policy "Users can unfollow their own follows"
   on public.followers for delete
   using (auth.uid() = follower_id);
 
+-- follower_id/following_id carry two FKs each on purpose, same as
+-- posts.user_id above: auth.users for cascade-delete, and explicitly-named
+-- ones to public.profiles(user_id) so PostgREST can embed
+-- `profiles!followers_follower_id_profiles_fkey(...)` /
+-- `profiles!followers_following_id_profiles_fkey(...)` to get the
+-- follower's/followed user's username, full name, and avatar in one query
+-- (see getFollowersList/getFollowingList in services/social.js).
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'followers_follower_id_profiles_fkey'
+  ) then
+    alter table public.followers
+      add constraint followers_follower_id_profiles_fkey
+      foreign key (follower_id) references public.profiles (user_id) on delete cascade;
+  end if;
+  if not exists (
+    select 1 from pg_constraint where conname = 'followers_following_id_profiles_fkey'
+  ) then
+    alter table public.followers
+      add constraint followers_following_id_profiles_fkey
+      foreign key (following_id) references public.profiles (user_id) on delete cascade;
+  end if;
+end $$;
+
 -- Friend requests: reserved for a future request/accept flow (the Add
 -- Friends and profile Follow buttons currently follow directly, without
 -- requiring acceptance).

@@ -133,6 +133,11 @@ export default function RootNavigator() {
               CourseDetailScreen — a real stack screen rather than a tab so it
               gets its own back button and no bottom tab bar. */}
           <Stack.Screen name="CourseFeed" component={FeedScreen} />
+          {/* Also FeedScreen, this time via `route.params.posts` — the
+              full-screen swipe feed opened from ProfileScreen's Uploads grid,
+              seeded with that user's already-fetched posts instead of a
+              fresh query. */}
+          <Stack.Screen name="ProfileFeed" component={FeedScreen} />
           <Stack.Screen name="UserProfile" component={OtherUserProfileScreen} />
           <Stack.Screen name="UserScorecards" component={UserScorecardsScreen} />
         </Stack.Navigator>
