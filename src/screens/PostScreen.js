@@ -446,21 +446,41 @@ export default function PostScreen({ navigation }) {
 
   // Only media is worth a confirmation — course/hole/caption are easy to
   // redo, but a picked photo or video is the one thing that'd be annoying
-  // to lose to an accidental tap.
-  function handleBackPress() {
+  // to lose to an accidental tap. web's RN Alert.alert doesn't block/return
+  // a value the way window.confirm does, so web gets its own branch.
+  const handleBack = () => {
     if (media) {
-      Alert.alert(
-        'Discard Post?',
-        'You have a photo or video selected. Are you sure you want to go back?',
-        [
-          { text: 'Keep Editing', style: 'cancel' },
-          { text: 'Discard', style: 'destructive', onPress: () => navigation.navigate('Feed') },
-        ]
-      );
+      if (Platform.OS === 'web') {
+        if (!window.confirm('Discard this post? Your selected media will not be saved.')) return;
+        setMedia(null);
+        setCaption('');
+        setSelectedCourse(null);
+        setHole('');
+        navigation.navigate('Feed');
+      } else {
+        Alert.alert(
+          'Discard Post?',
+          'You have a photo or video selected. Are you sure you want to go back?',
+          [
+            { text: 'Keep Editing', style: 'cancel' },
+            {
+              text: 'Discard',
+              style: 'destructive',
+              onPress: () => {
+                setMedia(null);
+                setCaption('');
+                setSelectedCourse(null);
+                setHole('');
+                navigation.navigate('Feed');
+              },
+            },
+          ]
+        );
+      }
       return;
     }
     navigation.navigate('Feed');
-  }
+  };
 
   const insets = useSafeAreaInsets();
 
@@ -472,7 +492,7 @@ export default function PostScreen({ navigation }) {
       <Header />
 
       <TouchableOpacity
-        onPress={handleBackPress}
+        onPress={handleBack}
         style={[styles.backButton, { top: insets.top + 12 }]}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
@@ -630,7 +650,11 @@ const styles = StyleSheet.create({
   backButton: {
     position: 'absolute',
     left: 16,
-    zIndex: 100,
+    // Must outrank uploadBanner's zIndex: 9999 — that banner is a full-width
+    // overlay that sits at the same top-left spot while a post is
+    // uploading/processing/erroring, and was swallowing taps meant for this
+    // button.
+    zIndex: 10000,
     width: 36,
     height: 36,
     borderRadius: 18,

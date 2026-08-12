@@ -114,19 +114,37 @@ function NineColumn({ holes, variant = 'compact' }) {
 
 // Sits directly below the hole-scores row: "Front <n>" / "Back <n>" as two
 // flex:1 items spread across the full width of the scores column, each with
-// a small label + bold score. Back is omitted for a 9-hole round.
-function NineTotalsRow({ frontTotal, backTotal, isNineHoleRound }) {
+// a small label + bold score. Back is omitted for a 9-hole round. The green
+// "add photo" plus (Fix 2) sits to the right of this row, outside the
+// flex:1 spread, only while there's no photo showing — `onAddPhoto` decides
+// whether tapping it reveals an already-saved photo or opens the picker,
+// and `hidePlusButton` (set true for the duration of a capture) keeps it out
+// of the exported image since, unlike the old top-right overlay, this button
+// now lives inside the captured subtree.
+function NineTotalsRow({ frontTotal, backTotal, isNineHoleRound, onAddPhoto, hidePlusButton }) {
   return (
-    <View style={styles.nineTotalsRow}>
-      <View style={styles.nineTotalsItem}>
-        <Text style={styles.nineTotalsLabel}>Front</Text>
-        <Text style={styles.nineTotalsScore}>{frontTotal}</Text>
-      </View>
-      {!isNineHoleRound && (
+    <View style={styles.nineTotalsRowWrap}>
+      <View style={styles.nineTotalsRow}>
         <View style={styles.nineTotalsItem}>
-          <Text style={styles.nineTotalsLabel}>Back</Text>
-          <Text style={styles.nineTotalsScore}>{backTotal}</Text>
+          <Text style={styles.nineTotalsLabel}>Front</Text>
+          <Text style={styles.nineTotalsScore}>{frontTotal}</Text>
         </View>
+        {!isNineHoleRound && (
+          <View style={styles.nineTotalsItem}>
+            <Text style={styles.nineTotalsLabel}>Back</Text>
+            <Text style={styles.nineTotalsScore}>{backTotal}</Text>
+          </View>
+        )}
+      </View>
+      {onAddPhoto && !hidePlusButton && (
+        <TouchableOpacity
+          onPress={onAddPhoto}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={styles.addPhotoPlusButton}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.addPhotoPlusButtonText}>+</Text>
+        </TouchableOpacity>
       )}
     </View>
   );
@@ -205,18 +223,28 @@ function PhotoColumn({ photoUri, onRequestPhoto, onRemovePhoto, fontFamily }) {
 // single bigger centered column for 9 (Fix 1/4). `onRequestPhoto` is only
 // passed by the live "new scorecard" view (it re-opens the picker when the
 // existing photo is tapped) — past scorecards fetched from Supabase render
-// read-only. The "Add Photo" action itself lives outside this component, as
-// a button overlaid on the card by ScorecardScreen, so it's never part of
-// the captured share image. `captureId`, when passed, becomes a real DOM
-// `id` on web (see ScorecardScreen's handleShare) so the share capture can
-// target this exact element — no photo column means no extra space on the
-// right, and with a photo the column already sits flush with the card's own
-// right edge (see cardBodyWithPhoto), so capturing this node directly needs
-// no cropping. Left undefined by every other caller (e.g.
-// ScorecardDetailModal) so two instances never collide on the same id when
-// both happen to be mounted at once (the detail modal open over the main
-// screen).
-export default function ScorecardCard({ scorecard, fullName, photoUri, onRequestPhoto, onRemovePhoto, captureId }) {
+// read-only unless `onAddPhoto` is passed too (see ScorecardDetailModal,
+// owner-only). `onAddPhoto`, when passed, renders the green plus beside the
+// front/back totals row (Fix 2/4); `hidePlusButton` hides it for the
+// duration of a capture, since it lives inside the captured subtree.
+// `captureId`, when passed, becomes a real DOM `id` on web (see
+// ScorecardScreen's handleShare) so the share capture can target this exact
+// element — no photo column means no extra space on the right, and with a
+// photo the column already sits flush with the card's own right edge (see
+// cardBodyWithPhoto), so capturing this node directly needs no cropping.
+// Left undefined by every other caller (e.g. ScorecardDetailModal) so two
+// instances never collide on the same id when both happen to be mounted at
+// once (the detail modal open over the main screen).
+export default function ScorecardCard({
+  scorecard,
+  fullName,
+  photoUri,
+  onRequestPhoto,
+  onRemovePhoto,
+  onAddPhoto,
+  hidePlusButton,
+  captureId,
+}) {
   const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(scorecard);
   const diffTextColor = diffColor(diff);
   const compositeName = compositeNameFor(scorecard, isNineHoleRound);
@@ -246,7 +274,13 @@ export default function ScorecardCard({ scorecard, fullName, photoUri, onRequest
         </View>
 
         <View style={styles.divider} />
-        <NineTotalsRow frontTotal={frontTotal} backTotal={backTotal} isNineHoleRound={isNineHoleRound} />
+        <NineTotalsRow
+          frontTotal={frontTotal}
+          backTotal={backTotal}
+          isNineHoleRound={isNineHoleRound}
+          onAddPhoto={!hasPhoto ? onAddPhoto : undefined}
+          hidePlusButton={hidePlusButton}
+        />
 
         <View style={styles.divider} />
         <TotalBlock totalScore={totalScore} diffLabel={diffLabel} diffTextColor={diffTextColor} />
@@ -405,9 +439,30 @@ const styles = StyleSheet.create({
   },
   // Front/back totals row (Fix 5) — one shared row below the hole scores,
   // not nested per-column, so both items line up on flex:1 and spread
-  // across the full width of the scores column.
-  nineTotalsRow: {
+  // across the full width of the scores column. Wrapped in
+  // nineTotalsRowWrap so the add-photo plus (Fix 2) can sit to its right as
+  // a fixed-width sibling outside the flex:1 spread.
+  nineTotalsRowWrap: {
     flexDirection: 'row',
+    alignItems: 'center',
+  },
+  nineTotalsRow: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  addPhotoPlusButton: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.brightGreen,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  addPhotoPlusButtonText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '700',
   },
   nineTotalsItem: {
     flex: 1,

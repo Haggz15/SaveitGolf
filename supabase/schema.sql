@@ -247,6 +247,35 @@ create policy "Users can delete their own scorecards"
   on public.scorecards for delete
   using (auth.uid() = user_id);
 
+-- Storage bucket for scorecard photos, public read, writes restricted to
+-- the uploading user's own folder (objects are stored at `${user_id}/...`).
+-- Uploads use upsert (fixed `${user_id}/${scorecardId}.jpg` path) so
+-- re-picking a photo overwrites the same object, which needs an UPDATE
+-- policy in addition to INSERT.
+insert into storage.buckets (id, name, public)
+values ('scorecards', 'scorecards', true)
+on conflict (id) do nothing;
+
+drop policy if exists "Scorecard photos are publicly readable" on storage.objects;
+create policy "Scorecard photos are publicly readable"
+  on storage.objects for select
+  using (bucket_id = 'scorecards');
+
+drop policy if exists "Users can upload scorecard photos to their own folder" on storage.objects;
+create policy "Users can upload scorecard photos to their own folder"
+  on storage.objects for insert
+  with check (bucket_id = 'scorecards' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "Users can replace their own scorecard photos" on storage.objects;
+create policy "Users can replace their own scorecard photos"
+  on storage.objects for update
+  using (bucket_id = 'scorecards' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "Users can delete their own scorecard photos" on storage.objects;
+create policy "Users can delete their own scorecard photos"
+  on storage.objects for delete
+  using (bucket_id = 'scorecards' and (storage.foldername(name))[1] = auth.uid()::text);
+
 -- Storage bucket for post photos/videos, public read (feed media needs to
 -- load without auth), writes restricted to the uploading user's own folder
 -- (objects are stored at `${user_id}/...`).

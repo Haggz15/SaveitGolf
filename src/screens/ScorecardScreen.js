@@ -18,7 +18,7 @@ import ScorecardCard from '../components/scorecard/ScorecardCard';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { scorecard as mockScorecard } from '../data/mockData';
-import { getLatestScorecard, saveScorecard } from '../services/scorecards';
+import { getLatestScorecard, saveScorecard, saveScorecardPhoto } from '../services/scorecards';
 import { notifyFollowersOfScorecard } from '../services/notifications';
 import { useAuth } from '../context/AuthContext';
 
@@ -26,9 +26,10 @@ export default function ScorecardScreen() {
   const { user, profile } = useAuth();
   const shareCardRef = useRef(null);
   const [isSharing, setIsSharing] = useState(false);
-  // True while the web share capture is in flight — hides the New
-  // Scorecard button and the Add Photo (+) button so neither ends up in
-  // the captured image, then both reappear once capture finishes.
+  // True while a share capture is in flight (native or web) — hides the New
+  // Scorecard button (outside the card) and the card's own add-photo plus
+  // (inside it) so neither ends up in the captured image, then both
+  // reappear once capture finishes.
   const [capturing, setCapturing] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
   const [activeScorecard, setActiveScorecard] = useState(mockScorecard);
@@ -49,20 +50,22 @@ export default function ScorecardScreen() {
     })();
   }, [user?.id]);
 
-  // `photoUri` is the single source of truth for what the card displays —
-  // keep it in sync whenever the active scorecard changes (initial load,
-  // fetched latest, or just-saved), so removing a photo always works even
-  // when it came from a saved scorecard rather than a fresh pick.
+  // The card always opens in the no-photo layout, even when the active
+  // scorecard already has a saved photo_url (Fix 1) — `photoUri` only gets
+  // set once the user taps the green plus. Reset it back to null whenever a
+  // *different* scorecard becomes active (initial load, fetched latest, or
+  // just-saved) — keyed on id rather than the object itself so it doesn't
+  // clobber a reveal/upload the user just triggered on this same scorecard.
   useEffect(() => {
-    setPhotoUri(activeScorecard.photoUrl ?? null);
-  }, [activeScorecard]);
+    setPhotoUri(null);
+  }, [activeScorecard.id]);
 
   const fullName = (profile?.full_name || 'Unnamed Golfer').toUpperCase();
 
   async function handleScorecardSaved(newScorecard) {
     if (!user?.id) return;
     try {
-      const saved = await saveScorecard(user.id, { ...newScorecard, photoUri });
+      const saved = await saveScorecard(user.id, newScorecard);
       setActiveScorecard(saved);
       setModalVisible(false);
       // Refresh the Past Scorecards list so the round just logged shows up.
@@ -76,6 +79,23 @@ export default function ScorecardScreen() {
     }
   }
 
+  // Displays the picked photo immediately, then — if the active scorecard is
+  // a real saved row rather than the placeholder demo card — uploads it to
+  // the `scorecards` storage bucket and swaps in the resulting public URL,
+  // so it survives a refresh and future visits to this screen (Fix 4).
+  async function applyPickedPhoto(uri) {
+    setPhotoUri(uri);
+    if (!user?.id || !activeScorecard.id) return;
+    try {
+      const uploadedUrl = await saveScorecardPhoto(user.id, activeScorecard.id, uri);
+      setActiveScorecard((prev) => ({ ...prev, photoUrl: uploadedUrl }));
+      setPhotoUri(uploadedUrl);
+    } catch (err) {
+      console.error('Failed to save scorecard photo:', err);
+      Alert.alert('Something went wrong', 'Could not save your photo. Please try again.');
+    }
+  }
+
   function handlePickPhotoWeb() {
     const input = document.createElement('input');
     input.type = 'file';
@@ -83,7 +103,7 @@ export default function ScorecardScreen() {
     input.onchange = (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
-      setPhotoUri(URL.createObjectURL(file));
+      applyPickedPhoto(URL.createObjectURL(file));
     };
     input.click();
   }
@@ -108,7 +128,7 @@ export default function ScorecardScreen() {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setPhotoUri(result.assets[0].uri);
+        applyPickedPhoto(result.assets[0].uri);
       }
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not open your photo library. Please try again.');
@@ -120,6 +140,17 @@ export default function ScorecardScreen() {
       handlePickPhotoWeb();
     } else {
       handlePickPhotoNative();
+    }
+  }
+
+  // The green plus beside the totals row (Fix 2): reveals an already-saved
+  // photo instead of re-uploading it when one exists, otherwise opens the
+  // picker to attach a new one.
+  function handleAddPhotoPress() {
+    if (activeScorecard.photoUrl) {
+      setPhotoUri(activeScorecard.photoUrl);
+    } else {
+      handlePickPhoto();
     }
   }
 
@@ -163,6 +194,9 @@ export default function ScorecardScreen() {
 
     try {
       setIsSharing(true);
+      // The add-photo plus now lives inside the ViewShot-captured subtree
+      // (Fix 2), so it needs the same pre-capture hide as the web path above.
+      setCapturing(true);
 
       // Required lazily: this native module isn't available on web and
       // throws at import time if loaded statically there.
@@ -181,6 +215,7 @@ export default function ScorecardScreen() {
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not export your scorecard. Please try again.');
     } finally {
+      setCapturing(false);
       setIsSharing(false);
     }
   }
@@ -208,21 +243,13 @@ export default function ScorecardScreen() {
               photoUri={photoUri}
               onRequestPhoto={handlePickPhoto}
               onRemovePhoto={() => setPhotoUri(null)}
+              onAddPhoto={handleAddPhotoPress}
+              hidePlusButton={capturing}
               captureId="scorecard-card"
             />
           </ViewShot>
 
           <View style={styles.topRightButtons}>
-            {!photoUri && !capturing && (
-              <TouchableOpacity
-                onPress={handlePickPhoto}
-                style={styles.addPhotoPlusButton}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.addPhotoPlusButtonText}>+</Text>
-              </TouchableOpacity>
-            )}
-
             <TouchableOpacity
               style={styles.shareButton}
               onPress={handleShare}
@@ -304,8 +331,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   // Overlaid on top of the card (a sibling of the ViewShot-wrapped content,
-  // not a child of it) so neither button ever shows up in the
-  // captured/saved image.
+  // not a child of it) so it never shows up in the captured/saved image.
   topRightButtons: {
     position: 'absolute',
     top: 10,
@@ -313,23 +339,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  // Only rendered when there's no photo yet; tapping it opens the picker.
-  // Disappears (and the card's own "Remove" button takes over) once a
-  // photo is set.
-  addPhotoPlusButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.brightGreen,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addPhotoPlusButtonText: {
-    color: '#0d2a0d',
-    fontSize: 20,
-    fontWeight: '700',
-    lineHeight: 22,
   },
   shareButton: {
     flexDirection: 'row',

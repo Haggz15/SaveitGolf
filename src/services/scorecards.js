@@ -12,6 +12,7 @@ function mapRow(row) {
   const back = holes.filter((h) => h.hole > 9);
   return {
     id: row.id,
+    userId: row.user_id,
     courseId: row.course_id,
     courseName: row.course_name,
     city: row.city,
@@ -56,8 +57,9 @@ export async function getLatestScorecard(userId) {
 
 // `scorecard` comes from NewScorecardModal: { course, front, back?, ... }
 // where `course` is the selected search result ({id, name, city, state, lat, lng})
-// or a free-typed { id: null, name }. `photoUri` is the optional photo
-// attached on the Scorecard screen before saving.
+// or a free-typed { id: null, name }. Scorecards are always created without a
+// photo — one can be attached afterward via the Scorecard screen's green
+// plus button, which uploads through `saveScorecardPhoto` below.
 export async function saveScorecard(userId, scorecard) {
   const holes = [...scorecard.front, ...(scorecard.back ?? [])];
   const totalScore = holes.reduce((sum, h) => sum + h.score, 0);
@@ -77,7 +79,7 @@ export async function saveScorecard(userId, scorecard) {
       holes,
       total_score: totalScore,
       total_par: totalPar,
-      photo_url: scorecard.photoUri ?? null,
+      photo_url: null,
       composite_front: scorecard.compositeFront ?? null,
       composite_back: scorecard.compositeBack ?? null,
     })
@@ -86,6 +88,34 @@ export async function saveScorecard(userId, scorecard) {
 
   if (error) throw error;
   return mapRow(data);
+}
+
+// Uploads a local photo uri (blob: on web, file:// from expo-image-picker on
+// native) to the `scorecards` storage bucket at a fixed per-scorecard path,
+// overwriting any photo already attached to that scorecard, then stores the
+// public URL on the row. Returns the public URL so the caller can update the
+// card immediately without refetching.
+export async function saveScorecardPhoto(userId, scorecardId, uri) {
+  const path = `${userId}/${scorecardId}.jpg`;
+
+  const response = await fetch(uri);
+  const arrayBuffer = await response.arrayBuffer();
+
+  const { error: uploadError } = await supabase.storage
+    .from('scorecards')
+    .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
+  if (uploadError) throw uploadError;
+
+  const { data: publicUrlData } = supabase.storage.from('scorecards').getPublicUrl(path);
+  const photoUrl = publicUrlData.publicUrl;
+
+  const { error: updateError } = await supabase
+    .from('scorecards')
+    .update({ photo_url: photoUrl })
+    .eq('id', scorecardId);
+  if (updateError) throw updateError;
+
+  return photoUrl;
 }
 
 // All scorecards logged at a given course, across every user, sorted lowest
