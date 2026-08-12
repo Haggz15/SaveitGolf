@@ -225,6 +225,15 @@ alter table public.scorecards add column if not exists photo_url text;
 alter table public.scorecards add column if not exists composite_front text;
 alter table public.scorecards add column if not exists composite_back text;
 
+-- Per-hole par pulled from the Golf Course API at scorecard-creation time
+-- (JSON-stringified array, front-to-back hole order), stored purely so the
+-- over/under total can be recomputed later — never rendered per-hole on the
+-- scorecard itself. total_par defaults to 72 as a last-resort fallback for
+-- any row saved without live par data (9-hole rounds fall back to 36 in
+-- application code).
+alter table public.scorecards add column if not exists pars text;
+alter table public.scorecards add column if not exists total_par integer default 72;
+
 alter table public.scorecards enable row level security;
 
 drop policy if exists "Scorecards are viewable by everyone" on public.scorecards;

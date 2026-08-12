@@ -53,14 +53,15 @@ const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.brightGreen,
-    borderRadius: 10,
-    paddingVertical: 12,
+    backgroundColor: '#c0001a',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     marginTop: 8,
   },
   buttonText: {
-    color: colors.brightGreenText,
+    color: colors.white,
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 13,
   },
 });

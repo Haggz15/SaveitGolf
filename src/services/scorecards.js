@@ -27,6 +27,7 @@ function mapRow(row) {
     photoUrl: row.photo_url ?? null,
     compositeFront: row.composite_front ?? null,
     compositeBack: row.composite_back ?? null,
+    pars: row.pars ? JSON.parse(row.pars) : null,
     createdAt: row.created_at,
   };
 }
@@ -63,7 +64,11 @@ export async function getLatestScorecard(userId) {
 export async function saveScorecard(userId, scorecard) {
   const holes = [...scorecard.front, ...(scorecard.back ?? [])];
   const totalScore = holes.reduce((sum, h) => sum + h.score, 0);
-  const totalPar = holes.reduce((sum, h) => sum + h.par, 0);
+  // Per-hole par came from the Golf Course API (or its default-pattern
+  // fallback) back in NewScorecardModal — stored here only to drive the
+  // over/under total, never displayed per-hole on the scorecard itself.
+  const holePars = holes.map((h) => h.par);
+  const totalPar = holePars.reduce((sum, p) => sum + p, 0) || (holes.length === 9 ? 36 : 72);
 
   const { data, error } = await supabase
     .from('scorecards')
@@ -79,6 +84,7 @@ export async function saveScorecard(userId, scorecard) {
       holes,
       total_score: totalScore,
       total_par: totalPar,
+      pars: JSON.stringify(holePars),
       photo_url: null,
       composite_front: scorecard.compositeFront ?? null,
       composite_back: scorecard.compositeBack ?? null,

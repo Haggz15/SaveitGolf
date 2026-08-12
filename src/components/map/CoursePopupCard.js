@@ -50,7 +50,7 @@ export default function CoursePopupCard({ course, detail, onClose, onViewHoles }
       )}
 
       <TouchableOpacity style={styles.popupButton} onPress={onViewHoles}>
-        <Text style={styles.popupButtonText}>View holes & shots</Text>
+        <Text style={styles.popupButtonText}>View Holes and Shots</Text>
         <Ionicons name="arrow-forward" size={16} color={colors.white} />
       </TouchableOpacity>
     </View>
@@ -130,14 +130,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.red,
-    borderRadius: 10,
-    paddingVertical: 12,
+    backgroundColor: '#c0001a',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     gap: 8,
   },
   popupButtonText: {
     color: colors.white,
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 13,
   },
 });

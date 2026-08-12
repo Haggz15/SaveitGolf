@@ -22,9 +22,9 @@ export default function CourseActionSheet({ visible, course, onClose, onViewMap,
             <Text style={styles.optionText}>View on Map</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.option} onPress={onViewCourseDetail} activeOpacity={0.8}>
-            <Ionicons name="golf-outline" size={20} color={colors.white} />
-            <Text style={styles.optionText}>View Course Page</Text>
+          <TouchableOpacity style={styles.viewHolesButton} onPress={onViewCourseDetail} activeOpacity={0.8}>
+            <Ionicons name="golf-outline" size={16} color={colors.white} />
+            <Text style={styles.viewHolesButtonText}>View Holes and Shots</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.cancelButton} onPress={onClose} activeOpacity={0.8}>
@@ -79,6 +79,22 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 15,
     fontWeight: '600',
+  },
+  viewHolesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#c0001a',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginTop: 14,
+  },
+  viewHolesButtonText: {
+    color: colors.white,
+    fontWeight: '700',
+    fontSize: 13,
   },
   cancelButton: {
     marginTop: 14,
