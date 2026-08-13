@@ -69,12 +69,42 @@ export async function markNotificationRead(notificationId) {
   if (error) throw error;
 }
 
+// Bulk mark-as-read fired a few seconds after the notifications panel opens
+// (see NotificationsContext) — cheaper than one update per row and matches
+// how most feeds treat "seen" vs. "read".
+export async function markAllNotificationsRead(userId) {
+  if (!userId) return;
+  const { error } = await supabase
+    .from('notifications')
+    .update({ read: true })
+    .eq('user_id', userId)
+    .eq('read', false);
+
+  if (error) throw error;
+}
+
 export async function getUnreadNotificationCount(userId) {
   if (!userId) return 0;
   const { count, error } = await supabase
     .from('notifications')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', userId)
+    .eq('read', false);
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
+// This app has no separate follow-request/approval flow — following is
+// instant — so "pending follow requests" is really just unread `follow`
+// notifications, which is exactly what should badge a profile/friends icon.
+export async function getUnreadFollowNotificationCount(userId) {
+  if (!userId) return 0;
+  const { count, error } = await supabase
+    .from('notifications')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('type', 'follow')
     .eq('read', false);
 
   if (error) throw error;

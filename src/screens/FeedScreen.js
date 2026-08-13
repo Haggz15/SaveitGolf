@@ -33,17 +33,16 @@ import {
   PROFILE_FEED_HEADER_HEIGHT,
 } from '../theme/layout';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationsContext';
 import { getFeedPosts, getCourseFeedPosts, UNGROUPED_NINE } from '../services/posts';
 import { getFollowingIds } from '../services/social';
 import { likePost, unlikePost, getLikedPostIds } from '../services/likes';
-import { createNotification, getUnreadNotificationCount } from '../services/notifications';
+import { createNotification } from '../services/notifications';
 import { getCurrentShotOfWeek } from '../services/shotOfWeek';
 import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
 import { saveMediaToDevice, saveImageWithWatermarkWeb, saveLocalUriToLibrary } from '../utils/saveMedia';
 import { haversineMiles } from '../utils/distance';
-
-const UNREAD_POLL_INTERVAL_MS = 30000;
 
 function FilterPill({ label, active, onPress }) {
   return (
@@ -299,6 +298,7 @@ const COURSE_FEED_PAGE_SIZE = 10;
 
 export default function FeedScreen({ navigation, route }) {
   const { user, profile } = useAuth();
+  const { unreadCount, decrementUnread } = useNotifications();
   // Course/hole full-screen feed mode (pushed as the "CourseFeed" stack
   // route from CourseDetailScreen) — undefined/null here means this is the
   // normal main-feed tab. See getCourseFeedPosts in services/posts.js.
@@ -326,7 +326,6 @@ export default function FeedScreen({ navigation, route }) {
   const [activePostId, setActivePostId] = useState(null);
   const [addFriendsVisible, setAddFriendsVisible] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [commentPost, setCommentPost] = useState(null);
   const [actionsSheetPost, setActionsSheetPost] = useState(null);
   const insets = useSafeAreaInsets();
@@ -539,24 +538,6 @@ export default function FeedScreen({ navigation, route }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts]);
 
-  useEffect(() => {
-    if (!user?.id) return;
-    let cancelled = false;
-    const refreshUnreadCount = () => {
-      getUnreadNotificationCount(user.id)
-        .then((count) => {
-          if (!cancelled) setUnreadCount(count);
-        })
-        .catch((err) => console.error('Failed to load unread notification count:', err));
-    };
-    refreshUnreadCount();
-    const interval = setInterval(refreshUnreadCount, UNREAD_POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [user?.id]);
-
   // In the normal tab mode, 'Map' is a sibling screen inside the same Tab
   // navigator so a plain navigate('Map', ...) resolves directly. In filtered
   // or profile-feed mode, FeedScreen is pushed as its own top-level stack
@@ -629,7 +610,7 @@ export default function FeedScreen({ navigation, route }) {
   // navigation needed. Only "follow" goes to a different screen.
   const handleNotificationPress = (notification) => {
     if (!notification.read) {
-      setUnreadCount((count) => Math.max(0, count - 1));
+      decrementUnread(notification.type === 'follow');
     }
 
     if (notification.type === 'follow') {
@@ -654,6 +635,12 @@ export default function FeedScreen({ navigation, route }) {
 
   const handleCommentPosted = (postId) => {
     setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, comments: p.comments + 1 } : p)));
+  };
+
+  const handleCommentDeleted = (postId) => {
+    setPosts((prev) =>
+      prev.map((p) => (p.id === postId ? { ...p, comments: Math.max(0, p.comments - 1) } : p))
+    );
   };
 
   const handleReportPost = async (post, reason) => {
@@ -777,7 +764,11 @@ export default function FeedScreen({ navigation, route }) {
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
                   <Ionicons name="notifications-outline" size={22} color={colors.white} />
-                  {unreadCount > 0 && <View style={styles.unreadDot} />}
+                  {unreadCount > 0 && (
+                    <View style={styles.unreadBadge}>
+                      <Text style={styles.unreadBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.headerIconButton}
@@ -901,6 +892,7 @@ export default function FeedScreen({ navigation, route }) {
         post={commentPost}
         currentUserId={user?.id}
         onCommentPosted={handleCommentPosted}
+        onCommentDeleted={handleCommentDeleted}
         onMentionPress={handleMentionPress}
       />
 
@@ -942,16 +934,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  unreadDot: {
+  unreadBadge: {
     position: 'absolute',
-    top: 5,
-    right: 6,
-    width: 9,
-    height: 9,
-    borderRadius: 4.5,
-    backgroundColor: colors.red,
-    borderWidth: 1.5,
-    borderColor: colors.navy,
+    top: -4,
+    right: -4,
+    backgroundColor: '#c0001a',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    zIndex: 10,
+  },
+  unreadBadgeText: {
+    color: colors.white,
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 12,
   },
   // Course/hole filtered mode's header — back button + title, then the
   // Most Liked/Most Recent sort toggle below it — in place of the normal

@@ -11,6 +11,7 @@ import { Oswald_600SemiBold, Oswald_700Bold } from '@expo-google-fonts/oswald';
 
 import RootNavigator from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
+import { NotificationsProvider } from './src/context/NotificationsContext';
 import colors from './src/theme/colors';
 
 SplashScreen.preventAutoHideAsync();
@@ -41,7 +42,9 @@ export default function App() {
       <View style={styles.container} onLayout={onLayoutRootView}>
         <StatusBar style="light" />
         <AuthProvider>
-          <RootNavigator />
+          <NotificationsProvider>
+            <RootNavigator />
+          </NotificationsProvider>
         </AuthProvider>
       </View>
     </SafeAreaProvider>

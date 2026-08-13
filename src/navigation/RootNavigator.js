@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationsContext';
 import FeedScreen from '../screens/FeedScreen';
 import MapScreen from '../screens/MapScreen';
 import PostScreen from '../screens/PostScreen';
@@ -58,6 +59,12 @@ function CenterPostButton({ onPress }) {
 }
 
 function Tabs() {
+  // Profile tab badge doubles as the "friend/follow requests" indicator —
+  // this app follows instantly rather than requiring approval, so a
+  // pending request is really just an unread `follow` notification (see
+  // NotificationsContext).
+  const { followUnreadCount } = useNotifications();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -77,6 +84,7 @@ function Tabs() {
           fontSize: 11,
           fontWeight: '600',
         },
+        tabBarBadgeStyle: styles.tabBarBadge,
         tabBarIcon: ({ focused, color, size }) => {
           const iconSet = focused ? TAB_ICONS_FOCUSED : TAB_ICONS;
           return <Ionicons name={iconSet[route.name]} size={size ?? 22} color={color} />;
@@ -95,7 +103,13 @@ function Tabs() {
         }}
       />
       <Tab.Screen name="Scorecard" component={ScorecardScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          tabBarBadge: followUnreadCount > 0 ? (followUnreadCount > 99 ? '99+' : followUnreadCount) : undefined,
+        }}
+      />
     </Tab.Navigator>
   );
 }
@@ -147,6 +161,12 @@ export default function RootNavigator() {
 }
 
 const styles = StyleSheet.create({
+  tabBarBadge: {
+    backgroundColor: '#c0001a',
+    color: colors.white,
+    fontSize: 10,
+    fontWeight: '700',
+  },
   loadingScreen: {
     flex: 1,
     alignItems: 'center',

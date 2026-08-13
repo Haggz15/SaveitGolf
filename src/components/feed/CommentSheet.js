@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Alert,
   StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,7 +17,14 @@ import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 import MentionTextInput from '../social/MentionTextInput';
 import MentionText from '../social/MentionText';
-import { getComments, addComment, getLikedCommentIds, likeComment, unlikeComment } from '../../services/comments';
+import {
+  getComments,
+  addComment,
+  deleteComment,
+  getLikedCommentIds,
+  likeComment,
+  unlikeComment,
+} from '../../services/comments';
 
 function getInitials(name) {
   if (!name) return '?';
@@ -34,7 +42,15 @@ function CommentAvatar({ avatarUrl, name }) {
   );
 }
 
-export default function CommentSheet({ visible, onClose, post, currentUserId, onCommentPosted, onMentionPress }) {
+export default function CommentSheet({
+  visible,
+  onClose,
+  post,
+  currentUserId,
+  onCommentPosted,
+  onCommentDeleted,
+  onMentionPress,
+}) {
   const insets = useSafeAreaInsets();
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -115,6 +131,37 @@ export default function CommentSheet({ visible, onClose, post, currentUserId, on
     }
   }
 
+  // RLS already blocks deleting someone else's comment, but the trash icon
+  // is only ever rendered on the caller's own rows and long-press bails
+  // early below, so this never even attempts the request for others' rows.
+  async function handleDeleteComment(commentId) {
+    try {
+      await deleteComment(commentId);
+      setComments((prev) => prev.filter((c) => c.id !== commentId));
+      onCommentDeleted?.(post.id);
+    } catch (err) {
+      console.error('Failed to delete comment:', err);
+    }
+  }
+
+  function confirmDeleteComment(comment) {
+    if (Platform.OS === 'web') {
+      if (window.confirm('Delete this comment?')) {
+        handleDeleteComment(comment.id);
+      }
+      return;
+    }
+    Alert.alert('Delete Comment', 'Are you sure you want to delete this comment?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => handleDeleteComment(comment.id) },
+    ]);
+  }
+
+  function handleLongPress(comment) {
+    if (comment.userId !== currentUserId) return;
+    confirmDeleteComment(comment);
+  }
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -142,29 +189,54 @@ export default function CommentSheet({ visible, onClose, post, currentUserId, on
               style={styles.list}
               contentContainerStyle={{ paddingBottom: 12 }}
               keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => (
-                <View style={styles.commentRow}>
-                  <CommentAvatar avatarUrl={item.avatarUrl} name={item.fullName || item.username} />
-                  <View style={styles.commentBody}>
-                    <View style={styles.commentMetaRow}>
-                      <Text style={styles.commentUsername}>{item.username}</Text>
-                      <Text style={styles.commentTime}>{item.timeAgo}</Text>
+              renderItem={({ item }) => {
+                const isOwnComment = item.userId === currentUserId;
+                return (
+                  <View style={styles.commentRow}>
+                    <TouchableOpacity
+                      style={styles.commentMain}
+                      activeOpacity={1}
+                      onLongPress={() => handleLongPress(item)}
+                      delayLongPress={400}
+                    >
+                      <CommentAvatar avatarUrl={item.avatarUrl} name={item.fullName || item.username} />
+                      <View style={styles.commentBody}>
+                        <View style={styles.commentMetaRow}>
+                          <Text style={styles.commentUsername}>{item.username}</Text>
+                          <Text style={styles.commentTime}>{item.timeAgo}</Text>
+                        </View>
+                        <MentionText
+                          text={item.commentText}
+                          style={styles.commentText}
+                          onMentionPress={onMentionPress}
+                        />
+                      </View>
+                    </TouchableOpacity>
+                    <View style={styles.commentActions}>
+                      <TouchableOpacity
+                        style={styles.commentLikeButton}
+                        onPress={() => handleToggleCommentLike(item.id)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons
+                          name={likedCommentIds.has(item.id) ? 'heart' : 'heart-outline'}
+                          size={14}
+                          color={likedCommentIds.has(item.id) ? colors.red : colors.muted}
+                        />
+                      </TouchableOpacity>
+                      {isOwnComment && (
+                        <TouchableOpacity
+                          style={styles.commentDeleteButton}
+                          onPress={() => confirmDeleteComment(item)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="trash-outline" size={14} color={colors.red} />
+                        </TouchableOpacity>
+                      )}
                     </View>
-                    <MentionText text={item.commentText} style={styles.commentText} onMentionPress={onMentionPress} />
                   </View>
-                  <TouchableOpacity
-                    style={styles.commentLikeButton}
-                    onPress={() => handleToggleCommentLike(item.id)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons
-                      name={likedCommentIds.has(item.id) ? 'heart' : 'heart-outline'}
-                      size={14}
-                      color={likedCommentIds.has(item.id) ? colors.red : colors.muted}
-                    />
-                  </TouchableOpacity>
-                </View>
-              )}
+                );
+              }}
             />
           )}
 
@@ -246,6 +318,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 10,
   },
+  commentMain: {
+    flex: 1,
+    flexDirection: 'row',
+  },
   avatar: {
     width: 30,
     height: 30,
@@ -287,9 +363,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  commentLikeButton: {
+  commentActions: {
     alignSelf: 'flex-start',
+    alignItems: 'center',
     marginLeft: 8,
+    gap: 10,
+  },
+  commentLikeButton: {
+    paddingTop: 2,
+  },
+  commentDeleteButton: {
     paddingTop: 2,
   },
   inputRow: {

@@ -93,3 +93,10 @@ export async function unlikeComment(userId, commentId) {
 
   if (error) throw error;
 }
+
+// RLS ("Users can delete their own comments") already restricts this to the
+// caller's own comments — no ownership check needed here.
+export async function deleteComment(commentId) {
+  const { error } = await supabase.from('comments').delete().eq('id', commentId);
+  if (error) throw error;
+}

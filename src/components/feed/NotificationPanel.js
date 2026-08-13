@@ -15,17 +15,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 import { getNotifications, markNotificationRead } from '../../services/notifications';
+import { useNotifications } from '../../context/NotificationsContext';
 
-const NOTIFICATION_ICONS = {
-  like: 'heart',
-  comment: 'chatbubble',
-  share: 'share-social',
-  mention: 'at',
-  tag: 'pricetag',
-  follow: 'person-add',
-  new_post: 'image',
-  new_scorecard: 'golf',
-};
+const AUTO_READ_DELAY_MS = 3000;
 
 function getInitials(name) {
   if (!name) return '?';
@@ -45,9 +37,10 @@ function NotificationAvatar({ avatarUrl, name }) {
 
 export default function NotificationPanel({ visible, onClose, userId, onPressNotification }) {
   const insets = useSafeAreaInsets();
-  const { width: screenWidth } = useWindowDimensions();
-  const panelWidth = Math.round(screenWidth * 0.5);
-  const translateX = useRef(new Animated.Value(panelWidth)).current;
+  const { height: screenHeight } = useWindowDimensions();
+  const panelHeight = Math.round(screenHeight * 0.75);
+  const { markAllRead } = useNotifications();
+  const translateY = useRef(new Animated.Value(panelHeight)).current;
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(visible);
@@ -55,7 +48,7 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
   useEffect(() => {
     if (visible) {
       setMounted(true);
-      Animated.timing(translateX, { toValue: 0, duration: 220, useNativeDriver: true }).start();
+      Animated.timing(translateY, { toValue: 0, duration: 260, useNativeDriver: true }).start();
 
       setLoading(true);
       getNotifications(userId)
@@ -63,11 +56,24 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
         .catch((err) => console.error('Failed to load notifications:', err))
         .finally(() => setLoading(false));
     } else if (mounted) {
-      Animated.timing(translateX, { toValue: panelWidth, duration: 200, useNativeDriver: true }).start(() => {
+      Animated.timing(translateY, { toValue: panelHeight, duration: 220, useNativeDriver: true }).start(() => {
         setMounted(false);
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, userId]);
+
+  // A few seconds after the panel opens, treat everything in it as "seen" —
+  // clears the badge/border even for rows the user never actually tapped,
+  // same as most feeds distinguish "seen" from "read".
+  useEffect(() => {
+    if (!visible) return;
+    const timer = setTimeout(() => {
+      markAllRead();
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    }, AUTO_READ_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [visible, markAllRead]);
 
   // Marks just this one notification read (optimistically, then persisted)
   // and hands it to the parent to decide where tapping it should navigate —
@@ -86,16 +92,16 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
     <Modal visible={mounted} animationType="none" transparent onRequestClose={onClose}>
       <View style={styles.root}>
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-        <Animated.View
-          style={[
-            styles.panel,
-            { width: panelWidth, paddingTop: insets.top + 12, transform: [{ translateX }] },
-          ]}
-        >
+        <Animated.View style={[styles.panel, { height: panelHeight, transform: [{ translateY }] }]}>
+          <View style={styles.handle} />
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Alerts</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="close" size={18} color={colors.muted} />
+            <Text style={styles.headerTitle}>Notifications</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              style={styles.closeButton}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close" size={22} color={colors.muted} />
             </TouchableOpacity>
           </View>
 
@@ -107,7 +113,7 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
             <FlatList
               data={notifications}
               keyExtractor={(item) => item.id}
-              contentContainerStyle={{ paddingBottom: 24 }}
+              contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[styles.row, !item.read && styles.rowUnread]}
@@ -116,18 +122,15 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
                 >
                   <NotificationAvatar avatarUrl={item.actorAvatarUrl} name={item.actorFullName || item.actorUsername} />
                   <View style={styles.rowBody}>
-                    <Ionicons
-                      name={NOTIFICATION_ICONS[item.type] ?? 'notifications'}
-                      size={11}
-                      color={colors.red}
-                      style={styles.rowIcon}
-                    />
                     <Text style={styles.rowText} numberOfLines={3}>
-                      <Text style={styles.rowUsername}>{item.actorUsername}</Text> {item.actionText}
+                      <Text style={styles.rowUsername}>{item.actorUsername}</Text>
+                      <Text style={styles.rowMessage}> {item.actionText}</Text>
                     </Text>
-                    <Text style={styles.rowTime}>{item.timeAgo}</Text>
                   </View>
-                  {item.thumbnailUrl && <Image source={{ uri: item.thumbnailUrl }} style={styles.rowThumbnail} />}
+                  <View style={styles.rowRight}>
+                    <Text style={styles.rowTime}>{item.timeAgo}</Text>
+                    {item.thumbnailUrl && <Image source={{ uri: item.thumbnailUrl }} style={styles.rowThumbnail} />}
+                  </View>
                 </TouchableOpacity>
               )}
             />
@@ -141,44 +144,60 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    flexDirection: 'row',
+    justifyContent: 'flex-end',
   },
   backdrop: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(6, 14, 26, 0.5)',
   },
   panel: {
     backgroundColor: colors.navy,
-    borderLeftWidth: 1,
-    borderLeftColor: colors.navyBorder,
-    height: '100%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 1,
+    borderColor: colors.navyBorder,
+    overflow: 'hidden',
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.navyBorder,
+    alignSelf: 'center',
+    marginTop: 10,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 10,
-    paddingBottom: 10,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.navyBorder,
   },
   headerTitle: {
     color: colors.white,
-    fontSize: 13,
-    fontWeight: '800',
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 10,
+    right: 14,
   },
   emptyText: {
     color: colors.muted,
-    fontSize: 11,
+    fontSize: 13,
     textAlign: 'center',
-    paddingHorizontal: 10,
-    marginTop: 20,
+    paddingHorizontal: 20,
+    marginTop: 28,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    minHeight: 72,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderLeftWidth: 3,
     borderLeftColor: 'transparent',
   },
@@ -187,10 +206,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(74, 158, 255, 0.08)',
   },
   avatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    marginRight: 6,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
   },
   avatarFallback: {
     backgroundColor: colors.navyCard,
@@ -201,33 +220,39 @@ const styles = StyleSheet.create({
   },
   avatarInitials: {
     color: colors.white,
-    fontSize: 10,
+    fontSize: 16,
     fontWeight: '700',
   },
   rowBody: {
     flex: 1,
+    marginRight: 8,
   },
-  rowIcon: {
-    marginBottom: 2,
+  rowText: {
+    lineHeight: 18,
   },
   rowUsername: {
     color: colors.white,
+    fontSize: 14,
     fontWeight: '700',
   },
-  rowText: {
-    color: colors.offWhite,
-    fontSize: 10,
-    lineHeight: 13,
+  rowMessage: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '400',
+  },
+  rowRight: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 6,
   },
   rowTime: {
     color: colors.muted,
-    fontSize: 9,
-    marginTop: 3,
+    fontSize: 11,
+    textAlign: 'right',
   },
   rowThumbnail: {
-    width: 32,
-    height: 32,
+    width: 52,
+    height: 52,
     borderRadius: 6,
-    marginLeft: 6,
   },
 });
