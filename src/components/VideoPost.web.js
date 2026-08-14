@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getAssetByID } from '@react-native/assets-registry/registry';
 import colors from '../theme/colors';
@@ -31,15 +31,8 @@ function resolveWebAssetUri(source) {
 export default function VideoPost({ source, mobileSource, isActive }) {
   const videoRef = useRef(null);
   const [muted, setMuted] = useState(true);
-  const [videoLoading, setVideoLoading] = useState(true);
-  const [videoError, setVideoError] = useState(false);
   const asset = isMobileDevice() && mobileSource ? mobileSource : source;
   const uri = resolveWebAssetUri(asset);
-
-  useEffect(() => {
-    setVideoLoading(true);
-    setVideoError(false);
-  }, [uri]);
 
   // React doesn't recognize a `defaultMuted` JSX prop on <video> in this
   // setup (it warns and drops it), so the initial autoplay-compliant muted
@@ -68,14 +61,6 @@ export default function VideoPost({ source, mobileSource, isActive }) {
     if (videoRef.current) videoRef.current.muted = muted;
   }, [muted]);
 
-  if (videoError) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>Video unavailable</Text>
-      </View>
-    );
-  }
-
   return (
     <>
       <video
@@ -88,23 +73,10 @@ export default function VideoPost({ source, mobileSource, isActive }) {
         preload="auto"
         disablePictureInPicture
         controls={false}
-        onError={(e) => {
-          console.error('Video load error:', asset, e);
-          setVideoLoading(false);
-          setVideoError(true);
-        }}
-        onLoadedData={() => {
-          console.log('Video loaded successfully:', uri);
-          setVideoLoading(false);
-        }}
+        onError={() => console.error('Video failed to load:', asset)}
       >
         <source src={uri} type="video/mp4" />
       </video>
-      {videoLoading && (
-        <View style={styles.centered} pointerEvents="none">
-          <ActivityIndicator color={colors.white} size="small" />
-        </View>
-      )}
       <TouchableOpacity
         style={styles.speakerButton}
         onPress={() => setMuted((prev) => !prev)}
@@ -118,16 +90,6 @@ export default function VideoPost({ source, mobileSource, isActive }) {
 }
 
 const styles = StyleSheet.create({
-  centered: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.navy,
-  },
-  errorText: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 13,
-  },
   speakerButton: {
     position: 'absolute',
     top: 12,

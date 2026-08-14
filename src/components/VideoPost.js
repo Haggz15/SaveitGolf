@@ -1,32 +1,20 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { StyleSheet, TouchableOpacity } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
 
 export default function VideoPost({ source, isActive }) {
   const [muted, setMuted] = useState(true);
-  const [videoLoading, setVideoLoading] = useState(true);
-  const [videoError, setVideoError] = useState(false);
   const player = useVideoPlayer(source, (p) => {
     p.loop = true;
     p.muted = true;
   });
 
   useEffect(() => {
-    setVideoLoading(true);
-    setVideoError(false);
-  }, [source]);
-
-  useEffect(() => {
     const statusSubscription = player.addListener('statusChange', ({ status, error }) => {
       if (status === 'error') {
-        console.error('Video load error:', source, error);
-        setVideoLoading(false);
-        setVideoError(true);
-      } else if (status === 'readyToPlay') {
-        console.log('Video loaded successfully:', source);
-        setVideoLoading(false);
+        console.error('Video failed to load:', source, error);
       }
     });
 
@@ -47,14 +35,6 @@ export default function VideoPost({ source, isActive }) {
     player.muted = muted;
   }, [muted, player]);
 
-  if (videoError) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>Video unavailable</Text>
-      </View>
-    );
-  }
-
   return (
     <>
       <VideoView
@@ -65,11 +45,6 @@ export default function VideoPost({ source, isActive }) {
         fullscreenOptions={{ enable: false }}
         playsInline
       />
-      {videoLoading && (
-        <View style={styles.centered} pointerEvents="none">
-          <ActivityIndicator color={colors.white} size="small" />
-        </View>
-      )}
       <TouchableOpacity
         style={styles.speakerButton}
         onPress={() => setMuted((prev) => !prev)}
@@ -83,16 +58,6 @@ export default function VideoPost({ source, isActive }) {
 }
 
 const styles = StyleSheet.create({
-  centered: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.navy,
-  },
-  errorText: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 13,
-  },
   speakerButton: {
     position: 'absolute',
     top: 12,

@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   nameBig: {
-    fontFamily: 'Oswald_700Bold',
+    fontFamily: 'BarlowCondensed_700Bold',
     fontSize: 22,
     fontWeight: '700',
     color: colors.white,
@@ -152,9 +152,9 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   nameSmall: {
-    fontFamily: 'Oswald_600SemiBold',
+    fontFamily: 'BarlowCondensed_700Bold',
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.white,
     letterSpacing: 15 * 0.06,
     textTransform: 'uppercase',

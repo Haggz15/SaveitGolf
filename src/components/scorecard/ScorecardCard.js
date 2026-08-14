@@ -41,8 +41,8 @@ function splitNameWords(fullName) {
   return (fullName || '').trim().split(/\s+/).filter(Boolean);
 }
 
-// "OWEN HAGGERTY" -> O and H rendered larger (18px) than the rest of their
-// words (12px). A single-word name collapses first-word/last-word onto the
+// "OWEN HAGGERTY" -> O and H rendered larger (22px) than the rest of their
+// words (14px). A single-word name collapses first-word/last-word onto the
 // same letter.
 function StyledPlayerName({ fullName }) {
   const words = splitNameWords(fullName);
@@ -358,8 +358,9 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     gap: 12,
     padding: 14,
-    // Extra headroom above the larger Cinzel player name so its big first
-    // letters (32px) don't feel cramped against the card's top edge.
+    // Extra headroom above the larger Barlow Condensed player name so its
+    // big first letters (22px) don't feel cramped against the card's top
+    // edge.
     paddingTop: 14 + 12,
     // Lets the revert arrow (Fix 3) position itself relative to the whole
     // scores+photo row rather than the page, so it can straddle the
@@ -384,17 +385,17 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   nameBig: {
-    fontFamily: 'Cinzel_700Bold',
-    fontSize: 32,
-    color: colors.white,
-    letterSpacing: 32 * 0.05,
-    textTransform: 'uppercase',
-  },
-  nameSmall: {
-    fontFamily: 'Cinzel_700Bold',
+    fontFamily: 'BarlowCondensed_700Bold',
     fontSize: 22,
     color: colors.white,
     letterSpacing: 22 * 0.05,
+    textTransform: 'uppercase',
+  },
+  nameSmall: {
+    fontFamily: 'BarlowCondensed_700Bold',
+    fontSize: 14,
+    color: colors.white,
+    letterSpacing: 14 * 0.05,
     textTransform: 'uppercase',
   },
   courseNameText: {
