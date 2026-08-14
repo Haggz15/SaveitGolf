@@ -358,6 +358,9 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     gap: 12,
     padding: 14,
+    // Extra headroom above the larger Cinzel player name so its big first
+    // letters (32px) don't feel cramped against the card's top edge.
+    paddingTop: 14 + 12,
     // Lets the revert arrow (Fix 3) position itself relative to the whole
     // scores+photo row rather than the page, so it can straddle the
     // boundary between the two columns regardless of card height.
@@ -381,29 +384,29 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   nameBig: {
-    fontFamily: 'Oswald_700Bold',
-    fontSize: 18,
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 32,
     color: colors.white,
-    letterSpacing: 18 * 0.05,
+    letterSpacing: 32 * 0.05,
     textTransform: 'uppercase',
   },
   nameSmall: {
-    fontFamily: 'Oswald_700Bold',
-    fontSize: 12,
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 22,
     color: colors.white,
-    letterSpacing: 12 * 0.05,
+    letterSpacing: 22 * 0.05,
     textTransform: 'uppercase',
   },
   courseNameText: {
     fontFamily: 'Cinzel_700Bold',
-    fontSize: 9,
+    fontSize: 12,
     color: colors.lightBlue,
     marginTop: 5,
   },
   compositeNameText: {
     fontFamily: 'Cinzel_700Bold',
     fontStyle: 'italic',
-    fontSize: 7.5,
+    fontSize: 10,
     color: '#6a8ab0',
     marginTop: 2,
   },

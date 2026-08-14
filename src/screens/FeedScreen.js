@@ -81,6 +81,13 @@ function PostSlide({
   // video-processing story here, so videos keep the plain save.
   const saveMediaForPost = (mediaUrl) => (isVideo ? saveMediaToDevice(mediaUrl) : onSaveMedia(mediaUrl));
 
+  useEffect(() => {
+    if (isVideo) {
+      console.log('Post media_type: video, isVideo:', isVideo);
+      console.log('Post media_url:', post.mediaUrl || post.video);
+    }
+  }, [isVideo, post.mediaUrl, post.video]);
+
   async function toggleLike() {
     if (!currentUserId) return;
     const next = !liked;

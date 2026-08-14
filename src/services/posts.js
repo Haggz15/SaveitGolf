@@ -11,15 +11,26 @@ const EXT_TO_CONTENT_TYPE = {
   mp4: 'video/mp4',
 };
 
+// Pulls the extension off just the final path segment of a uri — not the
+// whole string — so a web `blob:https://host.com/<uuid>` uri (no real
+// extension of its own) doesn't have ".com" mistaken for one via the dot in
+// the host name.
+function getFileExtension(uri) {
+  const path = uri.split('?')[0].split('#')[0];
+  const lastSegment = path.split('/').pop() || '';
+  const dotIndex = lastSegment.lastIndexOf('.');
+  return dotIndex > 0 ? lastSegment.slice(dotIndex + 1).toLowerCase() : null;
+}
+
 function guessContentType(uri, mediaType) {
-  const ext = uri.split('.').pop()?.toLowerCase().split('?')[0];
-  return EXT_TO_CONTENT_TYPE[ext] || (mediaType === 'video' ? 'video/mp4' : 'image/jpeg');
+  const ext = getFileExtension(uri);
+  return (ext && EXT_TO_CONTENT_TYPE[ext]) || (mediaType === 'video' ? 'video/mp4' : 'image/jpeg');
 }
 
 // Uploads a local file uri (from expo-image-picker) into the public `posts`
 // storage bucket under the owning user's folder, then returns its public URL.
 async function uploadMedia(userId, uri, mediaType) {
-  const ext = uri.split('.').pop()?.split('?')[0] || (mediaType === 'video' ? 'mp4' : 'jpg');
+  const ext = getFileExtension(uri) || (mediaType === 'video' ? 'mp4' : 'jpg');
   const path = `${userId}/${Date.now()}.${ext}`;
   const contentType = guessContentType(uri, mediaType);
 
