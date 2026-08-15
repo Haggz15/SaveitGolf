@@ -41,11 +41,39 @@ function splitNameWords(fullName) {
   return (fullName || '').trim().split(/\s+/).filter(Boolean);
 }
 
-// "OWEN HAGGERTY" -> O and H rendered larger (22px) than the rest of their
-// words (14px). A single-word name collapses first-word/last-word onto the
-// same letter.
-function StyledPlayerName({ fullName }) {
+// Base (unscaled) sizes for the big first-letters / small-rest-of-word name
+// styling — see nameFontScale below for how these shrink to keep the name
+// on one line.
+const NAME_BIG_BASE = 22;
+const NAME_SMALL_BASE = 14;
+const NAME_MIN_SCALE = 0.5;
+
+// react-native-web has no adjustsFontSizeToFit, and this card is captured
+// as a share image on both native and web, so the name can't rely on
+// platform auto-shrink — it has to be sized up front from the text itself.
+// A name fits comfortably (scale 1) up to `comfortable` characters; past
+// that it scales down so longer names, and the narrower column a photo
+// creates, still render on a single line instead of clipping.
+function nameFontScale(fullName, columnVisible) {
+  const length = (fullName || '').trim().length;
+  const comfortable = columnVisible ? 10 : 17;
+  if (length <= comfortable) return 1;
+  return Math.max(NAME_MIN_SCALE, comfortable / length);
+}
+
+// "OWEN HAGGERTY" -> O and H rendered larger than the rest of their words.
+// A single-word name collapses first-word/last-word onto the same letter.
+function StyledPlayerName({ fullName, columnVisible }) {
   const words = splitNameWords(fullName);
+  const scale = nameFontScale(fullName, columnVisible);
+  const bigStyle = [
+    styles.nameBig,
+    scale !== 1 && { fontSize: NAME_BIG_BASE * scale, letterSpacing: NAME_BIG_BASE * scale * 0.05 },
+  ];
+  const smallStyle = [
+    styles.nameSmall,
+    scale !== 1 && { fontSize: NAME_SMALL_BASE * scale, letterSpacing: NAME_SMALL_BASE * scale * 0.05 },
+  ];
   return (
     <Text style={styles.nameLine} numberOfLines={1}>
       {words.map((word, wi) => {
@@ -54,9 +82,9 @@ function StyledPlayerName({ fullName }) {
         const rest = word.slice(1);
         return (
           <Text key={wi}>
-            {firstChar ? <Text style={isEdgeWord ? styles.nameBig : styles.nameSmall}>{firstChar}</Text> : null}
-            {rest ? <Text style={styles.nameSmall}>{rest}</Text> : null}
-            {wi < words.length - 1 ? <Text style={styles.nameSmall}> </Text> : null}
+            {firstChar ? <Text style={isEdgeWord ? bigStyle : smallStyle}>{firstChar}</Text> : null}
+            {rest ? <Text style={smallStyle}>{rest}</Text> : null}
+            {wi < words.length - 1 ? <Text style={smallStyle}> </Text> : null}
           </Text>
         );
       })}
@@ -300,7 +328,7 @@ export default function ScorecardCard({
     <View nativeID={captureId} style={styles.cardOuter}>
       <View style={[styles.cardBody, columnVisible && styles.cardBodyWithPhoto]}>
         <View style={[styles.scoresColumn, !columnVisible && styles.scoresColumnFullWidth]}>
-          <StyledPlayerName fullName={fullName} />
+          <StyledPlayerName fullName={fullName} columnVisible={columnVisible} />
           <Text style={styles.courseNameText} numberOfLines={2}>
             {scorecard.courseName}
           </Text>
