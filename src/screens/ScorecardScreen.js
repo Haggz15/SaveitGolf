@@ -8,6 +8,7 @@ import {
   Platform,
   Linking,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
@@ -16,12 +17,17 @@ import NewScorecardModal from '../components/scorecard/NewScorecardModal';
 import PastScorecardsList from '../components/scorecard/PastScorecardsList';
 import ScorecardDetailModal from '../components/scorecard/ScorecardDetailModal';
 import ScorecardCard from '../components/scorecard/ScorecardCard';
-import PhotoCropModal from '../components/scorecard/PhotoCropModal';
+import PhotoLayoutToggle from '../components/scorecard/PhotoLayoutToggle';
 import ShareOptionsModal from '../components/scorecard/ShareOptionsModal';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { scorecard as mockScorecard } from '../data/mockData';
-import { getLatestScorecard, saveScorecard, saveScorecardPhoto } from '../services/scorecards';
+import {
+  getLatestScorecard,
+  saveScorecard,
+  saveScorecardPhoto,
+  updateScorecardPhotoLayout,
+} from '../services/scorecards';
 import { notifyFollowersOfScorecard } from '../services/notifications';
 import { useAuth } from '../context/AuthContext';
 
@@ -39,15 +45,16 @@ export default function ScorecardScreen() {
   const [shareImageUri, setShareImageUri] = useState(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
-  // Web only: the just-picked, not-yet-cropped photo — set while
-  // PhotoCropModal's pan UI is open, then cleared once the user cancels or
-  // confirms a crop (native never sets this; ImagePicker's own allowsEditing
-  // crop UI runs before the photo ever reaches applyPickedPhoto).
-  const [cropPhotoUri, setCropPhotoUri] = useState(null);
-  // True once the green plus has switched the card over to the photo-column
-  // layout — independent of `photoUri`, since the column shows a tappable
-  // placeholder there until a photo is actually picked.
-  const [showPhotoColumn, setShowPhotoColumn] = useState(false);
+  // 'side' or 'behind' (Fix 2/5) — which layout ScorecardCard renders the
+  // attached photo with. Initialized from whatever the active scorecard has
+  // saved, and reset alongside photoUri whenever a different scorecard
+  // becomes active (see the effect below).
+  const [photoLayout, setPhotoLayout] = useState(mockScorecard.photoLayout || 'behind');
+  // True while a just-picked photo is uploading to Supabase storage in the
+  // background — the picked photo is already showing locally (see
+  // applyPickedPhoto), this just drives a small "Uploading…" indicator so
+  // the user knows it hasn't been saved yet.
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [activeScorecard, setActiveScorecard] = useState(mockScorecard);
   const [modalVisible, setModalVisible] = useState(false);
   const [pastListKey, setPastListKey] = useState(0);
@@ -74,7 +81,7 @@ export default function ScorecardScreen() {
   // clobber a reveal/upload the user just triggered on this same scorecard.
   useEffect(() => {
     setPhotoUri(null);
-    setShowPhotoColumn(false);
+    setPhotoLayout(activeScorecard.photoLayout || 'behind');
   }, [activeScorecard.id]);
 
   const fullName = (profile?.full_name || 'Unnamed Golfer').toUpperCase();
@@ -100,19 +107,59 @@ export default function ScorecardScreen() {
   // a real saved row rather than the placeholder demo card — uploads it to
   // the `scorecards` storage bucket and swaps in the resulting public URL,
   // so it survives a refresh and future visits to this screen (Fix 4).
+  // Displays the picked photo immediately, then — if the active scorecard is
+  // a real saved row rather than the placeholder demo card — uploads it to
+  // the `scorecards` storage bucket at full quality and swaps in the
+  // resulting public URL, so it survives a refresh and future visits to
+  // this screen.
   async function applyPickedPhoto(uri) {
+    // Fix 2: layout always defaults to "behind" the first time a photo is
+    // attached to a scorecard, even if a previous photo on this same
+    // scorecard had been switched to "side" (that preference goes away with
+    // the photo it belonged to).
+    const isFirstPhoto = !activeScorecard.photoUrl;
     setPhotoUri(uri);
+    if (isFirstPhoto) setPhotoLayout('behind');
     if (!user?.id || !activeScorecard.id) return;
     try {
+      setUploadingPhoto(true);
       const uploadedUrl = await saveScorecardPhoto(user.id, activeScorecard.id, uri);
-      setActiveScorecard((prev) => ({ ...prev, photoUrl: uploadedUrl }));
+      setActiveScorecard((prev) => ({
+        ...prev,
+        photoUrl: uploadedUrl,
+        photoLayout: isFirstPhoto ? 'behind' : prev.photoLayout,
+      }));
       setPhotoUri(uploadedUrl);
+      if (isFirstPhoto) {
+        await updateScorecardPhotoLayout(activeScorecard.id, 'behind').catch((err) =>
+          console.error('Failed to save default photo layout:', err)
+        );
+      }
     } catch (err) {
       console.error('Failed to save scorecard photo:', err);
       Alert.alert('Something went wrong', 'Could not save your photo. Please try again.');
+    } finally {
+      setUploadingPhoto(false);
     }
   }
 
+  // Toggle handler for the Side/Behind pills (Fix 2) — updates the card
+  // instantly and persists the choice on the scorecard row (Fix 5) so it's
+  // applied automatically the next time this scorecard loads.
+  function handlePhotoLayoutChange(layout) {
+    setPhotoLayout(layout);
+    setActiveScorecard((prev) => ({ ...prev, photoLayout: layout }));
+    if (user?.id && activeScorecard.id) {
+      updateScorecardPhotoLayout(activeScorecard.id, layout).catch((err) =>
+        console.error('Failed to save photo layout:', err)
+      );
+    }
+  }
+
+  // Option 3's photo fills the entire card as a `cover`-resized background,
+  // so it self-crops to whatever the card's own aspect ratio is — no
+  // separate crop step is needed. The file input's picked photo goes
+  // straight to applyPickedPhoto at full quality.
   function handlePickPhotoWeb() {
     const input = document.createElement('input');
     input.type = 'file';
@@ -122,19 +169,10 @@ export default function ScorecardScreen() {
       const file = e.target.files?.[0];
       document.body.removeChild(input);
       if (!file) return;
-      setCropPhotoUri(URL.createObjectURL(file));
+      applyPickedPhoto(URL.createObjectURL(file));
     };
     document.body.appendChild(input);
     input.click();
-  }
-
-  function handleCropConfirm(croppedUri) {
-    setCropPhotoUri(null);
-    applyPickedPhoto(croppedUri);
-  }
-
-  function handleCropCancel() {
-    setCropPhotoUri(null);
   }
 
   async function handlePickPhotoNative() {
@@ -149,11 +187,16 @@ export default function ScorecardScreen() {
         return;
       }
 
+      // allowsEditing shows the native OS crop UI (pinch to zoom, drag to
+      // reposition) for both layouts — no aspect ratio is forced so the
+      // user isn't boxed into a specific crop shape (Fix 1). quality stays
+      // at 1 (no compression) to avoid graininess in the exported share
+      // image, and exif is skipped since it's never used.
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
-        aspect: [9, 16],
         quality: 1,
+        exif: false,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -172,16 +215,15 @@ export default function ScorecardScreen() {
     }
   }
 
-  // The green plus beside the totals row (Fix 2): reveals an already-saved
-  // photo instead of re-uploading it when one exists, otherwise just
-  // switches the layout over to the photo column, which shows a tappable
-  // placeholder (see PhotoColumn in ScorecardCard) until the user actually
-  // picks a photo.
+  // The green plus beside the totals row: reveals an already-saved photo
+  // instead of re-uploading it when one exists, otherwise opens the picker
+  // directly — Option 3's full-background layout has no placeholder column
+  // to switch into first.
   function handleAddPhotoPress() {
     if (activeScorecard.photoUrl) {
       setPhotoUri(activeScorecard.photoUrl);
     } else {
-      setShowPhotoColumn(true);
+      handlePickPhoto();
     }
   }
 
@@ -372,25 +414,43 @@ export default function ScorecardScreen() {
           </TouchableOpacity>
         )}
 
+        <PhotoLayoutToggle
+          layout={photoLayout}
+          onChange={handlePhotoLayoutChange}
+          hidden={!photoUri || hideShareExtras}
+        />
+
         <View style={styles.cardWrapper}>
           <ViewShot ref={shareCardRef} options={{ format: 'png', quality: 1 }}>
             <ScorecardCard
               scorecard={activeScorecard}
               fullName={fullName}
               photoUri={photoUri}
+              photoLayout={photoLayout}
               onRequestPhoto={handlePickPhoto}
-              onRemovePhoto={() => {
-                setPhotoUri(null);
-                setShowPhotoColumn(false);
-              }}
+              onRemovePhoto={() => setPhotoUri(null)}
               onAddPhoto={handleAddPhotoPress}
-              showPhotoColumn={showPhotoColumn}
               hideShareExtras={hideShareExtras}
               captureId="scorecard-card"
             />
           </ViewShot>
 
-          <View style={styles.topRightButtons}>
+          {/* Sits below the card's own top-right remove-photo button in the
+              "behind" layout once a photo is showing, instead of
+              overlapping it — the "side" layout's remove button lives on
+              the photo's left seam instead, so there's nothing to avoid. */}
+          <View
+            style={[
+              styles.topRightButtons,
+              photoUri && photoLayout === 'behind' && styles.topRightButtonsBelowPhoto,
+            ]}
+          >
+            {uploadingPhoto && (
+              <View style={styles.uploadingPill}>
+                <ActivityIndicator size="small" color={colors.white} />
+                <Text style={styles.uploadingPillText}>Uploading…</Text>
+              </View>
+            )}
             <TouchableOpacity
               style={styles.shareButton}
               onPress={handleShare}
@@ -423,13 +483,6 @@ export default function ScorecardScreen() {
         scorecard={detailScorecard}
         fullName={fullName}
         onClose={() => setDetailScorecard(null)}
-      />
-
-      <PhotoCropModal
-        visible={Boolean(cropPhotoUri)}
-        photoUri={cropPhotoUri}
-        onCancel={handleCropCancel}
-        onConfirm={handleCropConfirm}
       />
 
       <ShareOptionsModal
@@ -496,6 +549,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  // The card's own remove-photo button (Option 3) sits at top:10/right:10
+  // inside the card itself once a photo is showing — drop this row down
+  // below it so the two don't overlap.
+  topRightButtonsBelowPhoto: {
+    top: 46,
+  },
+  uploadingPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(13,31,60,0.9)',
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  uploadingPillText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: '700',
   },
   shareButton: {
     flexDirection: 'row',

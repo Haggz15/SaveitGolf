@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform, Alert } from 'react-native';
+import { Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform, Alert, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 import ScorecardCard from './ScorecardCard';
-import PhotoCropModal from './PhotoCropModal';
-import { saveScorecardPhoto } from '../../services/scorecards';
+import PhotoLayoutToggle from './PhotoLayoutToggle';
+import { saveScorecardPhoto, updateScorecardPhotoLayout } from '../../services/scorecards';
 import { useAuth } from '../../context/AuthContext';
 
 // Full view of a single past scorecard, opened from PastScorecardsList.
@@ -20,30 +20,64 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
   const { user } = useAuth();
   const [photoUri, setPhotoUri] = useState(null);
   const [savedPhotoUrl, setSavedPhotoUrl] = useState(null);
-  // Web only: the just-picked, not-yet-cropped photo — see ScorecardScreen's
-  // matching state for why native never sets this.
-  const [cropPhotoUri, setCropPhotoUri] = useState(null);
+  // 'side' or 'behind' (Fix 2/5) — initialized from the scorecard's saved
+  // preference and reset whenever a different scorecard is opened.
+  const [photoLayout, setPhotoLayout] = useState('behind');
+  // True while a just-picked photo is uploading to Supabase storage in the
+  // background — the picked photo is already showing locally (see
+  // applyPickedPhoto), this just drives a small "Uploading…" indicator.
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   useEffect(() => {
     setPhotoUri(null);
     setSavedPhotoUrl(scorecard?.photoUrl ?? null);
+    setPhotoLayout(scorecard?.photoLayout || 'behind');
   }, [scorecard?.id]);
 
   const isOwner = Boolean(user?.id) && user.id === scorecard?.userId;
 
   async function applyPickedPhoto(uri) {
+    // Fix 2: layout always defaults to "behind" the first time a photo is
+    // attached, even if a previous photo on this scorecard had been
+    // switched to "side".
+    const isFirstPhoto = !savedPhotoUrl;
     setPhotoUri(uri);
+    if (isFirstPhoto) setPhotoLayout('behind');
     if (!user?.id || !scorecard?.id) return;
     try {
+      setUploadingPhoto(true);
       const uploadedUrl = await saveScorecardPhoto(user.id, scorecard.id, uri);
       setSavedPhotoUrl(uploadedUrl);
       setPhotoUri(uploadedUrl);
+      if (isFirstPhoto) {
+        await updateScorecardPhotoLayout(scorecard.id, 'behind').catch((err) =>
+          console.error('Failed to save default photo layout:', err)
+        );
+      }
     } catch (err) {
       console.error('Failed to save scorecard photo:', err);
       Alert.alert('Something went wrong', 'Could not save your photo. Please try again.');
+    } finally {
+      setUploadingPhoto(false);
     }
   }
 
+  // Toggle handler for the Side/Behind pills (Fix 2) — updates the card
+  // instantly for anyone viewing, but only persists (Fix 5) when the
+  // viewer owns this scorecard (a non-owner's update would fail the
+  // scorecards RLS policy anyway).
+  function handlePhotoLayoutChange(layout) {
+    setPhotoLayout(layout);
+    if (isOwner && scorecard?.id) {
+      updateScorecardPhotoLayout(scorecard.id, layout).catch((err) =>
+        console.error('Failed to save photo layout:', err)
+      );
+    }
+  }
+
+  // Option 3's photo fills the entire card as a `cover`-resized background,
+  // so it self-crops to whatever the card's own aspect ratio is — no
+  // separate crop step is needed.
   function handlePickPhotoWeb() {
     const input = document.createElement('input');
     input.type = 'file';
@@ -53,19 +87,10 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
       const file = e.target.files?.[0];
       document.body.removeChild(input);
       if (!file) return;
-      setCropPhotoUri(URL.createObjectURL(file));
+      applyPickedPhoto(URL.createObjectURL(file));
     };
     document.body.appendChild(input);
     input.click();
-  }
-
-  function handleCropConfirm(croppedUri) {
-    setCropPhotoUri(null);
-    applyPickedPhoto(croppedUri);
-  }
-
-  function handleCropCancel() {
-    setCropPhotoUri(null);
   }
 
   async function handlePickPhotoNative() {
@@ -80,11 +105,16 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
         return;
       }
 
+      // allowsEditing shows the native OS crop UI for both layouts — no
+      // aspect ratio is forced so the user isn't boxed into a specific crop
+      // shape (Fix 1). quality stays at 1 (no compression) to avoid
+      // graininess in the exported share image, and exif is skipped since
+      // it's never used.
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
-        aspect: [9, 16],
         quality: 1,
+        exif: false,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -126,26 +156,28 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
 
         {scorecard && (
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+            <PhotoLayoutToggle layout={photoLayout} onChange={handlePhotoLayoutChange} hidden={!photoUri} />
+
             <View style={styles.cardWrapper}>
               <ScorecardCard
                 scorecard={scorecard}
                 fullName={fullName}
                 photoUri={photoUri}
+                photoLayout={photoLayout}
                 onRequestPhoto={isOwner ? handlePickPhoto : undefined}
                 onRemovePhoto={() => setPhotoUri(null)}
                 onAddPhoto={savedPhotoUrl || isOwner ? handleAddPhotoPress : undefined}
               />
+              {uploadingPhoto && (
+                <View style={styles.uploadingPill}>
+                  <ActivityIndicator size="small" color={colors.white} />
+                  <Text style={styles.uploadingPillText}>Uploading…</Text>
+                </View>
+              )}
             </View>
           </ScrollView>
         )}
       </View>
-
-      <PhotoCropModal
-        visible={Boolean(cropPhotoUri)}
-        photoUri={cropPhotoUri}
-        onCancel={handleCropCancel}
-        onConfirm={handleCropConfirm}
-      />
     </Modal>
   );
 }
@@ -177,5 +209,25 @@ const styles = StyleSheet.create({
     backgroundColor: colors.navyLight,
     borderRadius: 16,
     overflow: 'hidden',
+    position: 'relative',
+  },
+  // Sits at the card's top-left so it doesn't collide with the card's own
+  // top-right remove-photo button (Option 3) once a photo is showing.
+  uploadingPill: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(13,31,60,0.9)',
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  uploadingPillText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

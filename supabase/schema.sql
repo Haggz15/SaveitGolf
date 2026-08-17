@@ -244,6 +244,11 @@ alter table public.scorecards add column if not exists nine_side text default 'f
 -- Past Scorecards list.
 alter table public.scorecards add column if not exists pinned boolean default false;
 
+-- Which of the two photo layouts ("side" or "behind") an attached photo
+-- uses on the card, set via the layout toggle shown above the card once a
+-- photo is added. Always "behind" for rows without a photo.
+alter table public.scorecards add column if not exists photo_layout text default 'behind';
+
 alter table public.scorecards enable row level security;
 
 drop policy if exists "Scorecards are viewable by everyone" on public.scorecards;

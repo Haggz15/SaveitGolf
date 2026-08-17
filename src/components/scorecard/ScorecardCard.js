@@ -48,25 +48,25 @@ function splitNameWords(fullName) {
 const NAME_BIG_BASE = 22;
 const NAME_SMALL_BASE = 14;
 const NAME_MIN_SCALE = 0.5;
+// The card is always full width now (Option 3 — photo is a full-bleed
+// background, not a side column narrowing the text), so a name fits
+// comfortably up to this many characters before it needs to scale down.
+const NAME_COMFORTABLE_LENGTH = 17;
 
 // react-native-web has no adjustsFontSizeToFit, and this card is captured
 // as a share image on both native and web, so the name can't rely on
 // platform auto-shrink — it has to be sized up front from the text itself.
-// A name fits comfortably (scale 1) up to `comfortable` characters; past
-// that it scales down so longer names, and the narrower column a photo
-// creates, still render on a single line instead of clipping.
-function nameFontScale(fullName, columnVisible) {
+function nameFontScale(fullName) {
   const length = (fullName || '').trim().length;
-  const comfortable = columnVisible ? 10 : 17;
-  if (length <= comfortable) return 1;
-  return Math.max(NAME_MIN_SCALE, comfortable / length);
+  if (length <= NAME_COMFORTABLE_LENGTH) return 1;
+  return Math.max(NAME_MIN_SCALE, NAME_COMFORTABLE_LENGTH / length);
 }
 
 // "OWEN HAGGERTY" -> O and H rendered larger than the rest of their words.
 // A single-word name collapses first-word/last-word onto the same letter.
-function StyledPlayerName({ fullName, columnVisible }) {
+function StyledPlayerName({ fullName }) {
   const words = splitNameWords(fullName);
-  const scale = nameFontScale(fullName, columnVisible);
+  const scale = nameFontScale(fullName);
   const bigStyle = [
     styles.nameBig,
     scale !== 1 && { fontSize: NAME_BIG_BASE * scale, letterSpacing: NAME_BIG_BASE * scale * 0.05 },
@@ -94,15 +94,17 @@ function StyledPlayerName({ fullName, columnVisible }) {
 }
 
 // Birdie/eagle: green circle border. Bogey/double bogey: red square border.
-// Par: plain white number, no shape. `variant` scales the cell/digit up for
-// the full-width no-photo layouts, which have room to spare (Fix 4).
+// Par: plain white number, no shape. The card is always full width now
+// (Option 3), so cells always use the larger "wide" sizing — `variant`
+// just picks which of the two wide sizes (9-hole rounds get the bigger one,
+// since a single nine has more room to spare than a front+back pair).
 function ScoreCell({ score, par, variant }) {
   const diff = score - par;
   const isUnder = diff <= -1;
   const isOver = diff >= 1;
   const color = isUnder ? colors.brightGreen : isOver ? colors.red : colors.white;
-  const cellStyle = variant === 'wide9' ? styles.scoreCellWide9 : variant === 'wide18' ? styles.scoreCellWide18 : styles.scoreCell;
-  const digitStyle = variant === 'wide9' ? styles.scoreDigitWide9 : variant === 'wide18' ? styles.scoreDigitWide18 : styles.scoreDigit;
+  const cellStyle = variant === 'wide9' ? styles.scoreCellWide9 : styles.scoreCellWide18;
+  const digitStyle = variant === 'wide9' ? styles.scoreDigitWide9 : styles.scoreDigitWide18;
 
   return (
     <View
@@ -118,22 +120,18 @@ function ScoreCell({ score, par, variant }) {
   );
 }
 
-// One nine's hole rows only — [hole number, right-aligned | score cell].
-// `variant` is 'compact' (default, alongside a photo), 'compactCentered'
-// (alongside a photo, but a 9-hole round with no second nine to sit beside —
-// centered within the scores column instead of hugging left, Fix 1),
-// 'wide18' (full-width, 18 holes — front/back centered in their own half) or
-// 'wide9' (full-width, 9 holes — single centered column with bigger type
-// since there's more room). The front/back totals live in the separate
-// NineTotalsRow below, not nested in here. `holeNumberOffset` shifts the
-// displayed hole numbers (e.g. +9 so a back-nine round reads 10-18) without
-// touching the underlying holes data (Fix 2).
-function NineColumn({ holes, variant = 'compact', holeNumberOffset = 0 }) {
-  const isWide = variant !== 'compact';
+// One nine's hole rows only — [hole number, right-aligned | score cell],
+// centered within its half of the scores row. `variant` is 'wide18' (18
+// holes — front/back centered side by side) or 'wide9' (9 holes — single
+// centered column with bigger type since there's more room). The front/back
+// totals live in the separate NineTotalsRow below, not nested in here.
+// `holeNumberOffset` shifts the displayed hole numbers (e.g. +9 so a
+// back-nine round reads 10-18) without touching the underlying holes data.
+function NineColumn({ holes, variant, holeNumberOffset = 0 }) {
   return (
     <View style={styles.nineColumn}>
       {holes.map((h) => (
-        <View key={h.hole} style={[styles.holeRow, isWide && styles.holeRowWide]}>
+        <View key={h.hole} style={styles.holeRow}>
           <Text style={[styles.holeNumber, variant === 'wide9' && styles.holeNumberWide9]}>
             {h.hole + holeNumberOffset}
           </Text>
@@ -145,36 +143,26 @@ function NineColumn({ holes, variant = 'compact', holeNumberOffset = 0 }) {
 }
 
 // Sits directly below the hole-scores row: "Front <n>" / "Back <n>" as two
-// flex:1 items spread across the full width of the scores column, each with
-// a 13px leading spacer (matching the hole-number column width) so the
-// score digits line up under the scores directly above, plus its own
-// top border echoing the hole rows' divider. Back is omitted for a 9-hole
-// round. The green "add photo" plus (Fix 2) sits to the right of this row,
-// outside the flex:1 spread, and always stays visible — even once a photo
-// is showing, where it just dims and stops doing anything (the revert
-// arrow on the photo column handles undoing it instead). `hideShareExtras`
-// (set true for the duration of a capture) hides it from the exported
-// image since, unlike the old top-right overlay, this button lives inside
-// the captured subtree.
-function NineTotalsRow({ frontTotal, backTotal, isNineHoleRound, frontLabel, onAddPhoto, columnVisible, hideShareExtras }) {
-  // The no-photo layout centers each hole row within its half (holeRowWide),
-  // while the with-photo layout keeps hole rows flush left — the totals
-  // below mirror whichever alignment is active so "Front"/"Back" sit under
-  // the scores above rather than off to one side. A 9-hole round alongside a
-  // photo has no second nine to sit beside though, so it centers too, same
-  // as the hole scores above it (Fix 1).
-  const centered = !columnVisible || isNineHoleRound;
-  const itemStyle = [styles.nineTotalsItem, centered && styles.nineTotalsItemCentered];
+// flex:1 items spread across the full width of the card, centered within
+// their half, each with its own top border echoing the hole rows' divider.
+// Back is omitted for a 9-hole round. The green "add photo" plus sits to
+// the right of this row, outside the flex:1 spread, and always stays
+// visible — even once a photo is showing, where it just dims and stops
+// doing anything (the remove button in the card's top-right corner handles
+// undoing it instead). `hideShareExtras` (set true for the duration of a
+// capture) hides it from the exported image since it lives inside the
+// captured subtree.
+function NineTotalsRow({ frontTotal, backTotal, isNineHoleRound, frontLabel, onAddPhoto, hasPhoto, hideShareExtras }) {
   return (
     <View style={styles.nineTotalsRowWrap}>
       <View style={styles.nineTotalsRow}>
-        <View style={itemStyle}>
+        <View style={styles.nineTotalsItem}>
           <View style={styles.nineTotalsSpacer} />
           <Text style={styles.nineTotalsLabel}>{frontLabel}</Text>
           <Text style={styles.nineTotalsScore}>{frontTotal}</Text>
         </View>
         {!isNineHoleRound && (
-          <View style={itemStyle}>
+          <View style={styles.nineTotalsItem}>
             <View style={styles.nineTotalsSpacer} />
             <Text style={styles.nineTotalsLabel}>Back</Text>
             <Text style={styles.nineTotalsScore}>{backTotal}</Text>
@@ -183,15 +171,15 @@ function NineTotalsRow({ frontTotal, backTotal, isNineHoleRound, frontLabel, onA
       </View>
       {onAddPhoto && (
         <TouchableOpacity
-          onPress={columnVisible ? null : onAddPhoto}
-          disabled={columnVisible}
+          onPress={hasPhoto ? null : onAddPhoto}
+          disabled={hasPhoto}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={[
             styles.addPhotoPlusButton,
-            columnVisible && styles.addPhotoPlusButtonDimmed,
+            hasPhoto && styles.addPhotoPlusButtonDimmed,
             hideShareExtras && styles.hidden,
           ]}
-          activeOpacity={columnVisible ? 1 : 0.85}
+          activeOpacity={hasPhoto ? 1 : 0.85}
         >
           <Text style={styles.addPhotoPlusButtonText}>+</Text>
         </TouchableOpacity>
@@ -212,11 +200,7 @@ function TextWatermark({ style }) {
 }
 
 // Full-width block sat directly below the front/back (or single) nine
-// totals row — never floating between or beside the nines (Fix 3). Same
-// fixed sizing for both the with-photo and no-photo layouts; it's always a
-// child of `scoresColumn`, so it naturally spans that column's width only
-// (with-photo) or the full card width (no-photo, where scoresColumn itself
-// expands — see `scoresColumnFullWidth`).
+// totals row — never floating between or beside the nines.
 function TotalBlock({ totalScore, diffLabel, diffTextColor }) {
   return (
     <View style={styles.totalBlock}>
@@ -226,112 +210,58 @@ function TotalBlock({ totalScore, diffLabel, diffTextColor }) {
   );
 }
 
-// Full-height photo column, rendered once the layout has switched over
-// (see `columnVisible` below — the plus tap reveals this column before a
-// photo is even picked). Fills the column with either the real photo or,
-// while `photoUri` is still null, a dashed "Add Photo" placeholder that's
-// tappable the same way a real photo is (`onRequestPhoto` opens the
-// picker either way). Once a real photo is showing, its left edge fades
-// into the navy scores column via a gradient overlay instead of a hard
-// seam, and the chevron button that reverts to the no-photo layout sits on
-// top of that fade (see `RevertArrowButton` below) — neither exists while
-// the placeholder is showing, since there's nothing yet to revert or blend.
-// No watermark of its own — the golf-ball mark has been removed entirely
-// and the text watermark lives below the whole card. `hideShareExtras`
-// hides the placeholder and the revert button from a share capture (the
-// photo and its fade still get captured normally — the fade is part of the
-// design, not a UI control) so an unfinished column never ends up in the
-// exported image.
-function PhotoColumn({ photoUri, onRequestPhoto, onRemovePhoto, hideShareExtras }) {
-  if (!photoUri) {
-    return (
-      <View style={[styles.photoColumn, hideShareExtras && styles.hidden]}>
-        <TouchableOpacity
-          onPress={onRequestPhoto}
-          style={styles.addPhotoPlaceholder}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.addPhotoPlaceholderIcon}>📷</Text>
-          <Text style={styles.addPhotoPlaceholderTitle}>Add Photo</Text>
-          <Text style={styles.addPhotoPlaceholderSubtext}>
-            Tap to add a photo{'\n'}from your camera roll
-          </Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  const Wrapper = onRequestPhoto ? TouchableOpacity : View;
-
-  return (
-    <View style={styles.photoColumn}>
-      <Wrapper
-        style={styles.photoImageWrapper}
-        onPress={onRequestPhoto}
-        activeOpacity={onRequestPhoto ? 0.85 : 1}
-      >
-        <Image source={{ uri: photoUri }} style={styles.photoImage} resizeMode="cover" />
-      </Wrapper>
-      <LinearGradient
-        colors={[colors.navy, 'transparent']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.photoFade}
-        pointerEvents="none"
-      />
-      {onRemovePhoto && <RevertArrowButton onPress={onRemovePhoto} hideShareExtras={hideShareExtras} />}
-    </View>
-  );
-}
-
-// Small chevron pill sitting on the photo's fade edge (Fix 3), centered
-// vertically on the photo column. Tapping it reverts to the full-width
-// no-photo layout via `onRemovePhoto`. Only ever rendered alongside a real
-// photo (from inside PhotoColumn above), and hidden during a share capture
+// Small circular button pinned to the card's top-right corner, shown only
+// once a photo is filling the card's background. Tapping it removes the
+// photo and reverts to the plain navy card. Hidden during a share capture
 // via `hideShareExtras` since it's an interactive control, not part of the
 // exported image.
-function RevertArrowButton({ onPress, hideShareExtras }) {
+function RemovePhotoButton({ onPress, hideShareExtras, style }) {
   return (
     <TouchableOpacity
       onPress={onPress}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      style={[styles.revertArrowButton, hideShareExtras && styles.hidden]}
+      style={[styles.removePhotoButton, style, hideShareExtras && styles.hidden]}
     >
-      <Text style={styles.revertArrowButtonText}>‹</Text>
+      <Text style={styles.removePhotoButtonText}>‹</Text>
     </TouchableOpacity>
   );
 }
 
-// Scores (left 52%, solid navy) + photo (right 48%), side by side, when
-// there's a photo — flush against each other with no gap, the photo's left
-// edge fading into the navy via a gradient overlay instead of a hard line
-// (see PhotoColumn). With no photo the scores column expands to the full card width
-// instead — front/back nines centered side by side for 18 holes, or a
-// single bigger centered column for 9 (Fix 1/4). `onRequestPhoto` is only
-// passed by the live "new scorecard" view (it re-opens the picker when the
-// existing photo is tapped) — past scorecards fetched from Supabase render
-// read-only unless `onAddPhoto` is passed too (see ScorecardDetailModal,
-// owner-only). `onAddPhoto`, when passed, renders the green plus beside the
-// front/back totals row (Fix 2) — it stays visible even once a photo is
-// showing, just dimmed and inert, since `onRemovePhoto` (via the revert
-// arrow) is what undoes it. `hideShareExtras` hides both the plus and the
-// arrow for the duration of a capture, since they live inside the captured
-// subtree. `captureId`, when passed, becomes a real DOM `id` on web (see
+// Two photo layouts, picked by the "Side"/"Behind" toggle (Fix 2) and
+// persisted per-scorecard as `photoLayout` (Fix 5):
+//
+// - 'behind' (Option 3, the original/default layout): the photo fills the
+//   entire card as a background image with a dark gradient overlay behind
+//   the scores (heavy at the top where the text sits, fading out toward the
+//   bottom so the photo peeks through below the total block).
+// - 'side' (Option 2): the card splits into a solid-navy left column (52%,
+//   all the scores/name content) and a photo-filled right column (48%),
+//   blended at the seam with a navy-to-transparent gradient over the
+//   photo's left edge.
+//
+// With no photo the card is just its usual solid navy regardless of
+// `photoLayout`. `onRequestPhoto` re-opens the picker when the visible
+// photo itself is tapped, and is only passed by the live "new scorecard"
+// view — past scorecards fetched from Supabase render read-only unless
+// `onAddPhoto` is passed too (see ScorecardDetailModal, owner-only).
+// `onAddPhoto`, when passed, renders the green plus beside the front/back
+// totals row — it stays visible even once a photo is showing, just dimmed
+// and inert, since `onRemovePhoto` (via the remove button) is what undoes
+// it. `hideShareExtras` hides both the plus and the remove button for the
+// duration of a capture, since they live inside the captured subtree.
+// `captureId`, when passed, becomes a real DOM `id` on web (see
 // ScorecardScreen's handleShare) so the share capture can target this exact
-// element — no photo column means no extra space on the right, and with a
-// photo the column already sits flush with the card's own right edge (see
-// cardBodyWithPhoto), so capturing this node directly needs no cropping.
-// Left undefined by every other caller (e.g. ScorecardDetailModal) so two
-// instances never collide on the same id when both happen to be mounted at
-// once (the detail modal open over the main screen).
+// element — its outer boundary spans the full card either way, so a single
+// capture of it already crops to the photo's right edge in 'side' layout
+// and to the full card width in 'behind' layout (Fix 6).
 export default function ScorecardCard({
   scorecard,
   fullName,
   photoUri,
+  photoLayout = 'behind',
   onRequestPhoto,
   onRemovePhoto,
   onAddPhoto,
-  showPhotoColumn,
   hideShareExtras,
   captureId,
 }) {
@@ -339,18 +269,8 @@ export default function ScorecardCard({
   const diffTextColor = diffColor(diff);
   const compositeName = compositeNameFor(scorecard, isNineHoleRound);
   const hasPhoto = Boolean(photoUri);
-  // The green plus can reveal the photo column (`showPhotoColumn`, driven
-  // by the caller) before a photo has actually been picked, so the layout
-  // switch and the presence of a real photo are tracked separately —
-  // `columnVisible` covers both.
-  const columnVisible = Boolean(showPhotoColumn) || hasPhoto;
-  const nineVariant = columnVisible
-    ? isNineHoleRound
-      ? 'compactCentered'
-      : 'compact'
-    : isNineHoleRound
-      ? 'wide9'
-      : 'wide18';
+  const isSideLayout = hasPhoto && photoLayout === 'side';
+  const nineVariant = isNineHoleRound ? 'wide9' : 'wide18';
   const frontTotal = sumScore(scorecard.front);
   const backTotal = isNineHoleRound ? null : sumScore(scorecard.back);
   // A 9-hole round can be played on either nine (Fix 2) — offsets the
@@ -360,49 +280,92 @@ export default function ScorecardCard({
   const holeNumberOffset = isBackNine ? 9 : 0;
   const frontLabel = isBackNine ? 'Back' : 'Front';
 
+  const PhotoWrapper = onRequestPhoto ? TouchableOpacity : View;
+
+  const cardBody = (
+    <View style={styles.cardBody}>
+      <StyledPlayerName fullName={fullName} />
+      <Text style={styles.courseNameText} numberOfLines={2}>
+        {scorecard.courseName}
+      </Text>
+      {compositeName ? (
+        <Text style={styles.compositeNameText} numberOfLines={1}>
+          {compositeName}
+        </Text>
+      ) : null}
+      <View style={styles.divider} />
+
+      <View style={styles.ninesRow}>
+        <NineColumn holes={scorecard.front} variant={nineVariant} holeNumberOffset={holeNumberOffset} />
+        {!isNineHoleRound && <NineColumn holes={scorecard.back} variant={nineVariant} />}
+      </View>
+
+      <NineTotalsRow
+        frontTotal={frontTotal}
+        backTotal={backTotal}
+        isNineHoleRound={isNineHoleRound}
+        frontLabel={frontLabel}
+        onAddPhoto={onAddPhoto}
+        hasPhoto={hasPhoto}
+        hideShareExtras={hideShareExtras}
+      />
+
+      <View style={styles.divider} />
+      <TotalBlock totalScore={totalScore} diffLabel={diffLabel} diffTextColor={diffTextColor} />
+    </View>
+  );
+
   return (
     <View nativeID={captureId} style={styles.cardOuter}>
-      <View style={[styles.cardBody, columnVisible && styles.cardBodyWithPhoto]}>
-        <View style={[styles.scoresColumn, !columnVisible && styles.scoresColumnFullWidth]}>
-          <StyledPlayerName fullName={fullName} columnVisible={columnVisible} />
-          <Text style={styles.courseNameText} numberOfLines={2}>
-            {scorecard.courseName}
-          </Text>
-          {compositeName ? (
-            <Text style={styles.compositeNameText} numberOfLines={1}>
-              {compositeName}
-            </Text>
-          ) : null}
-          <View style={styles.divider} />
-
-          <View style={styles.ninesRow}>
-            <NineColumn holes={scorecard.front} variant={nineVariant} holeNumberOffset={holeNumberOffset} />
-            {!isNineHoleRound && <NineColumn holes={scorecard.back} variant={nineVariant} />}
-          </View>
-
-          <NineTotalsRow
-            frontTotal={frontTotal}
-            backTotal={backTotal}
-            isNineHoleRound={isNineHoleRound}
-            frontLabel={frontLabel}
-            onAddPhoto={onAddPhoto}
-            columnVisible={columnVisible}
-            hideShareExtras={hideShareExtras}
-          />
-
-          <View style={styles.divider} />
-          <TotalBlock totalScore={totalScore} diffLabel={diffLabel} diffTextColor={diffTextColor} />
+      {isSideLayout ? (
+        <View style={styles.sideRow}>
+          <View style={styles.sideLeft}>{cardBody}</View>
+          <PhotoWrapper
+            style={styles.sideRight}
+            onPress={onRequestPhoto}
+            activeOpacity={onRequestPhoto ? 0.9 : 1}
+          >
+            <Image source={{ uri: photoUri }} style={styles.sidePhotoImage} resizeMode="cover" />
+            <LinearGradient
+              colors={['#0d1f3c', 'rgba(13,31,60,0)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.sidePhotoFade}
+              pointerEvents="none"
+            />
+            {onRemovePhoto && (
+              <RemovePhotoButton onPress={onRemovePhoto} hideShareExtras={hideShareExtras} style={styles.sideRemoveButton} />
+            )}
+          </PhotoWrapper>
         </View>
+      ) : (
+        <>
+          {hasPhoto && (
+            <PhotoWrapper
+              style={styles.photoBackground}
+              onPress={onRequestPhoto}
+              activeOpacity={onRequestPhoto ? 0.9 : 1}
+            >
+              <Image source={{ uri: photoUri }} style={styles.photoImage} resizeMode="cover" />
+            </PhotoWrapper>
+          )}
 
-        {columnVisible && (
-          <PhotoColumn
-            photoUri={photoUri}
-            onRequestPhoto={onRequestPhoto}
-            onRemovePhoto={hasPhoto ? onRemovePhoto : undefined}
-            hideShareExtras={hideShareExtras}
-          />
-        )}
-      </View>
+          {hasPhoto && (
+            <LinearGradient
+              colors={['rgba(13,31,60,0.97)', 'rgba(13,31,60,0.92)', 'rgba(13,31,60,0.5)', 'rgba(13,31,60,0.15)']}
+              locations={[0, 0.5, 0.75, 1]}
+              style={styles.photoGradient}
+              pointerEvents="none"
+            />
+          )}
+
+          {cardBody}
+
+          {hasPhoto && onRemovePhoto && (
+            <RemovePhotoButton onPress={onRemovePhoto} hideShareExtras={hideShareExtras} />
+          )}
+        </>
+      )}
 
       <TextWatermark />
     </View>
@@ -412,36 +375,81 @@ export default function ScorecardCard({
 const styles = StyleSheet.create({
   // This is the root of the ViewShot/html2canvas-captured subtree — clip and
   // round it to match the on-screen card exactly (so the exported image
-  // never bleeds past the intended edge) and hold the row of scores/photo
-  // plus the full-width text watermark stacked below it.
+  // never bleeds past the intended edge), and the positioning context for
+  // the full-bleed photo background/gradient and the top-right remove
+  // button.
   cardOuter: {
     backgroundColor: colors.navy,
     borderRadius: 16,
     overflow: 'hidden',
+    position: 'relative',
+  },
+  // Fills the entire card behind everything else (Option 3) — the gradient
+  // and content simply paint on top of it in document order, no zIndex
+  // needed.
+  photoBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  photoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  // Heavy at the top (behind the name/scores) fading to nearly transparent
+  // at the bottom, so the photo peeks through below the total block.
+  photoGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   cardBody: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
     padding: 14,
     // Extra headroom above the larger Barlow Condensed player name so its
     // big first letters (22px) don't feel cramped against the card's top
     // edge.
     paddingTop: 14 + 12,
   },
-  // With a photo, the scores and photo columns sit flush against each other
-  // (the gradient fade is what separates them visually, not a gap) and the
-  // photo column must reach the card's right edge with nothing beyond it —
-  // the no-photo layout keeps its regular right padding.
-  cardBodyWithPhoto: {
-    paddingRight: 0,
+  // Side layout (Option 2): solid-navy left column (52%) with the score
+  // content, photo-filled right column (48%) blended at the seam via
+  // sidePhotoFade. Row height is driven by sideLeft's intrinsic content
+  // height — sideRight stretches (default alignItems) to match it.
+  sideRow: {
+    flexDirection: 'row',
   },
-  scoresColumn: {
-    flexGrow: 52,
-    flexBasis: 0,
+  sideLeft: {
+    width: '52%',
+    backgroundColor: colors.navy,
   },
-  scoresColumnFullWidth: {
-    flexGrow: 1,
+  sideRight: {
+    width: '48%',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  sidePhotoImage: {
     width: '100%',
+    height: '100%',
+  },
+  // Navy-to-transparent, left to right, over the photo's left edge so it
+  // blends into the solid-navy left column rather than showing a hard seam.
+  sidePhotoFade: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    bottom: 0,
+    width: '55%',
+  },
+  // Overrides removePhotoButton's top-right corner pin to instead sit on
+  // the fade seam, vertically centered.
+  sideRemoveButton: {
+    top: '50%',
+    right: undefined,
+    left: -13,
+    marginTop: -13,
   },
   // Name
   nameLine: {
@@ -491,13 +499,9 @@ const styles = StyleSheet.create({
   holeRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 3,
     paddingVertical: 1,
-  },
-  // Full-width no-photo layouts (Fix 4): hole number + score cell centered
-  // within their column instead of hugging the left edge.
-  holeRowWide: {
-    justifyContent: 'center',
   },
   holeNumber: {
     width: 14,
@@ -510,12 +514,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.muted,
   },
-  scoreCell: {
-    width: 16,
-    height: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   scoreCellWide18: {
     width: 20,
     height: 20,
@@ -527,11 +525,6 @@ const styles = StyleSheet.create({
     height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  scoreDigit: {
-    fontSize: 12,
-    fontWeight: '700',
-    textAlign: 'center',
   },
   scoreDigitWide18: {
     fontSize: 14,
@@ -551,11 +544,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 2,
   },
-  // Front/back totals row (Fix 1) — one shared row below the hole scores,
-  // not nested per-column, so both items line up on flex:1 and spread
-  // across the full width of the scores column. Wrapped in
-  // nineTotalsRowWrap so the add-photo plus (Fix 2) can sit to its right as
-  // a fixed-width sibling outside the flex:1 spread.
+  // Front/back totals row — one shared row below the hole scores, not
+  // nested per-column, so both items line up on flex:1 and spread across
+  // the full width of the card. Wrapped in nineTotalsRowWrap so the
+  // add-photo plus can sit to its right as a fixed-width sibling outside
+  // the flex:1 spread.
   nineTotalsRowWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -575,8 +568,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginLeft: 6,
   },
-  // Once a photo is showing the plus stops doing anything (Fix 2) — the
-  // revert arrow undoes it instead — so it dims to read as inert rather
+  // Once a photo is showing the plus stops doing anything — the top-right
+  // remove button undoes it instead — so it dims to read as inert rather
   // than disappearing.
   addPhotoPlusButtonDimmed: {
     backgroundColor: 'rgba(77,216,96,0.4)',
@@ -587,7 +580,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 19,
   },
-  // Hides the plus/arrow from a share capture (Fix 4) without unmounting
+  // Hides the plus/remove button from a share capture without unmounting
   // them, so no layout jump happens when they reappear right after.
   hidden: {
     display: 'none',
@@ -595,21 +588,17 @@ const styles = StyleSheet.create({
   // Each item gets a 13px leading spacer — matching the hole-number
   // column's width — so its score digit lands directly under the hole
   // scores above, plus its own top border echoing the divider above the
-  // hole rows.
+  // hole rows, centered under the centered hole scores above it.
   nineTotalsItem: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 3,
     borderTopWidth: 0.5,
     borderColor: 'rgba(255,255,255,0.15)',
     paddingTop: 3,
     marginTop: 3,
-  },
-  // No-photo layout only — mirrors holeRowWide's centering so the totals
-  // line up under the centered hole scores above instead of hugging left.
-  nineTotalsItemCentered: {
-    justifyContent: 'center',
   },
   nineTotalsSpacer: {
     width: 13,
@@ -625,10 +614,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
   },
-  // Grand total block (Fix 3/5): sits directly below the front/back (or
-  // single) nine totals row, spanning the full width of `scoresColumn` —
-  // which is either the card's whole width (no photo) or just the scores
-  // side (with photo) — never floating between or beside the nines.
+  // Grand total block: sits directly below the front/back (or single) nine
+  // totals row, spanning the full card width — never floating between or
+  // beside the nines.
   totalBlock: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -649,10 +637,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  // "Save it Golf" text watermark, centered below the entire card (both
-  // scores and photo columns) — never inside the scores column, so it reads
-  // as one mark for the whole card rather than something tucked into a
-  // corner. No golf-ball art anywhere on the card.
+  // "Save it Golf" text watermark, centered below the entire card. Sits
+  // over the lightest part of the gradient when a photo is present (the
+  // photo "peeks through" here per the Option 3 design), so it keeps its
+  // own opacity rather than needing extra contrast treatment.
   textWatermark: {
     width: '100%',
     fontFamily: 'DancingScript_700Bold',
@@ -666,73 +654,12 @@ const styles = StyleSheet.create({
   textWatermarkGolf: {
     color: colors.red,
   },
-  // Photo column
-  photoColumn: {
-    flexGrow: 48,
-    flexBasis: 0,
-    // No radius of its own — it sits flush against the scores column (the
-    // gradient fade bridges the seam) and its outer corners are already
-    // rounded by cardOuter's own clip.
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  photoImageWrapper: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  photoImage: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  // Blends the photo's left edge into the solid navy scores column instead
-  // of a hard vertical line — sits above the image but below the revert
-  // button, and stays in share captures (it's part of the design, not a
-  // control) unlike the button.
-  photoFade: {
+  // Pinned to the card's top-right corner, only shown once a photo is
+  // filling the background.
+  removePhotoButton: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    width: 40,
-    zIndex: 2,
-  },
-  // "Add Photo" placeholder shown in place of the photo image while the
-  // column is visible but `photoUri` is still null — fills the whole
-  // column (flex: 1 inside `photoColumn`) so the entire area is tappable.
-  addPhotoPlaceholder: {
-    flex: 1,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
-    borderStyle: 'dashed',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    minHeight: 180,
-  },
-  addPhotoPlaceholderIcon: {
-    fontSize: 28,
-  },
-  addPhotoPlaceholderTitle: {
-    color: colors.brightGreen,
-    fontSize: 13,
-    fontWeight: '700',
-    fontFamily: 'Cinzel',
-    letterSpacing: 0.5,
-  },
-  addPhotoPlaceholderSubtext: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 10,
-    textAlign: 'center',
-    paddingHorizontal: 12,
-  },
-  // Revert arrow (Fix 3): sits on the photo's fade edge, near the photo
-  // column's own left edge (not the old scores/photo boundary — the two
-  // columns are flush now), centered vertically.
-  revertArrowButton: {
-    position: 'absolute',
-    left: 6,
-    top: '50%',
-    transform: [{ translateY: -13 }],
+    top: 10,
+    right: 10,
     zIndex: 10,
     backgroundColor: 'rgba(13,31,60,0.9)',
     borderRadius: 13,
@@ -743,7 +670,7 @@ const styles = StyleSheet.create({
     borderWidth: 0.5,
     borderColor: 'rgba(255,255,255,0.2)',
   },
-  revertArrowButtonText: {
+  removePhotoButtonText: {
     color: colors.white,
     fontSize: 16,
   },

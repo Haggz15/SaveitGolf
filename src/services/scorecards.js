@@ -34,6 +34,10 @@ function mapRow(row) {
     // "Front"/"Back". Irrelevant (and always 'front') for 18-hole rounds.
     nineSide: row.nine_side ?? 'front',
     pinned: row.pinned ?? false,
+    // Which of the two photo layouts ("side" or "behind") the attached
+    // photo uses on the card — defaults to "behind" for any row saved
+    // before this column existed.
+    photoLayout: row.photo_layout ?? 'behind',
   };
 }
 
@@ -95,6 +99,7 @@ export async function saveScorecard(userId, scorecard) {
       composite_front: scorecard.compositeFront ?? null,
       composite_back: scorecard.compositeBack ?? null,
       nine_side: scorecard.nineSide ?? 'front',
+      photo_layout: 'behind',
     })
     .select()
     .single();
@@ -120,6 +125,15 @@ export async function setScorecardPinned(userId, scorecardId, pinned) {
   }
 
   const { error } = await supabase.from('scorecards').update({ pinned }).eq('id', scorecardId);
+  if (error) throw error;
+}
+
+// Persists which of the two photo layouts ("side" or "behind") a
+// scorecard's attached photo uses (Fix 5), so past scorecards render with
+// the layout their owner last chose rather than always defaulting back to
+// "behind".
+export async function updateScorecardPhotoLayout(scorecardId, photoLayout) {
+  const { error } = await supabase.from('scorecards').update({ photo_layout: photoLayout }).eq('id', scorecardId);
   if (error) throw error;
 }
 
