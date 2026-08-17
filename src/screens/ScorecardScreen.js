@@ -19,6 +19,7 @@ import ScorecardDetailModal from '../components/scorecard/ScorecardDetailModal';
 import ScorecardCard from '../components/scorecard/ScorecardCard';
 import PhotoLayoutToggle from '../components/scorecard/PhotoLayoutToggle';
 import ShareOptionsModal from '../components/scorecard/ShareOptionsModal';
+import WebPhotoCropModal from '../components/scorecard/WebPhotoCropModal';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { scorecard as mockScorecard } from '../data/mockData';
@@ -45,6 +46,14 @@ export default function ScorecardScreen() {
   const [shareImageUri, setShareImageUri] = useState(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
+  // Web only: which part of the photo the `cover`-resized frame centers on
+  // (see WebPhotoCropModal) — native bakes its crop into the picked file
+  // itself via allowsEditing, so this stays at its default center there.
+  const [photoPosition, setPhotoPosition] = useState({ x: 50, y: 50 });
+  // Web only: the just-picked, not-yet-positioned photo waiting on
+  // WebPhotoCropModal, and whether that modal is open.
+  const [rawPhotoUri, setRawPhotoUri] = useState(null);
+  const [showWebCrop, setShowWebCrop] = useState(false);
   // 'side' or 'behind' (Fix 2/5) — which layout ScorecardCard renders the
   // attached photo with. Initialized from whatever the active scorecard has
   // saved, and reset alongside photoUri whenever a different scorecard
@@ -81,6 +90,7 @@ export default function ScorecardScreen() {
   // clobber a reveal/upload the user just triggered on this same scorecard.
   useEffect(() => {
     setPhotoUri(null);
+    setPhotoPosition({ x: 50, y: 50 });
     setPhotoLayout(activeScorecard.photoLayout || 'behind');
   }, [activeScorecard.id]);
 
@@ -112,13 +122,14 @@ export default function ScorecardScreen() {
   // the `scorecards` storage bucket at full quality and swaps in the
   // resulting public URL, so it survives a refresh and future visits to
   // this screen.
-  async function applyPickedPhoto(uri) {
+  async function applyPickedPhoto(uri, position = { x: 50, y: 50 }) {
     // Fix 2: layout always defaults to "behind" the first time a photo is
     // attached to a scorecard, even if a previous photo on this same
     // scorecard had been switched to "side" (that preference goes away with
     // the photo it belonged to).
     const isFirstPhoto = !activeScorecard.photoUrl;
     setPhotoUri(uri);
+    setPhotoPosition(position);
     if (isFirstPhoto) setPhotoLayout('behind');
     if (!user?.id || !activeScorecard.id) return;
     try {
@@ -156,10 +167,11 @@ export default function ScorecardScreen() {
     }
   }
 
-  // Option 3's photo fills the entire card as a `cover`-resized background,
-  // so it self-crops to whatever the card's own aspect ratio is — no
-  // separate crop step is needed. The file input's picked photo goes
-  // straight to applyPickedPhoto at full quality.
+  // expo-image-picker's allowsEditing (Fix 1's native crop UI) has no web
+  // implementation, so the file input's picked photo is routed through
+  // WebPhotoCropModal instead of straight to applyPickedPhoto — the user
+  // still crops before it lands on the card, same as native, just via a
+  // drag-to-position UI rather than the OS one (Fix 5).
   function handlePickPhotoWeb() {
     const input = document.createElement('input');
     input.type = 'file';
@@ -169,10 +181,23 @@ export default function ScorecardScreen() {
       const file = e.target.files?.[0];
       document.body.removeChild(input);
       if (!file) return;
-      applyPickedPhoto(URL.createObjectURL(file));
+      setPhotoPosition({ x: 50, y: 50 });
+      setRawPhotoUri(URL.createObjectURL(file));
+      setShowWebCrop(true);
     };
     document.body.appendChild(input);
     input.click();
+  }
+
+  function handleWebCropCancel() {
+    setShowWebCrop(false);
+    setRawPhotoUri(null);
+  }
+
+  function handleWebCropConfirm() {
+    setShowWebCrop(false);
+    applyPickedPhoto(rawPhotoUri, photoPosition);
+    setRawPhotoUri(null);
   }
 
   async function handlePickPhotoNative() {
@@ -237,16 +262,32 @@ export default function ScorecardScreen() {
         // buttons disappear.
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
+        // The card's photo can still be mid-fetch when the share button is
+        // tapped right after picking one — html2canvas would otherwise
+        // capture whatever partial/blank frame is in the DOM at that
+        // instant. Waiting for it to finish loading (or fail) first avoids
+        // that race.
+        if (photoUri) {
+          await new Promise((resolve) => {
+            const img = new window.Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = resolve;
+            img.onerror = resolve;
+            img.src = photoUri;
+          });
+        }
+
         // Required lazily: a browser-DOM library, not meaningful (and not
         // necessarily safe to even load) on native.
         const html2canvas = require('html2canvas');
         const node = document.getElementById('scorecard-card');
         const canvas = await html2canvas(node, {
           backgroundColor: colors.navy,
-          scale: 3,
+          scale: 4,
           useCORS: true,
           allowTaint: true,
           logging: false,
+          imageTimeout: 15000,
         });
         setHideShareExtras(false);
 
@@ -427,8 +468,12 @@ export default function ScorecardScreen() {
               fullName={fullName}
               photoUri={photoUri}
               photoLayout={photoLayout}
+              photoPosition={photoPosition}
               onRequestPhoto={handlePickPhoto}
-              onRemovePhoto={() => setPhotoUri(null)}
+              onRemovePhoto={() => {
+                setPhotoUri(null);
+                setPhotoPosition({ x: 50, y: 50 });
+              }}
               onAddPhoto={handleAddPhotoPress}
               hideShareExtras={hideShareExtras}
               captureId="scorecard-card"
@@ -499,6 +544,17 @@ export default function ScorecardScreen() {
         type={toastMessage?.type}
         onHide={() => setToastMessage(null)}
       />
+
+      {Platform.OS === 'web' && (
+        <WebPhotoCropModal
+          visible={showWebCrop}
+          uri={rawPhotoUri}
+          position={photoPosition}
+          onPositionChange={setPhotoPosition}
+          onCancel={handleWebCropCancel}
+          onConfirm={handleWebCropConfirm}
+        />
+      )}
     </View>
   );
 }

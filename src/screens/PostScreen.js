@@ -298,7 +298,7 @@ export default function PostScreen({ navigation }) {
       }
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
-        quality: 0.9,
+        quality: 1,
         videoMaxDuration: MAX_VIDEO_DURATION_SECONDS,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -327,7 +327,7 @@ export default function PostScreen({ navigation }) {
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
-        quality: 0.9,
+        quality: 1,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];

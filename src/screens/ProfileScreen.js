@@ -447,7 +447,7 @@ export default function ProfileScreen({ navigation }) {
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.9,
+        quality: 1,
       });
       if (result.canceled || !result.assets?.[0]?.uri || !user?.id) return;
 

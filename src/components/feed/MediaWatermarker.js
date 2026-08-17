@@ -52,7 +52,7 @@ const MediaWatermarker = forwardRef(function MediaWatermarker(_props, ref) {
 
   return (
     <View style={[styles.offscreen, { width: target.width, height: target.height }]} pointerEvents="none">
-      <ViewShot ref={shotRef} options={{ format: 'jpg', quality: 0.95 }}>
+      <ViewShot ref={shotRef} options={{ format: 'jpg', quality: 1 }}>
         <View style={{ width: target.width, height: target.height }}>
           <Image source={{ uri: target.uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
           <View style={[styles.pill, { top: target.width * 0.05, right: target.width * 0.05 }]}>

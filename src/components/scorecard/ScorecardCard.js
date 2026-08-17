@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Image, StyleSheet, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../theme/colors';
 
@@ -259,6 +259,7 @@ export default function ScorecardCard({
   fullName,
   photoUri,
   photoLayout = 'behind',
+  photoPosition,
   onRequestPhoto,
   onRemovePhoto,
   onAddPhoto,
@@ -266,6 +267,13 @@ export default function ScorecardCard({
   captureId,
 }) {
   const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(scorecard);
+  // Web has no native OS crop step (see WebPhotoCropModal) — instead of a
+  // true pixel crop, the picker there hands back which part of the photo to
+  // center the `cover`-resized frame on. Native bakes its crop into the
+  // picked file itself, so photoPosition is never set there and the image
+  // just keeps its default centered objectPosition.
+  const photoPositionStyle =
+    Platform.OS === 'web' && photoPosition ? { objectPosition: `${photoPosition.x}% ${photoPosition.y}%` } : null;
   const diffTextColor = diffColor(diff);
   const compositeName = compositeNameFor(scorecard, isNineHoleRound);
   const hasPhoto = Boolean(photoUri);
@@ -325,7 +333,11 @@ export default function ScorecardCard({
             onPress={onRequestPhoto}
             activeOpacity={onRequestPhoto ? 0.9 : 1}
           >
-            <Image source={{ uri: photoUri }} style={styles.sidePhotoImage} resizeMode="cover" />
+            <Image
+              source={{ uri: photoUri }}
+              style={[styles.sidePhotoImage, photoPositionStyle]}
+              resizeMode="cover"
+            />
             <LinearGradient
               colors={['#0d1f3c', 'rgba(13,31,60,0)']}
               start={{ x: 0, y: 0 }}
@@ -346,7 +358,11 @@ export default function ScorecardCard({
               onPress={onRequestPhoto}
               activeOpacity={onRequestPhoto ? 0.9 : 1}
             >
-              <Image source={{ uri: photoUri }} style={styles.photoImage} resizeMode="cover" />
+              <Image
+                source={{ uri: photoUri }}
+                style={[styles.photoImage, photoPositionStyle]}
+                resizeMode="cover"
+              />
             </PhotoWrapper>
           )}
 

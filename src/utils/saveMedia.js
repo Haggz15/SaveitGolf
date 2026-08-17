@@ -107,7 +107,7 @@ export async function saveImageWithWatermarkWeb(mediaUrl) {
     ctx.fillText(label2, textX + ctx.measureText(label1).width, textY);
 
     const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('CANVAS_TAINTED'))), 'image/jpeg', 0.95);
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('CANVAS_TAINTED'))), 'image/jpeg', 1.0);
     });
     downloadBlobWeb(blob, `SaveitGolf-${Date.now()}.jpg`);
   } catch (err) {

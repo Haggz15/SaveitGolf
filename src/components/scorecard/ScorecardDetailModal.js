@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 import ScorecardCard from './ScorecardCard';
 import PhotoLayoutToggle from './PhotoLayoutToggle';
+import WebPhotoCropModal from './WebPhotoCropModal';
 import { saveScorecardPhoto, updateScorecardPhotoLayout } from '../../services/scorecards';
 import { useAuth } from '../../context/AuthContext';
 
@@ -20,6 +21,14 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
   const { user } = useAuth();
   const [photoUri, setPhotoUri] = useState(null);
   const [savedPhotoUrl, setSavedPhotoUrl] = useState(null);
+  // Web only: which part of the photo the `cover`-resized frame centers on
+  // (see WebPhotoCropModal) — native bakes its crop into the picked file
+  // itself via allowsEditing, so this stays at its default center there.
+  const [photoPosition, setPhotoPosition] = useState({ x: 50, y: 50 });
+  // Web only: the just-picked, not-yet-positioned photo waiting on
+  // WebPhotoCropModal, and whether that modal is open.
+  const [rawPhotoUri, setRawPhotoUri] = useState(null);
+  const [showWebCrop, setShowWebCrop] = useState(false);
   // 'side' or 'behind' (Fix 2/5) — initialized from the scorecard's saved
   // preference and reset whenever a different scorecard is opened.
   const [photoLayout, setPhotoLayout] = useState('behind');
@@ -30,18 +39,20 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
 
   useEffect(() => {
     setPhotoUri(null);
+    setPhotoPosition({ x: 50, y: 50 });
     setSavedPhotoUrl(scorecard?.photoUrl ?? null);
     setPhotoLayout(scorecard?.photoLayout || 'behind');
   }, [scorecard?.id]);
 
   const isOwner = Boolean(user?.id) && user.id === scorecard?.userId;
 
-  async function applyPickedPhoto(uri) {
+  async function applyPickedPhoto(uri, position = { x: 50, y: 50 }) {
     // Fix 2: layout always defaults to "behind" the first time a photo is
     // attached, even if a previous photo on this scorecard had been
     // switched to "side".
     const isFirstPhoto = !savedPhotoUrl;
     setPhotoUri(uri);
+    setPhotoPosition(position);
     if (isFirstPhoto) setPhotoLayout('behind');
     if (!user?.id || !scorecard?.id) return;
     try {
@@ -75,9 +86,11 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
     }
   }
 
-  // Option 3's photo fills the entire card as a `cover`-resized background,
-  // so it self-crops to whatever the card's own aspect ratio is — no
-  // separate crop step is needed.
+  // expo-image-picker's allowsEditing (Fix 1's native crop UI) has no web
+  // implementation, so the file input's picked photo is routed through
+  // WebPhotoCropModal instead of straight to applyPickedPhoto — the user
+  // still crops before it lands on the card, same as native, just via a
+  // drag-to-position UI rather than the OS one (Fix 5).
   function handlePickPhotoWeb() {
     const input = document.createElement('input');
     input.type = 'file';
@@ -87,10 +100,23 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
       const file = e.target.files?.[0];
       document.body.removeChild(input);
       if (!file) return;
-      applyPickedPhoto(URL.createObjectURL(file));
+      setPhotoPosition({ x: 50, y: 50 });
+      setRawPhotoUri(URL.createObjectURL(file));
+      setShowWebCrop(true);
     };
     document.body.appendChild(input);
     input.click();
+  }
+
+  function handleWebCropCancel() {
+    setShowWebCrop(false);
+    setRawPhotoUri(null);
+  }
+
+  function handleWebCropConfirm() {
+    setShowWebCrop(false);
+    applyPickedPhoto(rawPhotoUri, photoPosition);
+    setRawPhotoUri(null);
   }
 
   async function handlePickPhotoNative() {
@@ -164,8 +190,12 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
                 fullName={fullName}
                 photoUri={photoUri}
                 photoLayout={photoLayout}
+                photoPosition={photoPosition}
                 onRequestPhoto={isOwner ? handlePickPhoto : undefined}
-                onRemovePhoto={() => setPhotoUri(null)}
+                onRemovePhoto={() => {
+                  setPhotoUri(null);
+                  setPhotoPosition({ x: 50, y: 50 });
+                }}
                 onAddPhoto={savedPhotoUrl || isOwner ? handleAddPhotoPress : undefined}
               />
               {uploadingPhoto && (
@@ -178,6 +208,17 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
           </ScrollView>
         )}
       </View>
+
+      {Platform.OS === 'web' && (
+        <WebPhotoCropModal
+          visible={showWebCrop}
+          uri={rawPhotoUri}
+          position={photoPosition}
+          onPositionChange={setPhotoPosition}
+          onCancel={handleWebCropCancel}
+          onConfirm={handleWebCropConfirm}
+        />
+      )}
     </Modal>
   );
 }
