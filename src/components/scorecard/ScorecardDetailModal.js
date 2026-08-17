@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 import ScorecardCard from './ScorecardCard';
+import PhotoCropModal from './PhotoCropModal';
 import { saveScorecardPhoto } from '../../services/scorecards';
 import { useAuth } from '../../context/AuthContext';
 
@@ -19,6 +20,9 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
   const { user } = useAuth();
   const [photoUri, setPhotoUri] = useState(null);
   const [savedPhotoUrl, setSavedPhotoUrl] = useState(null);
+  // Web only: the just-picked, not-yet-cropped photo — see ScorecardScreen's
+  // matching state for why native never sets this.
+  const [cropPhotoUri, setCropPhotoUri] = useState(null);
 
   useEffect(() => {
     setPhotoUri(null);
@@ -44,12 +48,24 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
+    input.style.display = 'none';
     input.onchange = (e) => {
       const file = e.target.files?.[0];
+      document.body.removeChild(input);
       if (!file) return;
-      applyPickedPhoto(URL.createObjectURL(file));
+      setCropPhotoUri(URL.createObjectURL(file));
     };
+    document.body.appendChild(input);
     input.click();
+  }
+
+  function handleCropConfirm(croppedUri) {
+    setCropPhotoUri(null);
+    applyPickedPhoto(croppedUri);
+  }
+
+  function handleCropCancel() {
+    setCropPhotoUri(null);
   }
 
   async function handlePickPhotoNative() {
@@ -123,6 +139,13 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
           </ScrollView>
         )}
       </View>
+
+      <PhotoCropModal
+        visible={Boolean(cropPhotoUri)}
+        photoUri={cropPhotoUri}
+        onCancel={handleCropCancel}
+        onConfirm={handleCropConfirm}
+      />
     </Modal>
   );
 }

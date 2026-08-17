@@ -234,6 +234,16 @@ alter table public.scorecards add column if not exists composite_back text;
 alter table public.scorecards add column if not exists pars text;
 alter table public.scorecards add column if not exists total_par integer default 72;
 
+-- Which nine a 9-hole round was played on, so the card can label its holes
+-- 1-9 (front) or 10-18 (back) and show the right "Front"/"Back" total.
+-- Always 'front' for 18-hole rounds, where both nines are shown anyway.
+alter table public.scorecards add column if not exists nine_side text default 'front';
+
+-- At most one scorecard per user is pinned at a time (enforced in
+-- application code, not a DB constraint); pinned rounds sort first in the
+-- Past Scorecards list.
+alter table public.scorecards add column if not exists pinned boolean default false;
+
 alter table public.scorecards enable row level security;
 
 drop policy if exists "Scorecards are viewable by everyone" on public.scorecards;

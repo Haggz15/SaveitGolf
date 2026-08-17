@@ -26,20 +26,24 @@ const DEFAULT_HOLE_PATTERN = [4, 4, 3, 5, 4, 4, 3, 5, 4, 4, 4, 3, 5, 4, 4, 4, 3,
 const SEARCH_DEBOUNCE_MS = 400;
 const AUTO_ADVANCE_DELAY_MS = 500;
 
-async function resolveHolePars(course, holesCount) {
+// For a 9-hole round played on the back nine, pull pars for holes 10-18
+// instead of 1-9 — both from live tee data and the default fallback
+// pattern (which happens to sum to par 36 either half).
+async function resolveHolePars(course, holesCount, nineSide) {
+  const offset = holesCount === 9 && nineSide === 'back' ? 9 : 0;
   if (course?.id) {
     try {
       const full = await getCourseById(course.id);
       const primaryTee = full.tees?.male?.[0] ?? full.tees?.female?.[0];
       const holes = primaryTee?.holes;
-      if (holes && holes.length >= holesCount) {
-        return holes.slice(0, holesCount).map((h) => h.par ?? 4);
+      if (holes && holes.length >= offset + holesCount) {
+        return holes.slice(offset, offset + holesCount).map((h) => h.par ?? 4);
       }
     } catch (err) {
       // Fall through to the default pattern below.
     }
   }
-  return DEFAULT_HOLE_PATTERN.slice(0, holesCount);
+  return DEFAULT_HOLE_PATTERN.slice(offset, offset + holesCount);
 }
 
 function sumFilled(scores, holeNumbers) {
@@ -56,6 +60,7 @@ const INITIAL_STATE = {
   searching: false,
   selectedCourse: null,
   holesCount: null,
+  nineSide: 'front',
   pars: null,
   loadingPars: false,
   scores: {},
@@ -124,7 +129,7 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
 
   async function handleSelectHoles(holesCount) {
     patch({ holesCount, loadingPars: true, step: 'entry' });
-    const pars = await resolveHolePars(state.selectedCourse, holesCount);
+    const pars = await resolveHolePars(state.selectedCourse, holesCount, state.nineSide);
     patch({ pars, loadingPars: false });
   }
 
@@ -186,7 +191,7 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
   }
 
   async function handleSave() {
-    const { selectedCourse, holesCount, pars, scores, compositeFront, compositeBack } = state;
+    const { selectedCourse, holesCount, nineSide, pars, scores, compositeFront, compositeBack } = state;
     const holeNumbers = Array.from({ length: holesCount }, (_, i) => i + 1);
 
     const front = holeNumbers.slice(0, 9).map((hole, idx) => ({
@@ -210,6 +215,7 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
       ...(back ? { back } : {}),
       compositeFront: compositeFront.trim() || null,
       compositeBack: holesCount === 18 ? compositeBack.trim() || null : null,
+      nineSide: holesCount === 9 ? nineSide : 'front',
     };
 
     onSaved(newScorecard);
@@ -221,6 +227,12 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
   const frontTotal = sumFilled(state.scores, frontNumbers);
   const backTotal = backNumbers.length ? sumFilled(state.scores, backNumbers) : null;
   const grandTotal = frontTotal + (backTotal ?? 0);
+  // `hole` stays a local 1-9 index everywhere (scores/pars keys, saved
+  // `holes` rows) — this only offsets what's *displayed* for a back-nine
+  // round, so hole 1 reads as "Hole 10".
+  const isBackNine = state.holesCount === 9 && state.nineSide === 'back';
+  const holeLabelStart = isBackNine ? 10 : 1;
+  const soloNineLabel = isBackNine ? 'BACK' : 'FRONT';
   const allFilled =
     holeNumbers.length > 0 &&
     holeNumbers.every((h) => state.scores[h] && Number(state.scores[h]) > 0);
@@ -332,6 +344,30 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
                 <Text style={styles.holesButtonLabel}>HOLES</Text>
               </TouchableOpacity>
             </View>
+
+            {state.holesCount === 9 && (
+              <>
+                <Text style={[styles.label, styles.nineSideLabel]}>WHICH NINE?</Text>
+                <View style={styles.nineSideRow}>
+                  <TouchableOpacity
+                    style={[styles.nineSideButton, state.nineSide === 'front' && styles.nineSideButtonSelected]}
+                    onPress={() => patch({ nineSide: 'front' })}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.nineSideButtonTitle}>Front</Text>
+                    <Text style={styles.nineSideButtonSubtitle}>Holes 1 - 9</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.nineSideButton, state.nineSide === 'back' && styles.nineSideButtonSelected]}
+                    onPress={() => patch({ nineSide: 'back' })}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.nineSideButtonTitle}>Back</Text>
+                    <Text style={styles.nineSideButtonSubtitle}>Holes 10 - 18</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
 
             {state.holesCount != null && (
               <>
@@ -450,7 +486,7 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
                           };
                         }}
                       >
-                        <Text style={styles.holeRowNumber}>Hole {hole}</Text>
+                        <Text style={styles.holeRowNumber}>Hole {holeLabelStart + hole - 1}</Text>
                         <View style={styles.holeRowControls}>
                           <TextInput
                             ref={(node) => {
@@ -487,7 +523,7 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
                 <View style={styles.totalsRow}>
                   <View style={styles.totalsCell}>
                     <Text style={styles.totalsValue}>{frontTotal || '–'}</Text>
-                    <Text style={styles.totalsLabel}>FRONT</Text>
+                    <Text style={styles.totalsLabel}>{backNumbers.length > 0 ? 'FRONT' : soloNineLabel}</Text>
                   </View>
                   {backNumbers.length > 0 && (
                     <View style={styles.totalsCell}>
@@ -663,6 +699,36 @@ const styles = StyleSheet.create({
   holesButtonSelected: {
     borderColor: colors.red,
     backgroundColor: colors.navyLight,
+  },
+  nineSideLabel: {
+    marginTop: 20,
+  },
+  nineSideRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  nineSideButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 10,
+    backgroundColor: colors.navyCard,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+  },
+  nineSideButtonSelected: {
+    backgroundColor: colors.red,
+    borderColor: colors.red,
+  },
+  nineSideButtonTitle: {
+    color: colors.white,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  nineSideButtonSubtitle: {
+    color: colors.muted,
+    fontSize: 11,
+    marginTop: 3,
   },
   compositeToggleRow: {
     flexDirection: 'row',

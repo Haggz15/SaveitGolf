@@ -16,6 +16,7 @@ import NewScorecardModal from '../components/scorecard/NewScorecardModal';
 import PastScorecardsList from '../components/scorecard/PastScorecardsList';
 import ScorecardDetailModal from '../components/scorecard/ScorecardDetailModal';
 import ScorecardCard from '../components/scorecard/ScorecardCard';
+import PhotoCropModal from '../components/scorecard/PhotoCropModal';
 import ShareOptionsModal from '../components/scorecard/ShareOptionsModal';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
@@ -38,6 +39,11 @@ export default function ScorecardScreen() {
   const [shareImageUri, setShareImageUri] = useState(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
+  // Web only: the just-picked, not-yet-cropped photo — set while
+  // PhotoCropModal's pan UI is open, then cleared once the user cancels or
+  // confirms a crop (native never sets this; ImagePicker's own allowsEditing
+  // crop UI runs before the photo ever reaches applyPickedPhoto).
+  const [cropPhotoUri, setCropPhotoUri] = useState(null);
   // True once the green plus has switched the card over to the photo-column
   // layout — independent of `photoUri`, since the column shows a tappable
   // placeholder there until a photo is actually picked.
@@ -111,12 +117,24 @@ export default function ScorecardScreen() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
+    input.style.display = 'none';
     input.onchange = (e) => {
       const file = e.target.files?.[0];
+      document.body.removeChild(input);
       if (!file) return;
-      applyPickedPhoto(URL.createObjectURL(file));
+      setCropPhotoUri(URL.createObjectURL(file));
     };
+    document.body.appendChild(input);
     input.click();
+  }
+
+  function handleCropConfirm(croppedUri) {
+    setCropPhotoUri(null);
+    applyPickedPhoto(croppedUri);
+  }
+
+  function handleCropCancel() {
+    setCropPhotoUri(null);
   }
 
   async function handlePickPhotoNative() {
@@ -405,6 +423,13 @@ export default function ScorecardScreen() {
         scorecard={detailScorecard}
         fullName={fullName}
         onClose={() => setDetailScorecard(null)}
+      />
+
+      <PhotoCropModal
+        visible={Boolean(cropPhotoUri)}
+        photoUri={cropPhotoUri}
+        onCancel={handleCropCancel}
+        onConfirm={handleCropConfirm}
       />
 
       <ShareOptionsModal

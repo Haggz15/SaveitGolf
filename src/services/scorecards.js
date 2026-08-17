@@ -29,6 +29,11 @@ function mapRow(row) {
     compositeBack: row.composite_back ?? null,
     pars: row.pars ? JSON.parse(row.pars) : null,
     createdAt: row.created_at,
+    // Which nine a 9-hole round was played on ('front' or 'back') — drives
+    // whether the card labels its holes 1-9 or 10-18 and the single total
+    // "Front"/"Back". Irrelevant (and always 'front') for 18-hole rounds.
+    nineSide: row.nine_side ?? 'front',
+    pinned: row.pinned ?? false,
   };
 }
 
@@ -37,6 +42,7 @@ export async function getScorecards(userId) {
     .from('scorecards')
     .select('*')
     .eq('user_id', userId)
+    .order('pinned', { ascending: false })
     .order('played_at', { ascending: false });
 
   if (error) throw error;
@@ -88,12 +94,33 @@ export async function saveScorecard(userId, scorecard) {
       photo_url: null,
       composite_front: scorecard.compositeFront ?? null,
       composite_back: scorecard.compositeBack ?? null,
+      nine_side: scorecard.nineSide ?? 'front',
     })
     .select()
     .single();
 
   if (error) throw error;
   return mapRow(data);
+}
+
+export async function deleteScorecard(scorecardId) {
+  const { error } = await supabase.from('scorecards').delete().eq('id', scorecardId);
+  if (error) throw error;
+}
+
+// Only one scorecard can be pinned per user — pinning a new one clears the
+// previous pin first. Unpinning just clears this row's own flag.
+export async function setScorecardPinned(userId, scorecardId, pinned) {
+  if (pinned) {
+    const { error: unpinError } = await supabase
+      .from('scorecards')
+      .update({ pinned: false })
+      .eq('user_id', userId);
+    if (unpinError) throw unpinError;
+  }
+
+  const { error } = await supabase.from('scorecards').update({ pinned }).eq('id', scorecardId);
+  if (error) throw error;
 }
 
 // Uploads a local photo uri (blob: on web, file:// from expo-image-picker on
