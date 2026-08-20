@@ -19,6 +19,8 @@ module.exports = {
     backgroundColor: '#0d1f3c',
     scheme: 'saveitgolf',
     ios: {
+      bundleIdentifier: 'com.saveitgolf.app',
+      buildNumber: '1',
       supportsTablet: true,
       config: {
         googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
@@ -28,6 +30,8 @@ module.exports = {
       },
     },
     android: {
+      package: 'com.saveitgolf.app',
+      versionCode: 1,
       adaptiveIcon: {
         backgroundColor: '#0d1f3c',
         foregroundImage: './assets/android-icon-foreground.png',
