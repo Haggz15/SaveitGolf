@@ -14,6 +14,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -138,26 +139,52 @@ function UploadBanner({ visible, phase, onRetry }) {
   );
 }
 
-// Static (paused) preview of the picked video with a play-button overlay —
-// the player never calls .play(), so the first frame doubles as a thumbnail.
-function VideoThumbnail({ uri }) {
+// Full-frame preview of the picked video — autoplays muted on loop so the
+// user can review their shot before posting, with a tap-to-pause toggle.
+function VideoPreviewPlayer({ uri, onChangeMedia }) {
+  const [playing, setPlaying] = useState(true);
   const player = useVideoPlayer(uri, (p) => {
     p.muted = true;
+    p.loop = true;
   });
 
+  useEffect(() => {
+    if (playing) {
+      player.play();
+    } else {
+      player.pause();
+    }
+  }, [playing, player]);
+
   return (
-    <View style={styles.photoPreview}>
+    <TouchableOpacity
+      activeOpacity={1}
+      onPress={() => setPlaying((prev) => !prev)}
+      style={styles.photoPreview}
+    >
       <VideoView
         player={player}
         style={StyleSheet.absoluteFill}
-        contentFit="cover"
+        contentFit="contain"
         nativeControls={false}
         fullscreenOptions={{ enable: false }}
       />
-      <View style={styles.playButtonOverlay}>
-        <Ionicons name="play" size={26} color={colors.white} />
+      {!playing && (
+        <View style={styles.playButtonOverlay}>
+          <Ionicons name="play" size={26} color={colors.white} />
+        </View>
+      )}
+      <View style={styles.mutedBadge}>
+        <Ionicons name="volume-mute" size={12} color={colors.white} />
       </View>
-    </View>
+      <TouchableOpacity
+        onPress={onChangeMedia}
+        style={styles.changeMediaButton}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+      >
+        <Text style={styles.changeMediaButtonText}>Change</Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
   );
 }
 
@@ -483,6 +510,8 @@ export default function PostScreen({ navigation }) {
   };
 
   const insets = useSafeAreaInsets();
+  const { height: screenHeight } = Dimensions.get('window');
+  const previewHeight = screenHeight < 700 ? 260 : screenHeight < 800 ? 300 : 340;
 
   return (
     <KeyboardAvoidingView
@@ -502,20 +531,37 @@ export default function PostScreen({ navigation }) {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>New Hole Post</Text>
 
-        <TouchableOpacity style={styles.photoUpload} onPress={handlePickMedia} activeOpacity={0.85}>
+        <View style={[styles.photoUpload, { height: previewHeight }]}>
           {media ? (
             media.type === 'video' ? (
-              <VideoThumbnail uri={media.uri} />
+              <VideoPreviewPlayer uri={media.uri} onChangeMedia={handlePickMedia} />
             ) : (
-              <Image source={{ uri: media.uri }} style={styles.photoPreview} resizeMode="cover" />
+              <View style={styles.photoPreview}>
+                <Image
+                  source={{ uri: media.uri }}
+                  style={StyleSheet.absoluteFill}
+                  resizeMode="contain"
+                />
+                <TouchableOpacity
+                  onPress={handlePickMedia}
+                  style={styles.changeMediaButton}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Text style={styles.changeMediaButtonText}>Change</Text>
+                </TouchableOpacity>
+              </View>
             )
           ) : (
-            <>
+            <TouchableOpacity
+              style={styles.emptyMediaTouchable}
+              onPress={handlePickMedia}
+              activeOpacity={0.85}
+            >
               <Ionicons name="camera-outline" size={32} color={colors.muted} />
               <Text style={styles.photoUploadText}>Add photo or video</Text>
-            </>
+            </TouchableOpacity>
           )}
-        </TouchableOpacity>
+        </View>
 
         <Text style={styles.label}>Course</Text>
         <TextInput
@@ -721,7 +767,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   photoUpload: {
-    height: 160,
     borderRadius: 16,
     borderWidth: 1.5,
     borderColor: colors.navyBorder,
@@ -732,6 +777,12 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     overflow: 'hidden',
   },
+  emptyMediaTouchable: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   photoUploadText: {
     color: colors.muted,
     marginTop: 8,
@@ -740,12 +791,42 @@ const styles = StyleSheet.create({
   photoPreview: {
     width: '100%',
     height: '100%',
+    backgroundColor: '#000',
   },
   playButtonOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(6, 14, 26, 0.35)',
+  },
+  mutedBadge: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  changeMediaButton: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  changeMediaButtonText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: '600',
   },
   label: {
     color: colors.muted,

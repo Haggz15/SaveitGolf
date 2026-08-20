@@ -18,7 +18,7 @@ import { getMyCourses } from '../services/myCourses';
 import CourseActionSheet from '../components/profile/CourseActionSheet';
 import { navigateToCourseOnMap, navigateToCourseDetail } from '../utils/courseNavigation';
 
-const TABS = ['Uploads', 'Course Rankings', 'Courses Played'];
+const TABS = ['Uploads', 'Courses Played', 'Course Rankings'];
 
 function getInitials(fullName) {
   if (!fullName) return '';
