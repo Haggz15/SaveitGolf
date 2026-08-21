@@ -22,6 +22,8 @@ export default function SignUpScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
@@ -36,6 +38,14 @@ export default function SignUpScreen({ navigation }) {
 
   const handleCreateAccount = async () => {
     if (!validate()) return;
+    if (!ageConfirmed) {
+      Alert.alert('Age Requirement', 'You must confirm you are 13 or older to create an account.', [{ text: 'OK' }]);
+      return;
+    }
+    if (!termsAccepted) {
+      Alert.alert('Terms Required', 'Please accept the Terms of Service to create an account.', [{ text: 'OK' }]);
+      return;
+    }
     setLoading(true);
     setErrors({});
     try {
@@ -109,6 +119,37 @@ export default function SignUpScreen({ navigation }) {
           {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}
 
           <TouchableOpacity
+            onPress={() => setAgeConfirmed(!ageConfirmed)}
+            style={styles.checkboxRow}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.checkbox, ageConfirmed && styles.checkboxChecked]}>
+              {ageConfirmed && <Text style={styles.checkboxMark}>✓</Text>}
+            </View>
+            <Text style={styles.checkboxLabel}>I confirm I am 13 years of age or older</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setTermsAccepted(!termsAccepted)}
+            style={[styles.checkboxRow, styles.termsCheckboxRow]}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.checkbox, termsAccepted && styles.checkboxChecked]}>
+              {termsAccepted && <Text style={styles.checkboxMark}>✓</Text>}
+            </View>
+            <Text style={styles.checkboxLabel}>
+              I agree to the{' '}
+              <Text style={styles.legalLink} onPress={() => navigation.navigate('Terms')}>
+                Terms of Service
+              </Text>{' '}
+              and{' '}
+              <Text style={styles.legalLink} onPress={() => navigation.navigate('Privacy')}>
+                Privacy Policy
+              </Text>
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[styles.primaryButton, loading && styles.disabled]}
             onPress={handleCreateAccount}
             activeOpacity={0.85}
@@ -116,18 +157,6 @@ export default function SignUpScreen({ navigation }) {
           >
             <Text style={styles.primaryButtonText}>{loading ? 'Creating account…' : 'Create Account'}</Text>
           </TouchableOpacity>
-
-          <Text style={styles.legal}>
-            By continuing, you agree to our{' '}
-            <Text style={styles.legalLink} onPress={() => Alert.alert('Terms of Service', 'Coming soon.')}>
-              Terms of Service
-            </Text>{' '}
-            and{' '}
-            <Text style={styles.legalLink} onPress={() => Alert.alert('Privacy Policy', 'Coming soon.')}>
-              Privacy Policy
-            </Text>
-            .
-          </Text>
         </View>
 
         <View style={styles.footer}>
@@ -178,6 +207,40 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     textAlign: 'center',
   },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  termsCheckboxRow: {
+    marginBottom: 20,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    borderColor: colors.brightGreen,
+    backgroundColor: colors.brightGreen,
+  },
+  checkboxMark: {
+    color: colors.brightGreenText,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  checkboxLabel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    flex: 1,
+  },
   primaryButton: {
     height: 52,
     borderRadius: 12,
@@ -194,16 +257,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  legal: {
-    color: '#8a9ab0',
-    fontSize: 11,
-    textAlign: 'center',
-    marginTop: 14,
-    lineHeight: 16,
-  },
   legalLink: {
-    color: colors.red,
+    color: colors.brightGreen,
     fontWeight: '600',
+    textDecorationLine: 'underline',
   },
   footer: {
     flexDirection: 'row',

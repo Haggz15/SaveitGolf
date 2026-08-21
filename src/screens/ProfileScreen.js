@@ -689,6 +689,16 @@ export default function ProfileScreen({ navigation }) {
             <UploadsGrid posts={uploadPosts} loading={uploadsLoading} onPressPost={handlePostTap} />
           )}
         </View>
+
+        <View style={styles.legalFooter}>
+          <TouchableOpacity onPress={() => navigation.navigate('Terms')}>
+            <Text style={styles.legalFooterLink}>Terms of Service</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => navigation.navigate('Privacy')}>
+            <Text style={styles.legalFooterLink}>Privacy Policy</Text>
+          </TouchableOpacity>
+          <Text style={styles.legalFooterMeta}>SaveitGolf v1.0.0 · saveitgolfapp@gmail.com</Text>
+        </View>
       </ScrollView>
 
       <CourseRankingModal
@@ -733,6 +743,23 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingBottom: 40,
+  },
+  legalFooter: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    gap: 12,
+  },
+  legalFooterLink: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    textDecorationLine: 'underline',
+  },
+  legalFooterMeta: {
+    color: 'rgba(255,255,255,0.2)',
+    fontSize: 10,
   },
   profileHeader: {
     alignItems: 'center',

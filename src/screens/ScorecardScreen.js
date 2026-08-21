@@ -31,6 +31,7 @@ import {
 } from '../services/scorecards';
 import { notifyFollowersOfScorecard } from '../services/notifications';
 import { useAuth } from '../context/AuthContext';
+import { compressImage } from '../utils/imageCompression';
 
 export default function ScorecardScreen() {
   const { user, profile } = useAuth();
@@ -64,6 +65,9 @@ export default function ScorecardScreen() {
   // applyPickedPhoto), this just drives a small "Uploading…" indicator so
   // the user knows it hasn't been saved yet.
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  // Drives the uploadingPill's label while uploadingPhoto is true — flips
+  // from 'Optimizing…' to 'Uploading…' partway through applyPickedPhoto.
+  const [photoUploadLabel, setPhotoUploadLabel] = useState('Uploading…');
   const [activeScorecard, setActiveScorecard] = useState(mockScorecard);
   const [modalVisible, setModalVisible] = useState(false);
   const [pastListKey, setPastListKey] = useState(0);
@@ -134,7 +138,10 @@ export default function ScorecardScreen() {
     if (!user?.id || !activeScorecard.id) return;
     try {
       setUploadingPhoto(true);
-      const uploadedUrl = await saveScorecardPhoto(user.id, activeScorecard.id, uri);
+      setPhotoUploadLabel('Optimizing…');
+      const compressedUri = await compressImage(uri);
+      setPhotoUploadLabel('Uploading…');
+      const uploadedUrl = await saveScorecardPhoto(user.id, activeScorecard.id, compressedUri);
       setActiveScorecard((prev) => ({
         ...prev,
         photoUrl: uploadedUrl,
@@ -295,7 +302,7 @@ export default function ScorecardScreen() {
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
-          link.download = 'SaveitGolf-Scorecard.png';
+          link.download = 'SaveitGolf-Scorecard.jpg';
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
@@ -307,7 +314,9 @@ export default function ScorecardScreen() {
           // worse experience here than the same non-blocking Toast the
           // native path below already uses for its own success message.
           setToastMessage({ text: 'Scorecard saved to Downloads', type: 'success' });
-        }, 'image/png', 1.0);
+          // JPEG at scale:4 keeps the capture sharp while cutting file size
+          // well below the equivalent lossless PNG.
+        }, 'image/jpeg', 0.92);
       } catch (err) {
         setHideShareExtras(false);
         setIsSharing(false);
@@ -493,7 +502,7 @@ export default function ScorecardScreen() {
             {uploadingPhoto && (
               <View style={styles.uploadingPill}>
                 <ActivityIndicator size="small" color={colors.white} />
-                <Text style={styles.uploadingPillText}>Uploading…</Text>
+                <Text style={styles.uploadingPillText}>{photoUploadLabel}</Text>
               </View>
             )}
             <TouchableOpacity

@@ -18,16 +18,13 @@ import VideoPost from '../components/VideoPost';
 import AddFriendsModal from '../components/social/AddFriendsModal';
 import CommentSheet from '../components/feed/CommentSheet';
 import NotificationPanel from '../components/feed/NotificationPanel';
-import ShotOfWeekBanner from '../components/feed/ShotOfWeekBanner';
 import PostActionsSheet from '../components/feed/PostActionsSheet';
 import MediaWatermarker from '../components/feed/MediaWatermarker';
 import MentionText from '../components/social/MentionText';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
-import { feedPosts as mockFeedPosts, filterPills } from '../data/mockData';
 import {
   HEADER_CONTENT_HEIGHT,
-  PILL_ROW_HEIGHT,
   TAB_BAR_HEIGHT,
   FILTERED_FEED_HEADER_HEIGHT,
   PROFILE_FEED_HEADER_HEIGHT,
@@ -38,22 +35,9 @@ import { getFeedPosts, getCourseFeedPosts, UNGROUPED_NINE } from '../services/po
 import { getFollowingIds } from '../services/social';
 import { likePost, unlikePost, getLikedPostIds } from '../services/likes';
 import { createNotification } from '../services/notifications';
-import { getCurrentShotOfWeek } from '../services/shotOfWeek';
 import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
 import { saveMediaToDevice, saveImageWithWatermarkWeb, saveLocalUriToLibrary } from '../utils/saveMedia';
-import { haversineMiles } from '../utils/distance';
-
-function FilterPill({ label, active, onPress }) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={[styles.pill, active && styles.pillActive]}
-    >
-      <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
 
 function PostSlide({
   post,
@@ -62,7 +46,6 @@ function PostSlide({
   currentUserId,
   initiallyLiked,
   initiallySaved,
-  isShotOfWeek,
   onStatePress,
   onCoursePress,
   onUserPress,
@@ -267,8 +250,6 @@ function PostSlide({
         )}
       </View>
 
-      {isShotOfWeek && <ShotOfWeekBanner />}
-
       <View style={styles.leftInfo}>
         <View style={styles.avatarRow}>
           {post.avatarUrl ? (
@@ -318,15 +299,17 @@ export default function FeedScreen({ navigation, route }) {
   const profileFeedPosts = route?.params?.posts ?? null;
   const profileFeedStartIndex = route?.params?.startIndex ?? 0;
   const profileFeedUsername = route?.params?.username ?? null;
-  const [activeFilter, setActiveFilter] = useState('Feed');
   const [sortMode, setSortMode] = useState('likes'); // 'likes' | 'recent' — filtered mode only, resets on remount
   const [posts, setPosts] = useState([]);
+  const [noFollowing, setNoFollowing] = useState(false);
+  const [followingOffset, setFollowingOffset] = useState(0);
+  const [followingHasMore, setFollowingHasMore] = useState(true);
+  const [loadingMoreFollowing, setLoadingMoreFollowing] = useState(false);
   const [courseFeedOffset, setCourseFeedOffset] = useState(0);
   const [courseFeedHasMore, setCourseFeedHasMore] = useState(true);
   const [loadingMorePosts, setLoadingMorePosts] = useState(false);
   const [likedPostIds, setLikedPostIds] = useState(new Set());
   const [savedPostIds, setSavedPostIds] = useState(new Set());
-  const [shotOfWeekPostId, setShotOfWeekPostId] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
   const [toastType, setToastType] = useState(null);
   const [loadingFeed, setLoadingFeed] = useState(true);
@@ -341,8 +324,12 @@ export default function FeedScreen({ navigation, route }) {
     ? windowHeight - insets.top - FILTERED_FEED_HEADER_HEIGHT
     : profileFeedPosts
     ? windowHeight - insets.top - PROFILE_FEED_HEADER_HEIGHT
-    : windowHeight - insets.top - HEADER_CONTENT_HEIGHT - PILL_ROW_HEIGHT - TAB_BAR_HEIGHT;
+    : windowHeight - insets.top - HEADER_CONTENT_HEIGHT - TAB_BAR_HEIGHT;
   const postsListRef = useRef(null);
+  // Caches the current user's following list for the lifetime of a feed load
+  // so "load more" pages don't re-query it on every scroll-to-bottom.
+  const followingIdsRef = useRef([]);
+  const FOLLOWING_PAGE_SIZE = 20;
   // Off-screen capture rig for the watermarked save (Fix 3) — mounted once
   // here rather than per-slide so pagingthrough posts doesn't spin up a new
   // ViewShot for every card.
@@ -359,68 +346,44 @@ export default function FeedScreen({ navigation, route }) {
     return saveLocalUriToLibrary(uri);
   }
 
-  const loadFeed = useCallback(async () => {
+  const loadFollowingFeed = useCallback(async () => {
     setLoadingFeed(true);
+    setFollowingHasMore(true);
     try {
-      const blockedIds = user?.id ? await getBlockedUserIds(user.id) : [];
-      const excludeUserIds = new Set(blockedIds);
-
-      let realPosts;
-      if (activeFilter === 'Following') {
-        setShotOfWeekPostId(null);
-        const followingIds = user?.id ? await getFollowingIds(user.id) : [];
-        realPosts = await getFeedPosts({ userIds: followingIds, excludeUserIds });
-        setPosts(realPosts);
-      } else if (activeFilter === 'Feed') {
-        realPosts = await getFeedPosts({ sort: 'top', excludeUserIds });
-
-        // Pin the current Shot of the Week to the top of this pill only —
-        // pinning it into "Following" could surface a post from someone the
-        // viewer doesn't follow.
-        let shotOfWeekPost = null;
-        try {
-          shotOfWeekPost = await getCurrentShotOfWeek();
-        } catch (err) {
-          console.error('Failed to load Shot of the Week:', err);
-        }
-        setShotOfWeekPostId(shotOfWeekPost?.id ?? null);
-
-        const withoutDuplicate = shotOfWeekPost
-          ? realPosts.filter((p) => p.id !== shotOfWeekPost.id)
-          : realPosts;
-        const ordered = shotOfWeekPost ? [shotOfWeekPost, ...withoutDuplicate] : withoutDuplicate;
-
-        // Demo content trails real posts so the feed still has something to
-        // browse before there's much real activity.
-        setPosts([...ordered, ...mockFeedPosts]);
-      } else {
-        setShotOfWeekPostId(null);
-        // Nearby: sort by distance from the device's current location when
-        // permission is granted; otherwise fall back to newest-first.
-        realPosts = await getFeedPosts({ excludeUserIds });
-        let sorted = realPosts;
-        if (Platform.OS !== 'web') {
-          try {
-            const Location = require('expo-location');
-            const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status === 'granted') {
-              const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-              const { latitude, longitude } = position.coords;
-              sorted = [...realPosts].sort((a, b) => {
-                const distA = a.lat != null && a.lng != null ? haversineMiles(latitude, longitude, a.lat, a.lng) : Infinity;
-                const distB = b.lat != null && b.lng != null ? haversineMiles(latitude, longitude, b.lat, b.lng) : Infinity;
-                return distA - distB;
-              });
-            }
-          } catch (err) {
-            // Location unavailable — keep the newest-first order.
-          }
-        }
-        setPosts([...sorted, ...mockFeedPosts]);
+      if (!user?.id) {
+        setPosts([]);
+        setNoFollowing(false);
+        return;
       }
 
-      if (user?.id && realPosts?.length) {
-        const postIds = realPosts.map((p) => p.id);
+      const [blockedIds, followingIds] = await Promise.all([
+        getBlockedUserIds(user.id),
+        getFollowingIds(user.id),
+      ]);
+      followingIdsRef.current = followingIds;
+
+      if (followingIds.length === 0) {
+        setPosts([]);
+        setNoFollowing(true);
+        setFollowingHasMore(false);
+        return;
+      }
+
+      const excludeUserIds = new Set(blockedIds);
+      const firstPage = await getFeedPosts({
+        userIds: followingIds,
+        excludeUserIds,
+        offset: 0,
+        limit: FOLLOWING_PAGE_SIZE,
+      });
+
+      setPosts(firstPage);
+      setNoFollowing(false);
+      setFollowingOffset(firstPage.length);
+      setFollowingHasMore(firstPage.length === FOLLOWING_PAGE_SIZE);
+
+      if (firstPage.length) {
+        const postIds = firstPage.map((p) => p.id);
         const [liked, saved] = await Promise.all([
           getLikedPostIds(user.id, postIds),
           getSavedPostIds(user.id, postIds),
@@ -429,22 +392,53 @@ export default function FeedScreen({ navigation, route }) {
         setSavedPostIds(new Set(saved));
       }
     } catch (err) {
-      console.error('Failed to load feed:', err);
-      setPosts(activeFilter === 'Following' ? [] : mockFeedPosts);
+      console.error('Failed to load following feed:', err);
+      setPosts([]);
+      setNoFollowing(false);
     } finally {
       setLoadingFeed(false);
     }
-  }, [activeFilter, user?.id]);
+  }, [user?.id]);
+
+  const loadMoreFollowingPosts = useCallback(async () => {
+    if (filter || profileFeedPosts || noFollowing || !followingHasMore || loadingMoreFollowing || !user?.id) return;
+    setLoadingMoreFollowing(true);
+    try {
+      const blockedIds = await getBlockedUserIds(user.id);
+      const excludeUserIds = new Set(blockedIds);
+      const next = await getFeedPosts({
+        userIds: followingIdsRef.current,
+        excludeUserIds,
+        offset: followingOffset,
+        limit: FOLLOWING_PAGE_SIZE,
+      });
+
+      setPosts((prev) => [...prev, ...next]);
+      setFollowingOffset((prev) => prev + next.length);
+      setFollowingHasMore(next.length === FOLLOWING_PAGE_SIZE);
+
+      if (next.length) {
+        const ids = next.map((p) => p.id);
+        const [liked, saved] = await Promise.all([getLikedPostIds(user.id, ids), getSavedPostIds(user.id, ids)]);
+        setLikedPostIds((prev) => new Set([...prev, ...liked]));
+        setSavedPostIds((prev) => new Set([...prev, ...saved]));
+      }
+    } catch (err) {
+      console.error('Failed to load more following posts:', err);
+    } finally {
+      setLoadingMoreFollowing(false);
+    }
+  }, [filter, profileFeedPosts, noFollowing, followingHasMore, loadingMoreFollowing, followingOffset, user?.id]);
 
   useEffect(() => {
     if (filter || profileFeedPosts) return; // filtered/profile-feed modes have their own loaders
-    loadFeed();
-  }, [loadFeed, filter, profileFeedPosts]);
+    loadFollowingFeed();
+  }, [loadFollowingFeed, filter, profileFeedPosts]);
 
   // Profile-feed mode's "loader" — the posts are already fetched (see
   // ProfileScreen.handlePostTap), so this just seats them straight into
   // state instead of querying Supabase, then fetches like/save state for
-  // just this user's posts the same way loadFeed does for the main feed.
+  // just this user's posts the same way loadFollowingFeed does for the main feed.
   useEffect(() => {
     if (!profileFeedPosts) return;
     setPosts(profileFeedPosts);
@@ -461,9 +455,9 @@ export default function FeedScreen({ navigation, route }) {
   }, [profileFeedPosts, user?.id]);
 
   // Filtered mode's initial load (and reload whenever the course/hole/nine
-  // being viewed or the sort mode changes) — separate from loadFeed above
-  // since it's a different query shape (paginated, no Following/Nearby
-  // pills, no mock-post fallback) rather than another branch of it.
+  // being viewed or the sort mode changes) — separate from loadFollowingFeed
+  // above since it's a different query shape (paginated by course/hole
+  // rather than by who's followed).
   useEffect(() => {
     if (!filter) return;
     let cancelled = false;
@@ -761,54 +755,55 @@ export default function FeedScreen({ navigation, route }) {
           <View style={styles.profileFeedHeaderSpacer} />
         </View>
       ) : (
-        <>
-          <Header
-            right={
-              <View style={styles.headerActions}>
-                <TouchableOpacity
-                  style={styles.headerIconButton}
-                  onPress={() => setNotificationsVisible(true)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="notifications-outline" size={22} color={colors.white} />
-                  {unreadCount > 0 && (
-                    <View style={styles.unreadBadge}>
-                      <Text style={styles.unreadBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.headerIconButton}
-                  onPress={() => setAddFriendsVisible(true)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="person-add" size={22} color={colors.white} />
-                </TouchableOpacity>
-              </View>
-            }
-          />
-          <View style={styles.pillRow}>
-            <FlatList
-              data={filterPills}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              keyExtractor={(item) => item}
-              contentContainerStyle={{ paddingHorizontal: 16 }}
-              renderItem={({ item }) => (
-                <FilterPill
-                  label={item}
-                  active={activeFilter === item}
-                  onPress={() => setActiveFilter(item)}
-                />
-              )}
-            />
-          </View>
-        </>
+        <Header
+          right={
+            <View style={styles.headerActions}>
+              <TouchableOpacity
+                style={styles.headerIconButton}
+                onPress={() => setNotificationsVisible(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="notifications-outline" size={22} color={colors.white} />
+                {unreadCount > 0 && (
+                  <View style={styles.unreadBadge}>
+                    <Text style={styles.unreadBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.headerIconButton}
+                onPress={() => setAddFriendsVisible(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="person-add" size={22} color={colors.white} />
+              </TouchableOpacity>
+            </View>
+          }
+        />
       )}
 
       <View style={styles.pagerContainer}>
         {loadingFeed ? (
           <ActivityIndicator color={colors.red} size="large" style={{ marginTop: 40 }} />
+        ) : noFollowing ? (
+          <View style={styles.noFollowingState}>
+            <Text style={styles.noFollowingTitle}>Welcome to SaveitGolf</Text>
+            <Text style={styles.noFollowingSubtitle}>
+              Follow other golfers to see their shots and rounds here
+            </Text>
+            <TouchableOpacity
+              style={styles.noFollowingPrimaryButton}
+              onPress={() => navigation.navigate('Map')}
+            >
+              <Text style={styles.noFollowingPrimaryButtonText}>Explore Courses on Map</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.noFollowingSecondaryButton}
+              onPress={() => setAddFriendsVisible(true)}
+            >
+              <Text style={styles.noFollowingSecondaryButtonText}>Find Golfers to Follow</Text>
+            </TouchableOpacity>
+          </View>
         ) : posts.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={36} color={colors.muted} />
@@ -817,7 +812,7 @@ export default function FeedScreen({ navigation, route }) {
                 ? filteredEmptyText
                 : profileFeedPosts
                 ? 'No posts yet.'
-                : 'Follow golfers to see their posts here — tap the Add Friends icon above.'}
+                : 'No posts yet from people you follow.'}
             </Text>
           </View>
         ) : (
@@ -834,7 +829,6 @@ export default function FeedScreen({ navigation, route }) {
                   currentUserId={user?.id}
                   initiallyLiked={likedPostIds.has(item.id)}
                   initiallySaved={savedPostIds.has(item.id)}
-                  isShotOfWeek={activeFilter === 'Feed' && item.id === shotOfWeekPostId}
                   onStatePress={handleStatePress}
                   onCoursePress={handleCoursePress}
                   onUserPress={handleUserPress}
@@ -863,10 +857,12 @@ export default function FeedScreen({ navigation, route }) {
               }}
               viewabilityConfig={viewabilityConfig}
               onViewableItemsChanged={onViewableItemsChanged}
-              onEndReached={filter ? loadMoreCourseFeedPosts : undefined}
+              onEndReached={
+                filter ? loadMoreCourseFeedPosts : !profileFeedPosts ? loadMoreFollowingPosts : undefined
+              }
               onEndReachedThreshold={0.6}
               ListFooterComponent={
-                filter && loadingMorePosts ? (
+                (filter && loadingMorePosts) || (!filter && !profileFeedPosts && loadingMoreFollowing) ? (
                   <ActivityIndicator color={colors.red} size="small" style={styles.loadMoreSpinner} />
                 ) : null
               }
@@ -1031,33 +1027,6 @@ const styles = StyleSheet.create({
   loadMoreSpinner: {
     paddingVertical: 20,
   },
-  pillRow: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.navyBorder,
-    zIndex: 2,
-  },
-  pill: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: colors.navyCard,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: colors.navyBorder,
-  },
-  pillActive: {
-    backgroundColor: colors.red,
-    borderColor: colors.red,
-  },
-  pillText: {
-    color: colors.muted,
-    fontWeight: '600',
-    fontSize: 13,
-  },
-  pillTextActive: {
-    color: colors.white,
-  },
   pagerContainer: {
     flex: 1,
   },
@@ -1073,6 +1042,56 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 12,
     lineHeight: 19,
+  },
+  noFollowingState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.navy,
+    padding: 32,
+  },
+  noFollowingTitle: {
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 22,
+    color: colors.white,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  noFollowingSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.5)',
+    textAlign: 'center',
+    marginBottom: 32,
+    lineHeight: 22,
+  },
+  noFollowingPrimaryButton: {
+    backgroundColor: colors.brightGreen,
+    borderRadius: 10,
+    padding: 14,
+    paddingHorizontal: 28,
+    marginBottom: 12,
+    width: '100%',
+    alignItems: 'center',
+  },
+  noFollowingPrimaryButtonText: {
+    color: colors.brightGreenText,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  noFollowingSecondaryButton: {
+    backgroundColor: '#1a2e4a',
+    borderRadius: 10,
+    padding: 14,
+    paddingHorizontal: 28,
+    width: '100%',
+    alignItems: 'center',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  noFollowingSecondaryButtonText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '700',
   },
   slide: {
     width: '100%',

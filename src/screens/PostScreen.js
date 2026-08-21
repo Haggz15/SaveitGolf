@@ -29,6 +29,7 @@ import { searchCourses } from '../services/golfCourseApi';
 import { notifyFollowersOfPost } from '../services/notifications';
 import { geocodeCourseCoordinates } from '../services/geocoding';
 import { courseHasValidCoordinates } from '../utils/mapCoords';
+import { compressImage } from '../utils/imageCompression';
 
 // Nominal content height of the upload progress banner — the actual
 // rendered height also adds the device's safe-area top inset, same as
@@ -63,7 +64,15 @@ function UploadBanner({ visible, phase, onRetry }) {
     // crawls toward 85% while the actual request is in flight, nudges
     // further once "processing", then snaps to 100% on success. On error it
     // just freezes wherever it was.
-    if (phase === 'uploading') {
+    if (phase === 'optimizing') {
+      progress.setValue(0);
+      Animated.timing(progress, {
+        toValue: 0.4,
+        duration: 700,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: false,
+      }).start();
+    } else if (phase === 'uploading') {
       progress.setValue(0);
       Animated.timing(progress, {
         toValue: 0.85,
@@ -90,7 +99,9 @@ function UploadBanner({ visible, phase, onRetry }) {
   const isError = phase === 'error';
   const isSuccess = phase === 'success';
   const label =
-    phase === 'uploading'
+    phase === 'optimizing'
+      ? 'Optimizing…'
+      : phase === 'uploading'
       ? 'Uploading your shot…'
       : phase === 'processing'
       ? 'Almost there…'
@@ -189,7 +200,7 @@ function VideoPreviewPlayer({ uri, onChangeMedia }) {
 }
 
 const SEARCH_DEBOUNCE_MS = 400;
-const MAX_VIDEO_DURATION_SECONDS = 60;
+const MAX_VIDEO_DURATION_SECONDS = 30;
 
 function isVideoTooLong(durationSeconds) {
   return typeof durationSeconds === 'number' && durationSeconds > MAX_VIDEO_DURATION_SECONDS;
@@ -284,6 +295,25 @@ export default function PostScreen({ navigation }) {
     });
   }
 
+  // Fix 1: every photo gets downsized/recompressed before it's used
+  // anywhere further (preview or upload) — videos are left untouched (Fix
+  // 2 handles those via the picker's own quality/bitrate setting instead).
+  // Briefly flips the upload banner to 'optimizing' for the duration, same
+  // as the 'uploading'/'processing' phases handleSharePost drives later.
+  async function setMediaFromPick(uri, type) {
+    if (type !== 'photo') {
+      setMedia({ uri, type });
+      return;
+    }
+    setUploadPhase('optimizing');
+    try {
+      const compressedUri = await compressImage(uri);
+      setMedia({ uri: compressedUri, type });
+    } finally {
+      setUploadPhase(null);
+    }
+  }
+
   function handlePickMediaWeb() {
     // Created on demand rather than kept mounted: an <input type="file">
     // opens the native file/camera-roll picker on .click() whether or not
@@ -310,7 +340,7 @@ export default function PostScreen({ navigation }) {
         }
       }
 
-      setMedia({ uri, type });
+      await setMediaFromPick(uri, type);
     };
     input.click();
   }
@@ -325,8 +355,9 @@ export default function PostScreen({ navigation }) {
       }
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
-        quality: 1,
+        quality: 0.8, // for photos this is JPEG quality; for videos it controls bitrate, not resolution
         videoMaxDuration: MAX_VIDEO_DURATION_SECONDS,
+        exif: false,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
@@ -337,7 +368,7 @@ export default function PostScreen({ navigation }) {
           alertVideoTooLong();
           return;
         }
-        setMedia({ uri: asset.uri, type });
+        await setMediaFromPick(asset.uri, type);
       }
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not open your camera. Please try again.');
@@ -354,7 +385,9 @@ export default function PostScreen({ navigation }) {
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
-        quality: 1,
+        quality: 0.8, // for photos this is JPEG quality; for videos it controls bitrate, not resolution
+        videoMaxDuration: MAX_VIDEO_DURATION_SECONDS,
+        exif: false,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
@@ -365,7 +398,7 @@ export default function PostScreen({ navigation }) {
           alertVideoTooLong();
           return;
         }
-        setMedia({ uri: asset.uri, type });
+        await setMediaFromPick(asset.uri, type);
       }
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not open your photo library. Please try again.');
@@ -454,7 +487,7 @@ export default function PostScreen({ navigation }) {
       setUploadPhase('success');
       hideTimerRef.current = setTimeout(() => {
         setUploadPhase(null);
-        navigation.navigate('Tabs', { screen: 'Feed' });
+        navigation.navigate('Tabs', { screen: 'Following' });
       }, 1500);
     } catch (err) {
       console.error('Failed to create post:', err);
@@ -483,7 +516,7 @@ export default function PostScreen({ navigation }) {
         setCaption('');
         setSelectedCourse(null);
         setHole('');
-        navigation.navigate('Feed');
+        navigation.navigate('Following');
       } else {
         Alert.alert(
           'Discard Post?',
@@ -498,7 +531,7 @@ export default function PostScreen({ navigation }) {
                 setCaption('');
                 setSelectedCourse(null);
                 setHole('');
-                navigation.navigate('Feed');
+                navigation.navigate('Following');
               },
             },
           ]
@@ -506,7 +539,7 @@ export default function PostScreen({ navigation }) {
       }
       return;
     }
-    navigation.navigate('Feed');
+    navigation.navigate('Following');
   };
 
   const insets = useSafeAreaInsets();
@@ -562,6 +595,7 @@ export default function PostScreen({ navigation }) {
             </TouchableOpacity>
           )}
         </View>
+        <Text style={styles.mediaLimitText}>Photos and videos up to {MAX_VIDEO_DURATION_SECONDS} seconds</Text>
 
         <Text style={styles.label}>Course</Text>
         <TextInput
@@ -673,6 +707,10 @@ export default function PostScreen({ navigation }) {
           placeholderTextColor={colors.muted}
           multiline
         />
+        <Text style={styles.copyrightNotice}>
+          By posting you confirm this content is your own and does not
+          contain copyrighted music or material you do not have rights to use.
+        </Text>
 
         <TouchableOpacity
           style={[styles.submitButton, posting && styles.submitButtonDisabled]}
@@ -774,7 +812,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.navyCard,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
     overflow: 'hidden',
   },
   emptyMediaTouchable: {
@@ -787,6 +824,21 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginTop: 8,
     fontSize: 13,
+  },
+  mediaLimitText: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 6,
+    marginBottom: 20,
+  },
+  copyrightNotice: {
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 10,
+    textAlign: 'center',
+    marginTop: 8,
+    paddingHorizontal: 16,
+    lineHeight: 15,
   },
   photoPreview: {
     width: '100%',

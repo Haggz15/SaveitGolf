@@ -463,10 +463,10 @@ export default function CourseDetailScreen({ route, navigation }) {
 
       <View style={styles.bottomNav}>
         <BottomNavButton
-          icon="newspaper-outline"
-          iconFocused="newspaper"
-          label="Feed"
-          onPress={() => goToTab('Feed')}
+          icon="people-outline"
+          iconFocused="people"
+          label="Following"
+          onPress={() => goToTab('Following')}
         />
         <BottomNavButton
           icon="map-outline"

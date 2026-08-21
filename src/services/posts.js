@@ -145,24 +145,24 @@ function timeAgo(isoDate) {
   return `${days}d`;
 }
 
-// Real posts for the feed. `userIds`, when provided, scopes results to
-// those authors (used by the Following filter). `excludeUserIds` drops posts
-// from anyone the current user has blocked (see services/moderation.js) —
-// filtered client-side, same as the `sort: 'top'` reorder below, rather than
-// as a query filter, since it's just a handful of ids at most. `sort: 'top'`
-// reorders the page client-side by likes+comments (used by the Feed pill)
-// instead of the default newest-first ordering. Posts auto-hidden by the
-// report threshold (posts.hidden) never come back from this query at all.
-export async function getFeedPosts({ userIds, excludeUserIds, sort } = {}) {
+// Real posts for the Following feed, newest first. `userIds` scopes results
+// to the authors the current user follows — an empty list short-circuits to
+// no query at all. `excludeUserIds` drops posts from anyone the current user
+// has blocked (see services/moderation.js) — filtered client-side since it's
+// just a handful of ids at most. `offset`/`limit` paginate the query
+// directly. Posts auto-hidden by the report threshold (posts.hidden) never
+// come back from this query at all.
+export async function getFeedPosts({ userIds, excludeUserIds, offset = 0, limit = 20 } = {}) {
+  if (userIds && userIds.length === 0) return [];
+
   let request = supabase
     .from('posts')
     .select('*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)')
     .eq('hidden', false)
     .order('created_at', { ascending: false })
-    .limit(50);
+    .range(offset, offset + limit - 1);
 
   if (userIds) {
-    if (userIds.length === 0) return [];
     request = request.in('user_id', userIds);
   }
 
@@ -174,9 +174,6 @@ export async function getFeedPosts({ userIds, excludeUserIds, sort } = {}) {
     posts = posts.filter((post) => !excludeUserIds.has(post.userId));
   }
 
-  if (sort === 'top') {
-    return posts.sort((a, b) => b.likes + b.comments - (a.likes + a.comments));
-  }
   return posts;
 }
 

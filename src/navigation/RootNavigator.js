@@ -18,6 +18,8 @@ import CourseDetailScreen from '../screens/CourseDetailScreen';
 import SignUpScreen from '../screens/auth/SignUpScreen';
 import LogInScreen from '../screens/auth/LogInScreen';
 import ProfileSetupScreen from '../screens/auth/ProfileSetupScreen';
+import TermsOfServiceScreen from '../screens/legal/TermsOfServiceScreen';
+import PrivacyPolicyScreen from '../screens/legal/PrivacyPolicyScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -35,14 +37,14 @@ const navigationTheme = {
 };
 
 const TAB_ICONS = {
-  Feed: 'newspaper-outline',
+  Following: 'people-outline',
   Map: 'map-outline',
   Scorecard: 'reader-outline',
   Profile: 'person-outline',
 };
 
 const TAB_ICONS_FOCUSED = {
-  Feed: 'newspaper',
+  Following: 'people',
   Map: 'map',
   Scorecard: 'reader',
   Profile: 'person',
@@ -91,7 +93,7 @@ function Tabs() {
         },
       })}
     >
-      <Tab.Screen name="Feed" component={FeedScreen} />
+      <Tab.Screen name="Following" component={FeedScreen} />
       <Tab.Screen name="Map" component={MapScreen} />
       <Tab.Screen
         name="Post"
@@ -131,6 +133,8 @@ export default function RootNavigator() {
         <AuthStack.Navigator screenOptions={{ headerShown: false }}>
           <AuthStack.Screen name="SignUp" component={SignUpScreen} />
           <AuthStack.Screen name="LogIn" component={LogInScreen} />
+          <AuthStack.Screen name="Terms" component={TermsOfServiceScreen} />
+          <AuthStack.Screen name="Privacy" component={PrivacyPolicyScreen} />
         </AuthStack.Navigator>
       ) : needsOnboarding ? (
         <ProfileSetupScreen />
@@ -154,6 +158,8 @@ export default function RootNavigator() {
           <Stack.Screen name="ProfileFeed" component={FeedScreen} />
           <Stack.Screen name="UserProfile" component={OtherUserProfileScreen} />
           <Stack.Screen name="UserScorecards" component={UserScorecardsScreen} />
+          <Stack.Screen name="Terms" component={TermsOfServiceScreen} />
+          <Stack.Screen name="Privacy" component={PrivacyPolicyScreen} />
         </Stack.Navigator>
       )}
     </NavigationContainer>
