@@ -27,6 +27,7 @@ module.exports = {
       },
       infoPlist: {
         LSApplicationQueriesSchemes: ['instagram', 'instagram-stories', 'tiktok'],
+        LSRequiresIPhoneOS: true,
       },
     },
     android: {
