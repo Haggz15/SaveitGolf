@@ -3,9 +3,8 @@ import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 import { courseDetail as mockCourseDetail } from '../../data/mockData';
 
-// golfcourseapi.com has no rating/post-count field, so — same as the Course
-// Detail screen — these come from the shared mock fixture until real
-// per-course SaveitGolf activity data exists.
+// golfcourseapi.com has no post-count field, so this comes from the shared
+// mock fixture until real per-course SaveitGolf activity data exists.
 function buildMetaLine(course, detail) {
   const location = [course.city, course.state].filter(Boolean).join(', ');
   const segments = [];
@@ -34,9 +33,6 @@ export default function CoursePopupCard({ course, detail, onClose, onViewHoles }
       </View>
 
       <View style={styles.ratingRow}>
-        <Ionicons name="star" size={14} color={colors.gold} />
-        <Text style={styles.ratingValue}>{mockCourseDetail.rating}</Text>
-        <Text style={styles.ratingDivider}>·</Text>
         <Text style={styles.ratingPosts}>{mockCourseDetail.postsCount} posts</Text>
       </View>
 
@@ -100,15 +96,6 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 10,
     marginBottom: 14,
-  },
-  ratingValue: {
-    color: colors.offWhite,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  ratingDivider: {
-    color: colors.muted,
-    fontSize: 13,
   },
   ratingPosts: {
     color: colors.muted,

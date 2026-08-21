@@ -11,6 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Header from '../components/Header';
@@ -318,6 +319,7 @@ export default function FeedScreen({ navigation, route }) {
   const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [commentPost, setCommentPost] = useState(null);
   const [actionsSheetPost, setActionsSheetPost] = useState(null);
+  const [showWelcome, setShowWelcome] = useState(false);
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const containerHeight = filter
@@ -434,6 +436,18 @@ export default function FeedScreen({ navigation, route }) {
     if (filter || profileFeedPosts) return; // filtered/profile-feed modes have their own loaders
     loadFollowingFeed();
   }, [loadFollowingFeed, filter, profileFeedPosts]);
+
+  useEffect(() => {
+    if (filter || profileFeedPosts) return; // main feed tab only
+    const checkFirstTime = async () => {
+      const seen = await AsyncStorage.getItem('hasSeenWelcome');
+      if (!seen) {
+        setShowWelcome(true);
+        await AsyncStorage.setItem('hasSeenWelcome', 'true');
+      }
+    };
+    checkFirstTime();
+  }, [filter, profileFeedPosts]);
 
   // Profile-feed mode's "loader" — the posts are already fetched (see
   // ProfileScreen.handlePostTap), so this just seats them straight into
@@ -785,34 +799,20 @@ export default function FeedScreen({ navigation, route }) {
       <View style={styles.pagerContainer}>
         {loadingFeed ? (
           <ActivityIndicator color={colors.red} size="large" style={{ marginTop: 40 }} />
-        ) : noFollowing ? (
-          <View style={styles.noFollowingState}>
-            <Text style={styles.noFollowingTitle}>Welcome to SaveitGolf</Text>
-            <Text style={styles.noFollowingSubtitle}>
-              Follow other golfers to see their shots and rounds here
-            </Text>
-            <TouchableOpacity
-              style={styles.noFollowingPrimaryButton}
-              onPress={() => navigation.navigate('Map')}
-            >
-              <Text style={styles.noFollowingPrimaryButtonText}>Explore Courses on Map</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.noFollowingSecondaryButton}
-              onPress={() => setAddFriendsVisible(true)}
-            >
-              <Text style={styles.noFollowingSecondaryButtonText}>Find Golfers to Follow</Text>
-            </TouchableOpacity>
+        ) : posts.length === 0 && !filter && !profileFeedPosts ? (
+          // Every new user auto-follows the founder on signup, so the following
+          // feed's userIds list is never empty — this only renders if that
+          // follow somehow failed, or the founder simply has no posts yet.
+          <View style={styles.noPostsState}>
+            <Text style={styles.noPostsEmoji}>⛳</Text>
+            <Text style={styles.noPostsTitle}>No posts yet</Text>
+            <Text style={styles.noPostsSubtitle}>Follow more golfers or be the first to post a shot</Text>
           </View>
         ) : posts.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={36} color={colors.muted} />
             <Text style={styles.emptyStateText}>
-              {filter
-                ? filteredEmptyText
-                : profileFeedPosts
-                ? 'No posts yet.'
-                : 'No posts yet from people you follow.'}
+              {filter ? filteredEmptyText : 'No posts yet.'}
             </Text>
           </View>
         ) : (
@@ -917,6 +917,27 @@ export default function FeedScreen({ navigation, route }) {
       />
 
       <MediaWatermarker ref={watermarkerRef} />
+
+      {showWelcome && (
+        <TouchableOpacity
+          onPress={() => setShowWelcome(false)}
+          activeOpacity={1}
+          style={styles.welcomeOverlay}
+        >
+          <Text style={styles.welcomeEmoji}>⛳</Text>
+          <Text style={styles.welcomeTitle}>Welcome to SaveitGolf</Text>
+          <Text style={styles.welcomeSubtitle}>
+            Discover courses, share your shots hole by hole and connect with golfers near you
+          </Text>
+          <Text style={styles.welcomeFounderNote}>
+            You are following @haggz21 to get you started — follow more golfers to build your feed
+          </Text>
+          <View style={styles.welcomeCta}>
+            <Text style={styles.welcomeCtaText}>Let's Play</Text>
+          </View>
+          <Text style={styles.welcomeDismissHint}>Tap anywhere to continue</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -1043,55 +1064,82 @@ const styles = StyleSheet.create({
     marginTop: 12,
     lineHeight: 19,
   },
-  noFollowingState: {
+  noPostsState: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.navy,
     padding: 32,
   },
-  noFollowingTitle: {
+  noPostsEmoji: {
+    fontSize: 40,
+    marginBottom: 12,
+  },
+  noPostsTitle: {
     fontFamily: 'Cinzel_700Bold',
-    fontSize: 22,
+    fontSize: 18,
     color: colors.white,
-    marginBottom: 12,
     textAlign: 'center',
+    marginBottom: 8,
   },
-  noFollowingSubtitle: {
+  noPostsSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  welcomeOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(13,31,60,0.95)',
+    zIndex: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  welcomeEmoji: {
+    fontSize: 52,
+    marginBottom: 16,
+  },
+  welcomeTitle: {
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 24,
+    color: colors.white,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  welcomeSubtitle: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(255,255,255,0.6)',
     textAlign: 'center',
-    marginBottom: 32,
     lineHeight: 22,
-  },
-  noFollowingPrimaryButton: {
-    backgroundColor: colors.brightGreen,
-    borderRadius: 10,
-    padding: 14,
-    paddingHorizontal: 28,
     marginBottom: 12,
-    width: '100%',
-    alignItems: 'center',
   },
-  noFollowingPrimaryButtonText: {
-    color: colors.brightGreenText,
-    fontSize: 15,
+  welcomeFounderNote: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 32,
+  },
+  welcomeCta: {
+    backgroundColor: colors.brightGreen,
+    borderRadius: 12,
+    padding: 16,
+    paddingHorizontal: 40,
+    marginBottom: 16,
+  },
+  welcomeCtaText: {
+    color: '#0d2a0d',
+    fontSize: 16,
     fontWeight: '700',
   },
-  noFollowingSecondaryButton: {
-    backgroundColor: '#1a2e4a',
-    borderRadius: 10,
-    padding: 14,
-    paddingHorizontal: 28,
-    width: '100%',
-    alignItems: 'center',
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-  noFollowingSecondaryButtonText: {
-    color: colors.white,
-    fontSize: 15,
-    fontWeight: '700',
+  welcomeDismissHint: {
+    color: 'rgba(255,255,255,0.25)',
+    fontSize: 11,
   },
   slide: {
     width: '100%',

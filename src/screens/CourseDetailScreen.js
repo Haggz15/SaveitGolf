@@ -7,7 +7,6 @@ import colors from '../theme/colors';
 import { getCourseById } from '../services/golfCourseApi';
 import { getCourseHoleStats, UNGROUPED_NINE } from '../services/posts';
 import { getScorecardsForCourse } from '../services/scorecards';
-import { getAverageRatingForCourse } from '../services/courseRankings';
 import { getCoursePhoto } from '../data/coursePhotos';
 
 const TABS = ['All Posts', 'Hole by Hole', 'Scorecards'];
@@ -110,7 +109,6 @@ export default function CourseDetailScreen({ route, navigation }) {
   // so the screen never looks blank while this is in flight.
   const [postsLoading, setPostsLoading] = useState(true);
   const [scorecards, setScorecards] = useState([]);
-  const [avgRating, setAvgRating] = useState(null);
   const [courseCoords, setCourseCoords] = useState({ lat: lat ?? null, lng: lng ?? null });
 
   // Arriving here from the feed's course-name-tap-on-map flow (see
@@ -164,12 +162,6 @@ export default function CourseDetailScreen({ route, navigation }) {
         if (!cancelled) setScorecards(rows);
       })
       .catch((err) => console.error('Failed to load course scorecards:', err));
-
-    getAverageRatingForCourse({ courseId, courseName })
-      .then((rating) => {
-        if (!cancelled) setAvgRating(rating);
-      })
-      .catch((err) => console.error('Failed to load course rating:', err));
 
     return () => {
       cancelled = true;
@@ -360,16 +352,6 @@ export default function CourseDetailScreen({ route, navigation }) {
         ) : (
           <>
             <View style={styles.statsBar}>
-              {avgRating != null && (
-                <>
-                  <View style={styles.statHalf}>
-                    <Ionicons name="star" size={15} color={colors.gold} style={{ marginRight: 6 }} />
-                    <Text style={styles.statValue}>{avgRating.toFixed(1)}</Text>
-                    <Text style={styles.statLabel}>Rating</Text>
-                  </View>
-                  <View style={styles.statDivider} />
-                </>
-              )}
               <View style={styles.statHalf}>
                 <Text style={styles.statValue}>{coursePosts.length}</Text>
                 <Text style={styles.statLabel}>Posts</Text>
@@ -594,11 +576,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'center',
-  },
-  statDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: colors.navyBorder,
   },
   statValue: {
     color: colors.white,

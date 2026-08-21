@@ -2,8 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import { supabase } from '../services/supabase';
 import { getProfile, insertProfile, updateProfile as updateProfileRequest } from '../services/profiles';
+import { followUser } from '../services/social';
 
 const AuthContext = createContext(null);
+
+const FOUNDER_USER_ID = 'b5c2931d-47ed-427e-85c0-c5073c53fc1f';
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
@@ -55,6 +58,9 @@ export function AuthProvider({ children }) {
     async (fields) => {
       if (!session?.user?.id) throw new Error('Not signed in.');
       const row = await insertProfile(session.user.id, fields);
+      followUser(session.user.id, FOUNDER_USER_ID).catch((err) =>
+        console.error('Auto follow founder error:', err)
+      );
       setProfile(row);
       return row;
     },

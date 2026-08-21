@@ -32,7 +32,7 @@ function getInitials(fullName) {
     .toUpperCase();
 }
 
-function RankingsList({ rankings, loading, onPressCourse }) {
+function RankingsList({ rankings, loading, onPressCourse, isSelf }) {
   if (loading) {
     return <ActivityIndicator color={colors.red} style={{ marginTop: 24 }} />;
   }
@@ -54,7 +54,12 @@ function RankingsList({ rankings, loading, onPressCourse }) {
           <Text style={styles.listRowTitle} numberOfLines={1}>
             {item.courseName}
           </Text>
-          <Text style={styles.listRowRating}>{item.rating.toFixed(1)}</Text>
+          {/* Rating numbers are personal — only the profile owner sees the score. */}
+          {isSelf ? (
+            <Text style={styles.listRowRating}>{item.rating.toFixed(1)}</Text>
+          ) : (
+            <Text style={styles.listRowRatingFlag}>🚩</Text>
+          )}
         </TouchableOpacity>
       ))}
     </View>
@@ -384,7 +389,12 @@ export default function OtherUserProfileScreen({ route, navigation }) {
             <UploadsGrid posts={uploads} loading={uploadsLoading} onPressPost={handlePostTap} />
           )}
           {activeTab === 'Course Rankings' && (
-            <RankingsList rankings={rankings} loading={rankingsLoading} onPressCourse={handlePressRanking} />
+            <RankingsList
+              rankings={rankings}
+              loading={rankingsLoading}
+              onPressCourse={handlePressRanking}
+              isSelf={isSelf}
+            />
           )}
           {activeTab === 'Courses Played' && (
             <CoursesPlayedList
@@ -632,6 +642,9 @@ const styles = StyleSheet.create({
     color: colors.gold,
     fontWeight: '700',
     fontSize: 14,
+  },
+  listRowRatingFlag: {
+    fontSize: 16,
   },
   uploadTile: {
     flex: 1 / 3,
