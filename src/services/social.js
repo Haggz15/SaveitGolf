@@ -130,28 +130,51 @@ export async function getFollowingIds(userId) {
   return (data ?? []).map((row) => row.following_id);
 }
 
-// Full profile rows (not just ids) for the Followers/Following list modal —
-// relies on the explicitly-named followers_*_profiles_fkey constraints (see
-// schema.sql) so PostgREST can embed the profile in one query rather than a
-// separate lookup per row.
+// Full profile rows (not just ids) for the Followers/Following list modal.
+// Fetched in two steps — followers row ids, then a separate `profiles`
+// lookup — rather than a single embedded-join query, because the
+// followers_*_profiles_fkey constraints that embed would rely on (see
+// schema.sql) aren't present on every deployed database, and PostgREST
+// errors the whole query out (PGRST200) when they're missing rather than
+// falling back to a plain lookup.
 export async function getFollowersList(userId) {
-  const { data, error } = await supabase
+  const { data: rows, error } = await supabase
     .from('followers')
-    .select('profiles!followers_follower_id_profiles_fkey(user_id, username, full_name, avatar_url)')
+    .select('follower_id, created_at')
     .eq('following_id', userId)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return (data ?? []).map((row) => row.profiles).filter(Boolean);
+  if (!rows || rows.length === 0) return [];
+
+  const ids = rows.map((row) => row.follower_id);
+  const { data: profiles, error: profilesError } = await supabase
+    .from('profiles')
+    .select('user_id, username, full_name, avatar_url')
+    .in('user_id', ids);
+
+  if (profilesError) throw profilesError;
+  const byId = new Map((profiles ?? []).map((profile) => [profile.user_id, profile]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
 }
 
 export async function getFollowingList(userId) {
-  const { data, error } = await supabase
+  const { data: rows, error } = await supabase
     .from('followers')
-    .select('profiles!followers_following_id_profiles_fkey(user_id, username, full_name, avatar_url)')
+    .select('following_id, created_at')
     .eq('follower_id', userId)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return (data ?? []).map((row) => row.profiles).filter(Boolean);
+  if (!rows || rows.length === 0) return [];
+
+  const ids = rows.map((row) => row.following_id);
+  const { data: profiles, error: profilesError } = await supabase
+    .from('profiles')
+    .select('user_id, username, full_name, avatar_url')
+    .in('user_id', ids);
+
+  if (profilesError) throw profilesError;
+  const byId = new Map((profiles ?? []).map((profile) => [profile.user_id, profile]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
 }
