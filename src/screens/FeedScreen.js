@@ -302,7 +302,6 @@ export default function FeedScreen({ navigation, route }) {
   const profileFeedUsername = route?.params?.username ?? null;
   const [sortMode, setSortMode] = useState('likes'); // 'likes' | 'recent' — filtered mode only, resets on remount
   const [posts, setPosts] = useState([]);
-  const [noFollowing, setNoFollowing] = useState(false);
   const [followingOffset, setFollowingOffset] = useState(0);
   const [followingHasMore, setFollowingHasMore] = useState(true);
   const [loadingMoreFollowing, setLoadingMoreFollowing] = useState(false);
@@ -354,7 +353,6 @@ export default function FeedScreen({ navigation, route }) {
     try {
       if (!user?.id) {
         setPosts([]);
-        setNoFollowing(false);
         return;
       }
 
@@ -362,25 +360,19 @@ export default function FeedScreen({ navigation, route }) {
         getBlockedUserIds(user.id),
         getFollowingIds(user.id),
       ]);
-      followingIdsRef.current = followingIds;
-
-      if (followingIds.length === 0) {
-        setPosts([]);
-        setNoFollowing(true);
-        setFollowingHasMore(false);
-        return;
-      }
+      // Always include the current user so their own posts show up in their feed.
+      const feedUserIds = [...new Set([user.id, ...followingIds])];
+      followingIdsRef.current = feedUserIds;
 
       const excludeUserIds = new Set(blockedIds);
       const firstPage = await getFeedPosts({
-        userIds: followingIds,
+        userIds: feedUserIds,
         excludeUserIds,
         offset: 0,
         limit: FOLLOWING_PAGE_SIZE,
       });
 
       setPosts(firstPage);
-      setNoFollowing(false);
       setFollowingOffset(firstPage.length);
       setFollowingHasMore(firstPage.length === FOLLOWING_PAGE_SIZE);
 
@@ -396,14 +388,13 @@ export default function FeedScreen({ navigation, route }) {
     } catch (err) {
       console.error('Failed to load following feed:', err);
       setPosts([]);
-      setNoFollowing(false);
     } finally {
       setLoadingFeed(false);
     }
   }, [user?.id]);
 
   const loadMoreFollowingPosts = useCallback(async () => {
-    if (filter || profileFeedPosts || noFollowing || !followingHasMore || loadingMoreFollowing || !user?.id) return;
+    if (filter || profileFeedPosts || !followingHasMore || loadingMoreFollowing || !user?.id) return;
     setLoadingMoreFollowing(true);
     try {
       const blockedIds = await getBlockedUserIds(user.id);
@@ -430,7 +421,7 @@ export default function FeedScreen({ navigation, route }) {
     } finally {
       setLoadingMoreFollowing(false);
     }
-  }, [filter, profileFeedPosts, noFollowing, followingHasMore, loadingMoreFollowing, followingOffset, user?.id]);
+  }, [filter, profileFeedPosts, followingHasMore, loadingMoreFollowing, followingOffset, user?.id]);
 
   useEffect(() => {
     if (filter || profileFeedPosts) return; // filtered/profile-feed modes have their own loaders
