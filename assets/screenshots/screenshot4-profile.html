@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>SaveitGolf Screenshot 4 - Profile</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Barlow+Condensed:wght@400;500;600;700;800&family=Dancing+Script:wght@600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1284px; height: 2778px; overflow: hidden; background: #0d1f3c; }
+  body { font-family: 'Barlow Condensed', sans-serif; }
+
+  .canvas { width: 1284px; height: 2778px; background: #0d1f3c; display: flex; flex-direction: column; }
+
+  .caption-banner {
+    width: 100%; height: 320px; flex-shrink: 0;
+    background: #16294d; border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .caption-title { font-weight: 800; font-size: 80px; color: #ffffff; letter-spacing: 1px; text-align: center; }
+
+  .phone-wrap { flex: 1; display: flex; align-items: center; justify-content: center; }
+  .phone-frame {
+    width: 1040px; height: 2258px; background: #050505; border-radius: 110px; padding: 16px;
+    position: relative; box-shadow: 0 60px 120px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.05) inset;
+  }
+  .phone-screen { width: 100%; height: 100%; border-radius: 94px; overflow: hidden; position: relative; background: #0d1f3c; }
+
+  .dynamic-island { position: absolute; top: 28px; left: 50%; transform: translateX(-50%); width: 180px; height: 44px; background: #000; border-radius: 22px; z-index: 60; }
+  .status-bar { position: absolute; top: 0; left: 0; right: 0; height: 96px; display: flex; align-items: center; justify-content: space-between; padding: 0 56px; z-index: 55; }
+  .status-time { font-weight: 700; font-size: 34px; color: #fff; letter-spacing: 0.5px; }
+  .status-icons { display: flex; align-items: center; gap: 12px; }
+
+  .profile-header {
+    position: absolute; top: 140px; left: 0; right: 0;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 0 40px;
+  }
+
+  .avatar-ring {
+    width: 260px; height: 260px; border-radius: 130px;
+    border: 8px solid #c0001a;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 26px;
+  }
+  .avatar-inner {
+    width: 224px; height: 224px; border-radius: 112px;
+    background: #24365a;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+
+  .profile-name .name-big { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 58px; color: #ffffff; letter-spacing: 2px; }
+  .profile-name .name-small { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 40px; color: #ffffff; letter-spacing: 1px; }
+  .profile-name { text-transform: uppercase; text-align: center; }
+
+  .profile-username { margin-top: 10px; font-weight: 500; font-size: 32px; color: #8a93a8; }
+
+  .stats-row { display: flex; align-items: center; gap: 0; margin-top: 44px; }
+  .stats-item { display: flex; flex-direction: column; align-items: center; padding: 0 42px; }
+  .stats-num { font-weight: 800; font-size: 48px; color: #ffffff; }
+  .stats-label { font-weight: 500; font-size: 22px; color: #8a93a8; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+  .stats-divider { width: 2px; height: 56px; background: #24365a; }
+
+  .scorecards-btn {
+    margin-top: 44px;
+    background: #4dd860;
+    color: #0d2a0d;
+    font-weight: 700;
+    font-size: 32px;
+    padding: 20px 64px;
+    border-radius: 999px;
+    letter-spacing: 0.5px;
+  }
+
+  .grid-wrap {
+    position: absolute;
+    top: 900px; left: 44px; right: 44px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .grid-item {
+    aspect-ratio: 1;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #152645;
+    border: 1px solid #24365a;
+  }
+  .grid-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+</style>
+</head>
+<body>
+  <div class="canvas">
+    <div class="caption-banner"><div class="caption-title">Build Your Golf Profile</div></div>
+
+    <div class="phone-wrap">
+      <div class="phone-frame">
+        <div class="phone-screen">
+          <div class="dynamic-island"></div>
+          <div class="status-bar">
+            <div class="status-time">9:41</div>
+            <div class="status-icons">
+              <svg width="34" height="22" viewBox="0 0 34 22" fill="none">
+                <rect x="0" y="14" width="6" height="8" rx="1.5" fill="white"/>
+                <rect x="9" y="10" width="6" height="12" rx="1.5" fill="white"/>
+                <rect x="18" y="6" width="6" height="16" rx="1.5" fill="white"/>
+                <rect x="27" y="2" width="6" height="20" rx="1.5" fill="white"/>
+              </svg>
+              <svg width="30" height="22" viewBox="0 0 30 22" fill="none">
+                <circle cx="15" cy="18" r="2.4" fill="white"/>
+                <path d="M9 13c3.3-3 8.7-3 12 0" stroke="white" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+                <path d="M4 8c6-5.3 16-5.3 22 0" stroke="white" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+              </svg>
+              <svg width="50" height="24" viewBox="0 0 50 24" fill="none">
+                <rect x="1" y="1" width="40" height="22" rx="5" stroke="white" stroke-width="2" fill="none" opacity="0.45"/>
+                <rect x="4" y="4" width="34" height="16" rx="3" fill="white"/>
+                <rect x="43" y="8" width="4" height="8" rx="2" fill="white" opacity="0.45"/>
+              </svg>
+            </div>
+          </div>
+
+          <div class="profile-header">
+            <div class="avatar-ring">
+              <div class="avatar-inner">
+                <svg width="110" height="110" viewBox="0 0 100 100">
+                  <circle cx="50" cy="38" r="20" fill="#ffffff" opacity="0.35"/>
+                  <path d="M15 95c0-25 15-40 35-40s35 15 35 40" fill="#ffffff" opacity="0.35"/>
+                </svg>
+              </div>
+            </div>
+
+            <div class="profile-name">
+              <span class="name-big">O</span><span class="name-small">WEN </span><span class="name-big">H</span><span class="name-small">AGGERTY</span>
+            </div>
+            <div class="profile-username">@haggz21</div>
+
+            <div class="stats-row">
+              <div class="stats-item"><div class="stats-num">3</div><div class="stats-label">Posts</div></div>
+              <div class="stats-divider"></div>
+              <div class="stats-item"><div class="stats-num">8</div><div class="stats-label">Followers</div></div>
+              <div class="stats-divider"></div>
+              <div class="stats-item"><div class="stats-num">1</div><div class="stats-label">Following</div></div>
+            </div>
+
+            <div class="scorecards-btn">Scorecards</div>
+          </div>
+
+          <div class="grid-wrap">
+            <div class="grid-item"><img src="../post.1.jpg" alt=""></div>
+            <div class="grid-item"><img src="../post.2.jpg" alt=""></div>
+            <div class="grid-item"><img src="../post.6.jpg" alt=""></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>SaveitGolf Screenshot 2 - Scorecard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Barlow+Condensed:wght@400;500;600;700;800&family=Dancing+Script:wght@600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1284px; height: 2778px; overflow: hidden; background: #0d1f3c; }
+  body { font-family: 'Barlow Condensed', sans-serif; }
+
+  .canvas { width: 1284px; height: 2778px; background: #0d1f3c; display: flex; flex-direction: column; }
+
+  .caption-banner {
+    width: 100%; height: 320px; flex-shrink: 0;
+    background: #16294d; border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .caption-title { font-weight: 800; font-size: 80px; color: #ffffff; letter-spacing: 1px; text-align: center; }
+
+  .phone-wrap { flex: 1; display: flex; align-items: center; justify-content: center; }
+  .phone-frame {
+    width: 1040px; height: 2258px; background: #050505; border-radius: 110px; padding: 16px;
+    position: relative; box-shadow: 0 60px 120px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.05) inset;
+  }
+  .phone-screen { width: 100%; height: 100%; border-radius: 94px; overflow: hidden; position: relative; background: #0d1f3c; }
+
+  .dynamic-island { position: absolute; top: 28px; left: 50%; transform: translateX(-50%); width: 180px; height: 44px; background: #000; border-radius: 22px; z-index: 60; }
+  .status-bar { position: absolute; top: 0; left: 0; right: 0; height: 96px; display: flex; align-items: center; justify-content: space-between; padding: 0 56px; z-index: 55; }
+  .status-time { font-weight: 700; font-size: 34px; color: #fff; letter-spacing: 0.5px; }
+  .status-icons { display: flex; align-items: center; gap: 12px; }
+
+  .screen-header {
+    position: absolute; top: 120px; left: 0; right: 0; text-align: center; z-index: 10;
+  }
+  .screen-header-title { font-weight: 700; font-size: 30px; color: #ffffff; letter-spacing: 1px; }
+
+  .card-wrap {
+    position: absolute;
+    top: 260px; left: 60px; right: 60px; bottom: 140px;
+    background: #0d1f3c;
+    border-radius: 32px;
+    border: 1px solid #24365a;
+    padding: 46px 44px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .name-line { text-transform: uppercase; }
+  .name-big { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 62px; color: #ffffff; letter-spacing: 3px; }
+  .name-small { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 40px; color: #ffffff; letter-spacing: 2px; }
+
+  .course-name-text { font-family: 'Cinzel', serif; font-weight: 700; font-size: 34px; color: #a8c0e0; margin-top: 14px; }
+  .composite-name { font-family: 'Cinzel', serif; font-style: italic; font-weight: 700; font-size: 26px; color: #6a8ab0; margin-top: 6px; }
+
+  .divider { height: 2px; background: #24365a; margin: 26px 0; }
+
+  .nines-row { display: flex; gap: 34px; flex: 1; }
+  .nine-column { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .hole-row { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 5px 0; }
+  .hole-number { width: 44px; text-align: right; color: #8a93a8; font-size: 26px; font-weight: 500; }
+  .score-cell { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; }
+  .score-digit { font-size: 34px; font-weight: 700; color: #ffffff; }
+  .score-birdie { border: 3px solid #4dd860; border-radius: 28px; }
+  .score-birdie .score-digit { color: #4dd860; }
+  .score-bogey { border: 3px solid #c0001a; border-radius: 6px; }
+  .score-bogey .score-digit { color: #c0001a; }
+
+  .totals-row { display: flex; gap: 34px; margin-top: 6px; }
+  .totals-item { flex: 1; display: flex; align-items: center; justify-content: center; gap: 12px; border-top: 1.5px solid rgba(255,255,255,0.15); padding-top: 14px; margin-left: 56px; }
+  .totals-label { color: #6a8ab0; font-size: 22px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+  .totals-score { color: #ffffff; font-size: 46px; font-weight: 700; }
+
+  .total-block {
+    margin-top: 26px;
+    display: flex; align-items: baseline; justify-content: center;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14); border-radius: 14px;
+    padding: 22px 10px;
+  }
+  .total-block-score { font-size: 62px; font-weight: 700; color: #ffffff; }
+  .total-block-diff { font-size: 38px; font-weight: 700; color: #c0001a; margin-left: 10px; }
+
+  .watermark { text-align: center; margin-top: 30px; font-family: 'Dancing Script', cursive; font-weight: 700; font-size: 44px; color: rgba(255,255,255,0.6); }
+  .watermark .golf { color: #c0001a; }
+</style>
+</head>
+<body>
+  <div class="canvas">
+    <div class="caption-banner"><div class="caption-title">Track Every Round</div></div>
+
+    <div class="phone-wrap">
+      <div class="phone-frame">
+        <div class="phone-screen">
+          <div class="dynamic-island"></div>
+          <div class="status-bar">
+            <div class="status-time">9:41</div>
+            <div class="status-icons">
+              <svg width="34" height="22" viewBox="0 0 34 22" fill="none">
+                <rect x="0" y="14" width="6" height="8" rx="1.5" fill="white"/>
+                <rect x="9" y="10" width="6" height="12" rx="1.5" fill="white"/>
+                <rect x="18" y="6" width="6" height="16" rx="1.5" fill="white"/>
+                <rect x="27" y="2" width="6" height="20" rx="1.5" fill="white"/>
+              </svg>
+              <svg width="30" height="22" viewBox="0 0 30 22" fill="none">
+                <circle cx="15" cy="18" r="2.4" fill="white"/>
+                <path d="M9 13c3.3-3 8.7-3 12 0" stroke="white" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+                <path d="M4 8c6-5.3 16-5.3 22 0" stroke="white" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+              </svg>
+              <svg width="50" height="24" viewBox="0 0 50 24" fill="none">
+                <rect x="1" y="1" width="40" height="22" rx="5" stroke="white" stroke-width="2" fill="none" opacity="0.45"/>
+                <rect x="4" y="4" width="34" height="16" rx="3" fill="white"/>
+                <rect x="43" y="8" width="4" height="8" rx="2" fill="white" opacity="0.45"/>
+              </svg>
+            </div>
+          </div>
+
+          <div class="screen-header"><div class="screen-header-title">SCORECARD</div></div>
+
+          <div class="card-wrap">
+            <div class="name-line">
+              <span class="name-big">O</span><span class="name-small">WEN </span><span class="name-big">H</span><span class="name-small">AGGERTY</span>
+            </div>
+            <div class="course-name-text">Elmhurst Country Club</div>
+            <div class="composite-name">Blue / Ridge</div>
+
+            <div class="divider"></div>
+
+            <div class="nines-row">
+              <div class="nine-column">
+                <div class="hole-row"><div class="hole-number">1</div><div class="score-cell"><div class="score-digit">4</div></div></div>
+                <div class="hole-row"><div class="hole-number">2</div><div class="score-cell score-bogey"><div class="score-digit">6</div></div></div>
+                <div class="hole-row"><div class="hole-number">3</div><div class="score-cell"><div class="score-digit">3</div></div></div>
+                <div class="hole-row"><div class="hole-number">4</div><div class="score-cell score-birdie"><div class="score-digit">4</div></div></div>
+                <div class="hole-row"><div class="hole-number">5</div><div class="score-cell"><div class="score-digit">4</div></div></div>
+                <div class="hole-row"><div class="hole-number">6</div><div class="score-cell score-bogey"><div class="score-digit">6</div></div></div>
+                <div class="hole-row"><div class="hole-number">7</div><div class="score-cell score-birdie"><div class="score-digit">2</div></div></div>
+                <div class="hole-row"><div class="hole-number">8</div><div class="score-cell"><div class="score-digit">5</div></div></div>
+                <div class="hole-row"><div class="hole-number">9</div><div class="score-cell"><div class="score-digit">4</div></div></div>
+              </div>
+              <div class="nine-column">
+                <div class="hole-row"><div class="hole-number">10</div><div class="score-cell"><div class="score-digit">4</div></div></div>
+                <div class="hole-row"><div class="hole-number">11</div><div class="score-cell score-birdie"><div class="score-digit">3</div></div></div>
+                <div class="hole-row"><div class="hole-number">12</div><div class="score-cell"><div class="score-digit">3</div></div></div>
+                <div class="hole-row"><div class="hole-number">13</div><div class="score-cell"><div class="score-digit">5</div></div></div>
+                <div class="hole-row"><div class="hole-number">14</div><div class="score-cell score-bogey"><div class="score-digit">5</div></div></div>
+                <div class="hole-row"><div class="hole-number">15</div><div class="score-cell"><div class="score-digit">4</div></div></div>
+                <div class="hole-row"><div class="hole-number">16</div><div class="score-cell score-birdie"><div class="score-digit">3</div></div></div>
+                <div class="hole-row"><div class="hole-number">17</div><div class="score-cell score-bogey"><div class="score-digit">4</div></div></div>
+                <div class="hole-row"><div class="hole-number">18</div><div class="score-cell score-birdie"><div class="score-digit">4</div></div></div>
+              </div>
+            </div>
+
+            <div class="totals-row">
+              <div class="totals-item"><div class="totals-label">Front</div><div class="totals-score">38</div></div>
+              <div class="totals-item"><div class="totals-label">Back</div><div class="totals-score">35</div></div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="total-block">
+              <div class="total-block-score">73</div>
+              <div class="total-block-diff">(+1)</div>
+            </div>
+
+            <div class="watermark">Save it<span class="golf"> Golf</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

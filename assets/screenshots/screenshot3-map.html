@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>SaveitGolf Screenshot 3 - Map</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Barlow+Condensed:wght@400;500;600;700;800&family=Dancing+Script:wght@600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1284px; height: 2778px; overflow: hidden; background: #0d1f3c; }
+  body { font-family: 'Barlow Condensed', sans-serif; }
+
+  .canvas { width: 1284px; height: 2778px; background: #0d1f3c; display: flex; flex-direction: column; }
+
+  .caption-banner {
+    width: 100%; height: 320px; flex-shrink: 0;
+    background: #16294d; border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .caption-title { font-weight: 800; font-size: 80px; color: #ffffff; letter-spacing: 1px; text-align: center; }
+
+  .phone-wrap { flex: 1; display: flex; align-items: center; justify-content: center; }
+  .phone-frame {
+    width: 1040px; height: 2258px; background: #050505; border-radius: 110px; padding: 16px;
+    position: relative; box-shadow: 0 60px 120px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.05) inset;
+  }
+  .phone-screen { width: 100%; height: 100%; border-radius: 94px; overflow: hidden; position: relative; background: #10192b; }
+
+  .dynamic-island { position: absolute; top: 28px; left: 50%; transform: translateX(-50%); width: 180px; height: 44px; background: #000; border-radius: 22px; z-index: 60; }
+  .status-bar { position: absolute; top: 0; left: 0; right: 0; height: 96px; display: flex; align-items: center; justify-content: space-between; padding: 0 56px; z-index: 55; }
+  .status-time { font-weight: 700; font-size: 34px; color: #fff; letter-spacing: 0.5px; }
+  .status-icons { display: flex; align-items: center; gap: 12px; }
+
+  .map-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; }
+
+  .search-bar {
+    position: absolute;
+    top: 150px; left: 48px; right: 48px;
+    height: 96px;
+    background: #f4f5f7;
+    border-radius: 48px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 0 34px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    z-index: 30;
+  }
+  .search-bar span {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 500;
+    font-size: 32px;
+    color: #8a93a8;
+  }
+</style>
+</head>
+<body>
+  <div class="canvas">
+    <div class="caption-banner"><div class="caption-title">Discover Every Course</div></div>
+
+    <div class="phone-wrap">
+      <div class="phone-frame">
+        <div class="phone-screen">
+
+          <svg class="map-svg" viewBox="0 0 1008 2226" preserveAspectRatio="xMidYMid slice">
+            <defs>
+              <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
+                <path d="M60 0 L0 0 0 60" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="1"/>
+              </pattern>
+              <symbol id="pin" viewBox="-18 -36 36 36">
+                <path d="M0 0 C-3 -10 -16 -16 -16 -32 A16 16 0 1 1 16 -32 C16 -16 3 -10 0 0 Z" fill="#4dd860" stroke="#1f4d2e" stroke-width="1.2"/>
+                <circle cx="0" cy="-31" r="6.5" fill="#0d2a0d"/>
+              </symbol>
+            </defs>
+
+            <rect x="0" y="0" width="1008" height="2226" fill="#10192b"/>
+            <rect x="0" y="0" width="1008" height="2226" fill="url(#grid)"/>
+
+            <ellipse cx="180" cy="700" rx="140" ry="90" fill="rgba(80,120,90,0.10)"/>
+            <ellipse cx="780" cy="1150" rx="180" ry="110" fill="rgba(80,120,90,0.08)"/>
+            <ellipse cx="420" cy="1900" rx="220" ry="130" fill="rgba(80,120,90,0.09)"/>
+            <path d="M60 250 C 260 400, 220 700, 420 900 S 700 1300, 620 1750" fill="none" stroke="rgba(90,140,190,0.18)" stroke-width="10" stroke-linecap="round"/>
+
+            <polygon points="160,430 260,370 330,420 840,410 895,540 865,1600 760,1760 640,1620 585,1770 190,1740 140,600"
+                     fill="rgba(46,139,87,0.16)" stroke="rgba(111,189,148,0.55)" stroke-width="4"/>
+
+            <use href="#pin" transform="translate(300,610) scale(1.15)"/>
+            <use href="#pin" transform="translate(510,540) scale(0.95)"/>
+            <use href="#pin" transform="translate(700,660) scale(1.05)"/>
+            <use href="#pin" transform="translate(760,930) scale(1.2)"/>
+            <use href="#pin" transform="translate(640,1080) scale(0.9)"/>
+            <use href="#pin" transform="translate(430,930) scale(1.35)"/>
+            <use href="#pin" transform="translate(290,1030) scale(0.95)"/>
+            <use href="#pin" transform="translate(560,1330) scale(1.0)"/>
+            <use href="#pin" transform="translate(710,1420) scale(0.9)"/>
+            <use href="#pin" transform="translate(390,1420) scale(1.1)"/>
+            <use href="#pin" transform="translate(250,1270) scale(0.9)"/>
+            <use href="#pin" transform="translate(610,1620) scale(1.0)"/>
+            <use href="#pin" transform="translate(500,1770) scale(0.95)"/>
+            <use href="#pin" transform="translate(360,1630) scale(1.05)"/>
+          </svg>
+
+          <div class="dynamic-island"></div>
+          <div class="status-bar">
+            <div class="status-time">9:41</div>
+            <div class="status-icons">
+              <svg width="34" height="22" viewBox="0 0 34 22" fill="none">
+                <rect x="0" y="14" width="6" height="8" rx="1.5" fill="white"/>
+                <rect x="9" y="10" width="6" height="12" rx="1.5" fill="white"/>
+                <rect x="18" y="6" width="6" height="16" rx="1.5" fill="white"/>
+                <rect x="27" y="2" width="6" height="20" rx="1.5" fill="white"/>
+              </svg>
+              <svg width="30" height="22" viewBox="0 0 30 22" fill="none">
+                <circle cx="15" cy="18" r="2.4" fill="white"/>
+                <path d="M9 13c3.3-3 8.7-3 12 0" stroke="white" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+                <path d="M4 8c6-5.3 16-5.3 22 0" stroke="white" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+              </svg>
+              <svg width="50" height="24" viewBox="0 0 50 24" fill="none">
+                <rect x="1" y="1" width="40" height="22" rx="5" stroke="white" stroke-width="2" fill="none" opacity="0.45"/>
+                <rect x="4" y="4" width="34" height="16" rx="3" fill="white"/>
+                <rect x="43" y="8" width="4" height="8" rx="2" fill="white" opacity="0.45"/>
+              </svg>
+            </div>
+          </div>
+
+          <div class="search-bar">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#8a93a8" stroke-width="2.2" stroke-linecap="round">
+              <circle cx="11" cy="11" r="7"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <span>Search for a course</span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

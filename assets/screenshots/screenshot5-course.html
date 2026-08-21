@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>SaveitGolf Screenshot 5 - Course</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Barlow+Condensed:wght@400;500;600;700;800&family=Dancing+Script:wght@600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1284px; height: 2778px; overflow: hidden; background: #0d1f3c; }
+  body { font-family: 'Barlow Condensed', sans-serif; }
+
+  .canvas { width: 1284px; height: 2778px; background: #0d1f3c; display: flex; flex-direction: column; }
+
+  .caption-banner {
+    width: 100%; height: 320px; flex-shrink: 0;
+    background: #16294d; border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .caption-title { font-weight: 800; font-size: 80px; color: #ffffff; letter-spacing: 1px; text-align: center; }
+
+  .phone-wrap { flex: 1; display: flex; align-items: center; justify-content: center; }
+  .phone-frame {
+    width: 1040px; height: 2258px; background: #050505; border-radius: 110px; padding: 16px;
+    position: relative; box-shadow: 0 60px 120px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.05) inset;
+  }
+  .phone-screen { width: 100%; height: 100%; border-radius: 94px; overflow: hidden; position: relative; background: #0d1f3c; }
+
+  .dynamic-island { position: absolute; top: 28px; left: 50%; transform: translateX(-50%); width: 180px; height: 44px; background: #000; border-radius: 22px; z-index: 60; }
+  .status-bar { position: absolute; top: 0; left: 0; right: 0; height: 96px; display: flex; align-items: center; justify-content: space-between; padding: 0 56px; z-index: 55; }
+  .status-time { font-weight: 700; font-size: 34px; color: #fff; letter-spacing: 0.5px; }
+  .status-icons { display: flex; align-items: center; gap: 12px; }
+
+  .course-title { position: absolute; top: 128px; left: 0; right: 0; text-align: center; }
+  .course-title-text { font-family: 'Cinzel', serif; font-weight: 700; font-size: 44px; color: #ffffff; }
+  .course-subtitle { margin-top: 8px; font-weight: 500; font-size: 26px; color: #8a93a8; }
+
+  .sort-bar {
+    position: absolute; top: 256px; left: 40px; right: 40px; height: 78px;
+    display: flex; gap: 12px;
+  }
+  .sort-pill {
+    flex: 1;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 24px;
+    border: 1.5px solid #24365a;
+    color: #8a93a8;
+  }
+  .sort-pill.active {
+    background: #4dd860;
+    color: #0d2a0d;
+    border-color: #4dd860;
+  }
+
+  .grid-wrap {
+    position: absolute;
+    top: 364px; bottom: 40px; left: 40px; right: 40px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(6, 1fr);
+    gap: 14px;
+  }
+  .hole-card {
+    background: #1c1c1e;
+    border: 1.5px solid #24365a;
+    border-radius: 16px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px;
+  }
+  .hole-card.popular {
+    border: 3px solid #c0001a;
+    background: #241416;
+  }
+  .hole-num { color: #ffffff; font-size: 44px; font-weight: 800; }
+  .hole-meta { color: #8a93a8; font-size: 18px; }
+  .hole-posts { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .hole-posts span { color: #c0001a; font-size: 20px; font-weight: 700; }
+</style>
+</head>
+<body>
+  <div class="canvas">
+    <div class="caption-banner"><div class="caption-title">Explore Every Hole</div></div>
+
+    <div class="phone-wrap">
+      <div class="phone-frame">
+        <div class="phone-screen">
+          <div class="dynamic-island"></div>
+          <div class="status-bar">
+            <div class="status-time">9:41</div>
+            <div class="status-icons">
+              <svg width="34" height="22" viewBox="0 0 34 22" fill="none">
+                <rect x="0" y="14" width="6" height="8" rx="1.5" fill="white"/>
+                <rect x="9" y="10" width="6" height="12" rx="1.5" fill="white"/>
+                <rect x="18" y="6" width="6" height="16" rx="1.5" fill="white"/>
+                <rect x="27" y="2" width="6" height="20" rx="1.5" fill="white"/>
+              </svg>
+              <svg width="30" height="22" viewBox="0 0 30 22" fill="none">
+                <circle cx="15" cy="18" r="2.4" fill="white"/>
+                <path d="M9 13c3.3-3 8.7-3 12 0" stroke="white" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+                <path d="M4 8c6-5.3 16-5.3 22 0" stroke="white" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+              </svg>
+              <svg width="50" height="24" viewBox="0 0 50 24" fill="none">
+                <rect x="1" y="1" width="40" height="22" rx="5" stroke="white" stroke-width="2" fill="none" opacity="0.45"/>
+                <rect x="4" y="4" width="34" height="16" rx="3" fill="white"/>
+                <rect x="43" y="8" width="4" height="8" rx="2" fill="white" opacity="0.45"/>
+              </svg>
+            </div>
+          </div>
+
+          <div class="course-title">
+            <div class="course-title-text">Elmhurst Country Club</div>
+            <div class="course-subtitle">Malvern, PA · Par 72</div>
+          </div>
+
+          <div class="sort-bar">
+            <div class="sort-pill">Most Liked</div>
+            <div class="sort-pill">Most Recent</div>
+            <div class="sort-pill active">Hole by Hole</div>
+          </div>
+
+          <div class="grid-wrap" id="holeGrid"></div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const pars = [4,4,3,5,4,4,3,5,4,4,4,3,5,4,4,4,3,5];
+    const posts = [24,31,18,45,22,37,126,29,19,33,27,15,52,41,36,20,23,48];
+    const grid = document.getElementById('holeGrid');
+    const postIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0001a" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>';
+    for (let i = 0; i < 18; i++) {
+      const num = i + 1;
+      const popular = num === 7;
+      const card = document.createElement('div');
+      card.className = 'hole-card' + (popular ? ' popular' : '');
+      card.innerHTML =
+        '<div class="hole-num">' + num + '</div>' +
+        '<div class="hole-meta">Par ' + pars[i] + '</div>' +
+        '<div class="hole-posts">' + postIcon + '<span>' + posts[i] + '</span></div>';
+      grid.appendChild(card);
+    }
+  </script>
+</body>
+</html>
