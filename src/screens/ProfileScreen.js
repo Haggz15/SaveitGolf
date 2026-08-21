@@ -29,7 +29,7 @@ import { submitNewCourse } from '../services/golfCourseApi';
 import { getUserPosts } from '../services/posts';
 import { getFollowerCount, getFollowingCount } from '../services/social';
 
-const TABS = ['Course Rankings', 'Courses Played', 'Uploads'];
+const TABS = ['Uploads', 'Courses Played', 'Course Rankings'];
 
 function RankingsList({ rankings, loading, onUpdate, onAdd, onPressCourse }) {
   return (
