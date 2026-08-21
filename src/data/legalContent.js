@@ -45,12 +45,34 @@ export const TERMS_OF_SERVICE = [
       'copyrighted music playing in the background you assume full legal\n' +
       'responsibility for any claims arising from that content.\n\n' +
       'SaveitGolf reserves the right to remove any content that receives a\n' +
-      'valid copyright complaint without notice. Repeat infringers will have\n' +
-      'their accounts terminated.\n\n' +
-      `To report copyright infringement contact us at:\n${CONTACT_EMAIL}\n\n` +
-      'Please include a description of the infringing content, the URL where\n' +
-      'it appears, your contact information, and a statement that you have a\n' +
-      'good faith belief the use is not authorized by the copyright owner.',
+      'valid copyright complaint without notice.\n\n' +
+      'DMCA DESIGNATED AGENT\n\n' +
+      'SaveitGolf has registered a designated agent with the United States Copyright\n' +
+      'Office in accordance with the Digital Millennium Copyright Act (17 U.S.C. 512).\n\n' +
+      'To submit a copyright infringement notice please contact our designated agent:\n\n' +
+      'Designated Agent: Owen Haggerty\n' +
+      'Service Provider: SaveitGolf\n' +
+      'Website: saveitgolf.com\n' +
+      `Email: ${CONTACT_EMAIL}\n\n` +
+      'Your notice must include all of the following:\n\n' +
+      '1. Your name and contact information including email and phone number\n' +
+      '2. A description of the copyrighted work you claim has been infringed\n' +
+      '3. The specific URL on SaveitGolf where the infringing content appears\n' +
+      '4. A statement that you have a good faith belief that the use is not\n' +
+      '   authorized by the copyright owner, its agent, or the law\n' +
+      '5. A statement that the information in your notice is accurate and\n' +
+      '   under penalty of perjury that you are the copyright owner or\n' +
+      '   authorized to act on their behalf\n' +
+      '6. Your physical or electronic signature\n\n' +
+      'We will respond to valid notices promptly and remove infringing content\n' +
+      'in accordance with the DMCA. Repeat infringers will have their accounts\n' +
+      'terminated.\n\n' +
+      'COUNTER NOTIFICATION\n\n' +
+      'If you believe your content was removed in error you may submit a counter\n' +
+      `notification to ${CONTACT_EMAIL}. Your counter notification must\n` +
+      'include your contact information, identification of the removed content,\n' +
+      'a statement under penalty of perjury that removal was a mistake, your\n' +
+      'consent to jurisdiction, and your signature.',
   },
   {
     heading: '5. Prohibited Conduct',
