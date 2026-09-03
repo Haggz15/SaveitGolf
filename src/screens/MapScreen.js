@@ -127,6 +127,7 @@ export default function MapScreen({ navigation, route }) {
   const { user } = useAuth();
   const mapRef = useRef(null);
   const [emptyMyCoursesToast, setEmptyMyCoursesToast] = useState(null);
+  const [courseSearchFocused, setCourseSearchFocused] = useState(false);
   const playedEmptyToastShownRef = useRef(false);
   const {
     region,
@@ -271,18 +272,24 @@ export default function MapScreen({ navigation, route }) {
             searching={searching}
             onSelectResult={handleSelectSearchResult}
             placeholder="Search for a course"
+            onFocus={() => setCourseSearchFocused(true)}
+            onBlur={() => setCourseSearchFocused(false)}
           />
-          <TouchableOpacity onPress={handleRequestCourse} style={styles.requestCourseButton}>
-            <Text style={styles.requestCourseIcon}>⛳</Text>
-            <Text style={styles.requestCourseText}>
-              Don't see your course?{' '}
-              <Text style={styles.requestCourseLink}>Email us to add it</Text>
-            </Text>
-          </TouchableOpacity>
         </>
       )}
-      <FriendSearchBar currentUserId={user?.id} onSelectFriend={loadFriendCourses} />
       <FilterPills value={filter} onChange={setFilter} />
+      {!courseSearchFocused && (
+        <FriendSearchBar currentUserId={user?.id} onSelectFriend={loadFriendCourses} />
+      )}
+      {zoomLevel !== ZOOM_LEVEL.COUNTRY && (
+        <TouchableOpacity onPress={handleRequestCourse} style={styles.requestCourseButton}>
+          <Text style={styles.requestCourseIcon}>⛳</Text>
+          <Text style={styles.requestCourseText}>
+            Don't see your course?{' '}
+            <Text style={styles.requestCourseLink}>Email us to add it</Text>
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {friendFilter && (
         <View style={styles.friendBanner}>

@@ -14,6 +14,8 @@ export default function CourseSearchBar({
   searching,
   onSelectResult,
   placeholder = 'Search courses, cities, states',
+  onFocus,
+  onBlur,
 }) {
   const showDropdown = query.trim().length > 0;
 
@@ -30,6 +32,8 @@ export default function CourseSearchBar({
           autoCorrect={false}
           autoCapitalize="none"
           returnKeyType="search"
+          onFocus={onFocus}
+          onBlur={onBlur}
         />
         {query.length > 0 && (
           <TouchableOpacity
@@ -88,7 +92,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.navy,
     borderBottomWidth: 1,
     borderBottomColor: colors.navyBorder,
-    zIndex: 2000,
+    zIndex: 1000,
   },
   searchRow: {
     flexDirection: 'row',
@@ -123,8 +127,8 @@ const styles = StyleSheet.create({
     borderColor: colors.navyBorder,
     borderRadius: 12,
     overflow: 'hidden',
-    zIndex: 2001,
-    elevation: 8,
+    zIndex: 1001,
+    elevation: 10,
   },
   resultsList: {
     maxHeight: 280,

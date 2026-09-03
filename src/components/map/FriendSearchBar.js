@@ -117,7 +117,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 12,
     backgroundColor: colors.navy,
-    zIndex: 2000,
+    zIndex: 500,
+    elevation: 5,
   },
   searchRow: {
     flexDirection: 'row',
