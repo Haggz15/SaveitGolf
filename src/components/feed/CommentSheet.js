@@ -163,7 +163,13 @@ export default function CommentSheet({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      supportedOrientations={['portrait']}
+      onRequestClose={onClose}
+    >
       <View style={styles.backdrop}>
         <TouchableOpacity style={styles.backdropTouch} activeOpacity={1} onPress={onClose} />
         <KeyboardAvoidingView

@@ -14,7 +14,13 @@ export default function StateSelect({ value, onChange, placeholder = 'Select hom
         <Ionicons name="chevron-down" size={18} color={colors.muted} />
       </TouchableOpacity>
 
-      <Modal visible={visible} animationType="slide" transparent onRequestClose={() => setVisible(false)}>
+      <Modal
+        visible={visible}
+        animationType="slide"
+        transparent
+        supportedOrientations={['portrait']}
+        onRequestClose={() => setVisible(false)}
+      >
         <SafeAreaView style={styles.modalRoot}>
           <View style={styles.sheet}>
             <View style={styles.sheetHeader}>

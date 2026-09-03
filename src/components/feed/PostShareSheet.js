@@ -86,7 +86,13 @@ export default function PostShareSheet({ visible, post, onClose, onToast, onShar
 
   if (isWeb) {
     return (
-      <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+      <Modal
+        visible={visible}
+        animationType="fade"
+        transparent
+        supportedOrientations={['portrait']}
+        onRequestClose={onClose}
+      >
         <TouchableOpacity style={styles.webBackdrop} activeOpacity={1} onPress={onClose}>
           <View style={styles.webCard} onStartShouldSetResponder={() => true}>
             <TouchableOpacity style={styles.webRow} onPress={handleSaveToCameraRoll} disabled={busy}>
@@ -104,7 +110,13 @@ export default function PostShareSheet({ visible, post, onClose, onToast, onShar
   }
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      supportedOrientations={['portrait']}
+      onRequestClose={onClose}
+    >
       <View style={styles.backdrop}>
         <TouchableOpacity style={styles.backdropTouch} activeOpacity={1} onPress={onClose} />
         <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}>

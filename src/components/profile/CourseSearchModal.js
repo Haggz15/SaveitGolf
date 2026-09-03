@@ -123,7 +123,13 @@ export default function CourseSearchModal({ visible, onClose, onAddCourse, onAdd
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      supportedOrientations={['portrait']}
+      onRequestClose={onClose}
+    >
       <KeyboardAvoidingView
         style={[styles.screen, { paddingTop: insets.top + 12 }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}

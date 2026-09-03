@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Platform, TouchableOpacity, Switch } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity, Switch, Linking } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -247,6 +247,15 @@ export default function MapScreen({ navigation, route }) {
     );
   };
 
+  const handleRequestCourse = () => {
+    const email = 'saveitgolfapp@gmail.com';
+    const subject = 'Course Request';
+    const body =
+      'Hi SaveitGolf team, I would like to request the following course be added:\n\nCourse Name:\nCity:\nState:\nNumber of Holes:';
+    const mailtoUrl = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    Linking.openURL(mailtoUrl);
+  };
+
   return (
     <View style={styles.screen}>
       <Header />
@@ -262,6 +271,13 @@ export default function MapScreen({ navigation, route }) {
             onSelectResult={handleSelectSearchResult}
             placeholder="Search for a course"
           />
+          <TouchableOpacity onPress={handleRequestCourse} style={styles.requestCourseButton}>
+            <Text style={styles.requestCourseIcon}>⛳</Text>
+            <Text style={styles.requestCourseText}>
+              Don't see your course?{' '}
+              <Text style={styles.requestCourseLink}>Email us to add it</Text>
+            </Text>
+          </TouchableOpacity>
         </>
       )}
       <FriendSearchBar currentUserId={user?.id} onSelectFriend={loadFriendCourses} />
@@ -383,6 +399,30 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     paddingHorizontal: 16,
     paddingTop: 12,
+  },
+  requestCourseButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    padding: 10,
+    marginTop: 8,
+    marginHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  requestCourseIcon: {
+    fontSize: 12,
+  },
+  requestCourseText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 11,
+  },
+  requestCourseLink: {
+    color: colors.brightGreen,
+    textDecorationLine: 'underline',
   },
   friendBanner: {
     flexDirection: 'row',

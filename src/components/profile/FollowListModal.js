@@ -115,7 +115,12 @@ export default function FollowListModal({ visible, mode, profileUserId, currentU
   const emptyText = mode === 'followers' ? 'No followers yet' : 'Not following anyone yet';
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      supportedOrientations={['portrait']}
+      onRequestClose={onClose}
+    >
       <View style={styles.screen}>
         <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <TouchableOpacity

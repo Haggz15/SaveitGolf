@@ -15,7 +15,13 @@ export default function ShareOptionsModal({
   onShareMore,
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      supportedOrientations={['portrait']}
+      onRequestClose={onClose}
+    >
       <View style={styles.backdrop}>
         <TouchableOpacity style={styles.backdropTouch} activeOpacity={1} onPress={onClose} />
         <View style={styles.sheet}>

@@ -61,7 +61,13 @@ export default function HandicapInputModal({ visible, onClose, onSubmit }) {
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={resetAndClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      supportedOrientations={['portrait']}
+      onRequestClose={resetAndClose}
+    >
       <SafeAreaView style={styles.modalRoot}>
         <View style={styles.sheet}>
           <View style={styles.sheetHeader}>

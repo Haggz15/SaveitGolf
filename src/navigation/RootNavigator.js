@@ -3,6 +3,7 @@ import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
@@ -66,6 +67,11 @@ function Tabs() {
   // pending request is really just an unread `follow` notification (see
   // NotificationsContext).
   const { followUnreadCount } = useNotifications();
+  const insets = useSafeAreaInsets();
+  // iPad's home indicator inset differs from an iPhone's — a hardcoded
+  // paddingBottom either clips the bar's content or leaves a dead gap below
+  // it, so size the bar off the actual inset instead.
+  const tabBarBottomPadding = Math.max(insets.bottom, 12);
 
   return (
     <Tab.Navigator
@@ -78,9 +84,9 @@ function Tabs() {
           backgroundColor: colors.navy,
           borderTopColor: colors.navyBorder,
           borderTopWidth: 1,
-          height: 82,
+          height: 62 + tabBarBottomPadding,
           paddingTop: 8,
-          paddingBottom: 20,
+          paddingBottom: tabBarBottomPadding,
         },
         tabBarLabelStyle: {
           fontSize: 11,

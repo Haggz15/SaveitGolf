@@ -242,6 +242,7 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
+      supportedOrientations={['portrait']}
       onRequestClose={handleRequestClose}
     >
       <KeyboardAvoidingView

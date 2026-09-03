@@ -171,7 +171,13 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      supportedOrientations={['portrait']}
+      onRequestClose={onClose}
+    >
       <View style={[styles.screen, { paddingTop: insets.top + 12 }]}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Scorecard</Text>

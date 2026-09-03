@@ -89,7 +89,13 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
   if (!mounted) return null;
 
   return (
-    <Modal visible={mounted} animationType="none" transparent onRequestClose={onClose}>
+    <Modal
+      visible={mounted}
+      animationType="none"
+      transparent
+      supportedOrientations={['portrait']}
+      onRequestClose={onClose}
+    >
       <View style={styles.root}>
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
         <Animated.View style={[styles.panel, { height: panelHeight, transform: [{ translateY }] }]}>

@@ -14,7 +14,7 @@ import {
   Alert,
   Animated,
   Easing,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -543,8 +543,18 @@ export default function PostScreen({ navigation }) {
   };
 
   const insets = useSafeAreaInsets();
-  const { height: screenHeight } = Dimensions.get('window');
-  const previewHeight = screenHeight < 700 ? 260 : screenHeight < 800 ? 300 : 340;
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const isTablet = Platform.isPad || screenWidth >= 768;
+  // iPad screens are much taller than any phone, so the phone breakpoints
+  // below would otherwise cap the preview at a tiny 340pt box — give
+  // tablets a preview that scales with the available height instead.
+  const previewHeight = isTablet
+    ? Math.min(520, screenHeight * 0.4)
+    : screenHeight < 700
+    ? 260
+    : screenHeight < 800
+    ? 300
+    : 340;
 
   return (
     <KeyboardAvoidingView
@@ -561,7 +571,13 @@ export default function PostScreen({ navigation }) {
         <Ionicons name="chevron-back" size={22} color={colors.white} />
       </TouchableOpacity>
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          isTablet && { paddingHorizontal: Math.max(20, (screenWidth - 600) / 2) },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={styles.title}>New Hole Post</Text>
 
         <View style={[styles.photoUpload, { height: previewHeight }]}>

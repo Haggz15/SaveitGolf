@@ -9,6 +9,7 @@ import {
   Linking,
   Alert,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
@@ -35,6 +36,11 @@ import { compressImage } from '../utils/imageCompression';
 
 export default function ScorecardScreen() {
   const { user, profile } = useAuth();
+  const { width: windowWidth } = useWindowDimensions();
+  // On iPad the scorecard, buttons, and past-scorecards list would otherwise
+  // stretch edge-to-edge across a ~1000pt+ screen — cap the content column
+  // and center it like a reading-width form instead.
+  const isTablet = Platform.isPad || windowWidth >= 768;
   const shareCardRef = useRef(null);
   const [isSharing, setIsSharing] = useState(false);
   // True while a share capture is in flight (native or web) — hides the New
@@ -452,7 +458,13 @@ export default function ScorecardScreen() {
   return (
     <View style={styles.screen}>
       <Header />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          isTablet && { paddingHorizontal: Math.max(16, (windowWidth - 600) / 2) },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         {!hideShareExtras && (
           <TouchableOpacity
             style={styles.newScorecardButton}

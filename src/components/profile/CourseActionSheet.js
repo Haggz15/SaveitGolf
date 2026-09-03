@@ -9,7 +9,13 @@ import colors from '../../theme/colors';
 // straight to its Course Detail page.
 export default function CourseActionSheet({ visible, course, onClose, onViewMap, onViewCourseDetail }) {
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      supportedOrientations={['portrait']}
+      onRequestClose={onClose}
+    >
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity activeOpacity={1} style={styles.sheet} onPress={() => {}}>
           <View style={styles.handle} />

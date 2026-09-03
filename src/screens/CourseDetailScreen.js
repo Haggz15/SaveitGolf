@@ -443,7 +443,7 @@ export default function CourseDetailScreen({ route, navigation }) {
         )}
       </ScrollView>
 
-      <View style={styles.bottomNav}>
+      <View style={[styles.bottomNav, { height: 62 + Math.max(insets.bottom, 12), paddingBottom: Math.max(insets.bottom, 12) }]}>
         <BottomNavButton
           icon="people-outline"
           iconFocused="people"
