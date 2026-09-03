@@ -313,7 +313,6 @@ export default function MapScreen({ navigation, route }) {
           />
         </>
       )}
-      <FilterPills value={filter} onChange={setFilter} />
       {!courseSearchFocused && (
         <FriendSearchBar currentUserId={user?.id} onSelectFriend={loadFriendCourses} />
       )}
@@ -326,6 +325,7 @@ export default function MapScreen({ navigation, route }) {
           </Text>
         </TouchableOpacity>
       )}
+      <FilterPills value={filter} onChange={setFilter} />
 
       {friendFilter && (
         <View style={styles.friendBanner}>
