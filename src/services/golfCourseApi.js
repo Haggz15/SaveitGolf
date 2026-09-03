@@ -28,6 +28,18 @@ export class RateLimitError extends Error {
   }
 }
 
+// Thrown when golfcourseapi.com rejects the request with HTTP 401 — the
+// GOLF_COURSE_API_KEY the build was compiled with is missing, wrong, or has
+// been regenerated on the golfcourseapi.com account. Distinguished from a
+// generic failure so callers (see useCourseMapData) can surface something
+// more actionable than a silent "no results found".
+export class ApiKeyError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ApiKeyError';
+  }
+}
+
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -84,6 +96,10 @@ async function apiFetch(path) {
   if (res.status === 429) {
     console.error('[golfcourseapi] rate limited:', body);
     throw new RateLimitError('golfcourseapi.com daily request limit reached');
+  }
+  if (res.status === 401) {
+    console.error('[golfcourseapi] API key rejected:', body);
+    throw new ApiKeyError(body?.error || 'golfcourseapi.com rejected the API key');
   }
   if (!res.ok) {
     console.error('[golfcourseapi] request failed:', res.status, body);

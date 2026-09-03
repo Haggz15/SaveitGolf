@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Location from 'expo-location';
 import { stateCenters, allStateAbbreviations } from '../data/courses';
-import { getCourseById, searchCourses, RateLimitError } from '../services/golfCourseApi';
+import { getCourseById, searchCourses, RateLimitError, ApiKeyError } from '../services/golfCourseApi';
 import { getPostsForCourse, updatePostCoordinates } from '../services/posts';
 import { geocodeCourseCoordinates } from '../services/geocoding';
 import { getMyCourses, updateMyCourseCoordinates, getSavedCourseCoordinates } from '../services/myCourses';
@@ -93,6 +93,11 @@ export function useCourseMapData({
   // recenter API off of it.
   const [focusRegion, setFocusRegion] = useState(null);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
+  // Set when golfcourseapi.com rejects our API key (HTTP 401) — distinct
+  // from a real zero-result search so the UI can say what's actually wrong
+  // instead of quietly showing "No courses found" (see GOLF_COURSE_API_KEY
+  // in .env / Netlify environment variables).
+  const [apiKeyError, setApiKeyError] = useState(false);
   const [locationDenied, setLocationDenied] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [selectedDetail, setSelectedDetail] = useState(null); // { holes, loading, error }
@@ -635,12 +640,14 @@ export function useCourseMapData({
         if (requestId === searchRequestIdRef.current) {
           setSearchResults(results);
           setQuotaExceeded(false);
+          setApiKeyError(false);
         }
       } catch (err) {
         console.error('[useCourseMapData] search failed:', err.message);
         if (requestId === searchRequestIdRef.current) {
           setSearchResults([]);
           if (err instanceof RateLimitError) setQuotaExceeded(true);
+          if (err instanceof ApiKeyError) setApiKeyError(true);
         }
       } finally {
         if (requestId === searchRequestIdRef.current) setSearching(false);
@@ -693,6 +700,7 @@ export function useCourseMapData({
     loadFriendCourses,
     clearFriendFilter,
     quotaExceeded,
+    apiKeyError,
     locationDenied,
     selectedCourse,
     selectedDetail,
