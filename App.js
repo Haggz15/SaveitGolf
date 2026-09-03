@@ -12,6 +12,7 @@ import { Oswald_600SemiBold, Oswald_700Bold } from '@expo-google-fonts/oswald';
 import RootNavigator from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
 import { NotificationsProvider } from './src/context/NotificationsContext';
+import ErrorBoundary from './src/components/ErrorBoundary';
 import colors from './src/theme/colors';
 
 SplashScreen.preventAutoHideAsync();
@@ -38,16 +39,18 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
-      <View style={styles.container} onLayout={onLayoutRootView}>
-        <StatusBar style="light" />
-        <AuthProvider>
-          <NotificationsProvider>
-            <RootNavigator />
-          </NotificationsProvider>
-        </AuthProvider>
-      </View>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <View style={styles.container} onLayout={onLayoutRootView}>
+          <StatusBar style="light" />
+          <AuthProvider>
+            <NotificationsProvider>
+              <RootNavigator />
+            </NotificationsProvider>
+          </AuthProvider>
+        </View>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 
