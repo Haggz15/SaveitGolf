@@ -1,6 +1,11 @@
 [build]
-  command = "npx expo export --platform web"
+  command = "expo export --platform web && cp public/privacy.html dist/privacy.html && cp public/terms.html dist/terms.html && cp public/support.html dist/support.html"
   publish = "dist"
+
+[[redirects]]
+  from = "/support"
+  to = "/support.html"
+  status = 200
 
 [[redirects]]
   from = "/privacy"
