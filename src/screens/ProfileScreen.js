@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
   Linking,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
@@ -570,7 +571,17 @@ export default function ProfileScreen({ navigation }) {
 
   return (
     <View style={styles.screen}>
-      <Header />
+      <Header
+        right={
+          <TouchableOpacity
+            style={styles.headerIconButton}
+            onPress={() => setShowAccountMenu(true)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="person-circle-outline" size={24} color={colors.white} />
+          </TouchableOpacity>
+        }
+      />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.profileHeader}>
           <TouchableOpacity style={styles.avatarRing} onPress={handlePickAvatar} activeOpacity={0.85}>
@@ -729,113 +740,76 @@ export default function ProfileScreen({ navigation }) {
           </TouchableOpacity>
           <Text style={styles.legalFooterMeta}>SaveitGolf v1.0.0 · saveitgolfapp@gmail.com</Text>
         </View>
-
-        {/* Account Button */}
-        <TouchableOpacity
-          onPress={() => setShowAccountMenu(!showAccountMenu)}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            backgroundColor: '#1a2e4a',
-            borderRadius: 12,
-            padding: 14,
-            marginTop: 16,
-            marginHorizontal: 16,
-            borderWidth: 0.5,
-            borderColor: 'rgba(255,255,255,0.1)',
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Text style={{ fontSize: 18 }}>👤</Text>
-            <Text
-              style={{
-                color: '#fff',
-                fontSize: 15,
-                fontWeight: '700',
-                fontFamily: 'Cinzel_700Bold',
-              }}
-            >
-              Account
-            </Text>
-          </View>
-          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 16 }}>
-            {showAccountMenu ? '▲' : '▼'}
-          </Text>
-        </TouchableOpacity>
-
-        {/* Account Menu — expands when tapped */}
-        {showAccountMenu && (
-          <View
-            style={{
-              backgroundColor: '#1a2e4a',
-              marginHorizontal: 16,
-              borderBottomLeftRadius: 12,
-              borderBottomRightRadius: 12,
-              borderWidth: 0.5,
-              borderTopWidth: 0,
-              borderColor: 'rgba(255,255,255,0.1)',
-              overflow: 'hidden',
-            }}
-          >
-            {/* Divider */}
-            <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.1)' }} />
-
-            {/* Email Support */}
-            <TouchableOpacity
-              onPress={() => Linking.openURL('mailto:saveitgolfapp@gmail.com?subject=SaveitGolf Support')}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 12,
-                padding: 14,
-                borderBottomWidth: 0.5,
-                borderColor: 'rgba(255,255,255,0.08)',
-              }}
-            >
-              <Text style={{ fontSize: 16 }}>✉️</Text>
-              <Text style={{ color: '#fff', fontSize: 14 }}>Email Support</Text>
-            </TouchableOpacity>
-
-            {/* Log Out */}
-            <TouchableOpacity
-              onPress={handleLogout}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 12,
-                padding: 14,
-                borderBottomWidth: 0.5,
-                borderColor: 'rgba(255,255,255,0.08)',
-              }}
-            >
-              <Text style={{ fontSize: 16 }}>🚪</Text>
-              <Text style={{ color: '#fff', fontSize: 14 }}>Log Out</Text>
-            </TouchableOpacity>
-
-            {/* Delete Account */}
-            <TouchableOpacity
-              onPress={handleDeleteAccount}
-              disabled={deletingAccount}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 12,
-                padding: 14,
-              }}
-            >
-              {deletingAccount ? (
-                <ActivityIndicator color="#c0001a" size="small" />
-              ) : (
-                <>
-                  <Text style={{ fontSize: 16 }}>🗑️</Text>
-                  <Text style={{ color: '#c0001a', fontSize: 14 }}>Delete Account</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        )}
       </ScrollView>
+
+      <Modal
+        visible={showAccountMenu}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAccountMenu(false)}
+      >
+        <TouchableOpacity
+          style={styles.accountModalBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowAccountMenu(false)}
+        />
+        <View style={styles.accountModalSheet}>
+          <Text style={styles.accountModalTitle}>Account</Text>
+
+          <TouchableOpacity
+            onPress={() => {
+              setShowAccountMenu(false);
+              Linking.openURL('mailto:saveitgolfapp@gmail.com?subject=SaveitGolf Support');
+            }}
+            style={styles.accountModalOption}
+          >
+            <Ionicons name="mail-outline" size={20} color={colors.white} />
+            <View>
+              <Text style={styles.accountModalOptionTitle}>Email Support</Text>
+              <Text style={styles.accountModalOptionSubtitle}>saveitgolfapp@gmail.com</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              setShowAccountMenu(false);
+              handleLogout();
+            }}
+            style={styles.accountModalOption}
+          >
+            <Ionicons name="log-out-outline" size={20} color={colors.white} />
+            <Text style={styles.accountModalOptionTitle}>Log Out</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              setShowAccountMenu(false);
+              handleDeleteAccount();
+            }}
+            disabled={deletingAccount}
+            style={styles.accountModalDeleteOption}
+          >
+            {deletingAccount ? (
+              <ActivityIndicator color={colors.red} size="small" />
+            ) : (
+              <>
+                <Ionicons name="trash-outline" size={20} color={colors.red} />
+                <View>
+                  <Text style={styles.accountModalDeleteTitle}>Delete Account</Text>
+                  <Text style={styles.accountModalDeleteSubtitle}>Permanently deletes all your data</Text>
+                </View>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setShowAccountMenu(false)}
+            style={styles.accountModalCancel}
+          >
+            <Text style={styles.accountModalCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
 
       <CourseRankingModal
         visible={rankingModalVisible}
@@ -1213,5 +1187,81 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  headerIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.navyCard,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 0.5,
+    borderColor: colors.navyBorder,
+  },
+  accountModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  accountModalSheet: {
+    backgroundColor: colors.navy,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    paddingBottom: 32,
+    borderTopWidth: 0.5,
+    borderColor: colors.navyBorder,
+  },
+  accountModalTitle: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  accountModalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 16,
+    backgroundColor: colors.navyCard,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  accountModalOptionTitle: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  accountModalOptionSubtitle: {
+    color: colors.muted,
+    fontSize: 11,
+  },
+  accountModalDeleteOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 16,
+    backgroundColor: 'rgba(192,0,26,0.1)',
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: 'rgba(192,0,26,0.3)',
+    marginBottom: 20,
+  },
+  accountModalDeleteTitle: {
+    color: colors.red,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  accountModalDeleteSubtitle: {
+    color: 'rgba(192,0,26,0.6)',
+    fontSize: 11,
+  },
+  accountModalCancel: {
+    padding: 12,
+    alignItems: 'center',
+  },
+  accountModalCancelText: {
+    color: colors.muted,
+    fontSize: 14,
   },
 });
