@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Linking,
   Modal,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
@@ -193,24 +194,36 @@ export default function ProfileScreen({ navigation }) {
   const [showAccountMenu, setShowAccountMenu] = useState(false);
 
   function handleDeleteAccount() {
-    Alert.alert(
-      'Delete Account',
-      'Are you sure you want to delete your account? This will permanently delete all your posts, scorecards, and profile data. This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete Account',
-          style: 'destructive',
-          onPress: confirmDeleteAccount,
-        },
-      ]
-    );
+    const message =
+      'Are you sure you want to delete your account? This will permanently delete all your posts, scorecards, and profile data. This action cannot be undone.';
+
+    if (Platform.OS === 'web') {
+      // Alert.alert has no implementation on react-native-web, so it
+      // silently does nothing when tapped (see confirmDeleteComment in
+      // CommentSheet.js for the same pattern) — window.confirm is the web
+      // equivalent.
+      if (window.confirm(message)) {
+        confirmDeleteAccount();
+      }
+      return;
+    }
+
+    Alert.alert('Delete Account', message, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete Account',
+        style: 'destructive',
+        onPress: confirmDeleteAccount,
+      },
+    ]);
   }
 
   async function confirmDeleteAccount() {
+    console.log('Starting account deletion...');
     setDeletingAccount(true);
     try {
       await deleteAccount();
+      console.log('Account deleted server-side, signing out...');
       // The RPC above deletes the auth.users row server-side, but that
       // doesn't clear this client's cached session — sign out explicitly so
       // AuthContext's onAuthStateChange listener swaps in the auth stack
@@ -219,11 +232,21 @@ export default function ProfileScreen({ navigation }) {
       // server rejecting a session for a user that no longer exists) is
       // not worth surfacing as a failure.
       await supabase.auth.signOut().catch((err) => console.error('Post-delete sign out error:', err));
-      Alert.alert('Account Deleted', 'Your account and all associated data has been permanently deleted.');
+      console.log('Signed out, account deletion complete');
+      if (Platform.OS === 'web') {
+        window.alert('Your account and all associated data has been permanently deleted.');
+      } else {
+        Alert.alert('Account Deleted', 'Your account and all associated data has been permanently deleted.');
+      }
     } catch (err) {
       console.error('Delete account error:', err);
       setDeletingAccount(false);
-      Alert.alert('Error', 'Could not delete account. Please try again or contact saveitgolfapp@gmail.com');
+      const errorMessage = `Could not delete account. Please try again or contact saveitgolfapp@gmail.com${err?.message ? `\n\n(${err.message})` : ''}`;
+      if (Platform.OS === 'web') {
+        window.alert(errorMessage);
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
     }
   }
 
