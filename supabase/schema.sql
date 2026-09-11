@@ -916,3 +916,25 @@ drop policy if exists "Users can unlike comments as themselves" on public.commen
 create policy "Users can unlike comments as themselves"
   on public.comment_likes for delete
   using (auth.uid() = user_id);
+
+-- Account deletion: every table above FKs to auth.users(id) on delete
+-- cascade, so removing the auth.users row alone cascades through profiles,
+-- posts (and its own cascades to comments/post_likes/notifications/
+-- saved_posts/reports/post_tags), scorecards, course_rankings, my_courses,
+-- followers, friend_requests, blocked_users, and comment_likes. Deleting
+-- from auth.users requires elevated privileges the client's anon/authenticated
+-- role doesn't have, so this security-definer function (owned by postgres)
+-- does it on the caller's behalf, scoped to auth.uid() so a user can only
+-- ever delete themselves.
+create or replace function public.delete_own_account()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from auth.users where id = auth.uid();
+end;
+$$;
+
+grant execute on function public.delete_own_account() to authenticated;

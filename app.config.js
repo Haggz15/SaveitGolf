@@ -20,7 +20,7 @@ module.exports = {
     scheme: 'saveitgolf',
     ios: {
       bundleIdentifier: 'com.saveitgolf.app',
-      buildNumber: '7',
+      buildNumber: '8',
       supportsTablet: true,
       config: {
         googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,

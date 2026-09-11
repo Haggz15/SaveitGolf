@@ -28,6 +28,7 @@ import { geocodeCourseCoordinates } from '../services/geocoding';
 import { submitNewCourse } from '../services/golfCourseApi';
 import { getUserPosts } from '../services/posts';
 import { getFollowerCount, getFollowingCount } from '../services/social';
+import { deleteAccount } from '../services/auth';
 
 const TABS = ['Uploads', 'Courses Played', 'Course Rankings'];
 
@@ -186,6 +187,42 @@ export default function ProfileScreen({ navigation }) {
   const [followListVisible, setFollowListVisible] = useState(false);
   const [followListMode, setFollowListMode] = useState('followers');
   const [actionSheetCourse, setActionSheetCourse] = useState(null);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
+  function handleDeleteAccount() {
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to delete your account? This will permanently delete all your posts, scorecards, and profile data. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Account',
+          style: 'destructive',
+          onPress: confirmDeleteAccount,
+        },
+      ]
+    );
+  }
+
+  async function confirmDeleteAccount() {
+    setDeletingAccount(true);
+    try {
+      await deleteAccount();
+      // The RPC above deletes the auth.users row server-side, but that
+      // doesn't clear this client's cached session — sign out explicitly so
+      // AuthContext's onAuthStateChange listener swaps in the auth stack
+      // (see handleLogout above), same as a normal log out. The account is
+      // already gone at this point, so a signOut error here (e.g. the
+      // server rejecting a session for a user that no longer exists) is
+      // not worth surfacing as a failure.
+      await supabase.auth.signOut().catch((err) => console.error('Post-delete sign out error:', err));
+      Alert.alert('Account Deleted', 'Your account and all associated data has been permanently deleted.');
+    } catch (err) {
+      console.error('Delete account error:', err);
+      setDeletingAccount(false);
+      Alert.alert('Error', 'Could not delete account. Please try again or contact saveitgolfapp@gmail.com');
+    }
+  }
 
   function handlePressRanking(item) {
     setActionSheetCourse({
@@ -698,6 +735,18 @@ export default function ProfileScreen({ navigation }) {
             <Text style={styles.legalFooterLink}>Privacy Policy</Text>
           </TouchableOpacity>
           <Text style={styles.legalFooterMeta}>SaveitGolf v1.0.0 · saveitgolfapp@gmail.com</Text>
+
+          <TouchableOpacity
+            onPress={handleDeleteAccount}
+            disabled={deletingAccount}
+            style={styles.deleteAccountButton}
+          >
+            {deletingAccount ? (
+              <ActivityIndicator color="#c0001a" size="small" />
+            ) : (
+              <Text style={styles.deleteAccountButtonText}>Delete Account</Text>
+            )}
+          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -760,6 +809,16 @@ const styles = StyleSheet.create({
   legalFooterMeta: {
     color: 'rgba(255,255,255,0.2)',
     fontSize: 10,
+  },
+  deleteAccountButton: {
+    marginTop: 12,
+    padding: 12,
+    alignItems: 'center',
+  },
+  deleteAccountButtonText: {
+    color: '#c0001a',
+    fontSize: 13,
+    textDecorationLine: 'underline',
   },
   profileHeader: {
     alignItems: 'center',
