@@ -9,6 +9,7 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
@@ -188,6 +189,7 @@ export default function ProfileScreen({ navigation }) {
   const [followListMode, setFollowListMode] = useState('followers');
   const [actionSheetCourse, setActionSheetCourse] = useState(null);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
 
   function handleDeleteAccount() {
     Alert.alert(
@@ -568,16 +570,7 @@ export default function ProfileScreen({ navigation }) {
 
   return (
     <View style={styles.screen}>
-      <Header
-        right={
-          <TouchableOpacity
-            onPress={handleLogout}
-            style={{ padding: 10, backgroundColor: '#c0001a', borderRadius: 8 }}
-          >
-            <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 14 }}>Log Out</Text>
-          </TouchableOpacity>
-        }
-      />
+      <Header />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.profileHeader}>
           <TouchableOpacity style={styles.avatarRing} onPress={handlePickAvatar} activeOpacity={0.85}>
@@ -735,19 +728,113 @@ export default function ProfileScreen({ navigation }) {
             <Text style={styles.legalFooterLink}>Privacy Policy</Text>
           </TouchableOpacity>
           <Text style={styles.legalFooterMeta}>SaveitGolf v1.0.0 · saveitgolfapp@gmail.com</Text>
-
-          <TouchableOpacity
-            onPress={handleDeleteAccount}
-            disabled={deletingAccount}
-            style={styles.deleteAccountButton}
-          >
-            {deletingAccount ? (
-              <ActivityIndicator color="#c0001a" size="small" />
-            ) : (
-              <Text style={styles.deleteAccountButtonText}>Delete Account</Text>
-            )}
-          </TouchableOpacity>
         </View>
+
+        {/* Account Button */}
+        <TouchableOpacity
+          onPress={() => setShowAccountMenu(!showAccountMenu)}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: '#1a2e4a',
+            borderRadius: 12,
+            padding: 14,
+            marginTop: 16,
+            marginHorizontal: 16,
+            borderWidth: 0.5,
+            borderColor: 'rgba(255,255,255,0.1)',
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Text style={{ fontSize: 18 }}>👤</Text>
+            <Text
+              style={{
+                color: '#fff',
+                fontSize: 15,
+                fontWeight: '700',
+                fontFamily: 'Cinzel_700Bold',
+              }}
+            >
+              Account
+            </Text>
+          </View>
+          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 16 }}>
+            {showAccountMenu ? '▲' : '▼'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Account Menu — expands when tapped */}
+        {showAccountMenu && (
+          <View
+            style={{
+              backgroundColor: '#1a2e4a',
+              marginHorizontal: 16,
+              borderBottomLeftRadius: 12,
+              borderBottomRightRadius: 12,
+              borderWidth: 0.5,
+              borderTopWidth: 0,
+              borderColor: 'rgba(255,255,255,0.1)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Divider */}
+            <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.1)' }} />
+
+            {/* Email Support */}
+            <TouchableOpacity
+              onPress={() => Linking.openURL('mailto:saveitgolfapp@gmail.com?subject=SaveitGolf Support')}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+                padding: 14,
+                borderBottomWidth: 0.5,
+                borderColor: 'rgba(255,255,255,0.08)',
+              }}
+            >
+              <Text style={{ fontSize: 16 }}>✉️</Text>
+              <Text style={{ color: '#fff', fontSize: 14 }}>Email Support</Text>
+            </TouchableOpacity>
+
+            {/* Log Out */}
+            <TouchableOpacity
+              onPress={handleLogout}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+                padding: 14,
+                borderBottomWidth: 0.5,
+                borderColor: 'rgba(255,255,255,0.08)',
+              }}
+            >
+              <Text style={{ fontSize: 16 }}>🚪</Text>
+              <Text style={{ color: '#fff', fontSize: 14 }}>Log Out</Text>
+            </TouchableOpacity>
+
+            {/* Delete Account */}
+            <TouchableOpacity
+              onPress={handleDeleteAccount}
+              disabled={deletingAccount}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+                padding: 14,
+              }}
+            >
+              {deletingAccount ? (
+                <ActivityIndicator color="#c0001a" size="small" />
+              ) : (
+                <>
+                  <Text style={{ fontSize: 16 }}>🗑️</Text>
+                  <Text style={{ color: '#c0001a', fontSize: 14 }}>Delete Account</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       <CourseRankingModal
@@ -809,16 +896,6 @@ const styles = StyleSheet.create({
   legalFooterMeta: {
     color: 'rgba(255,255,255,0.2)',
     fontSize: 10,
-  },
-  deleteAccountButton: {
-    marginTop: 12,
-    padding: 12,
-    alignItems: 'center',
-  },
-  deleteAccountButtonText: {
-    color: '#c0001a',
-    fontSize: 13,
-    textDecorationLine: 'underline',
   },
   profileHeader: {
     alignItems: 'center',
