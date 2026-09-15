@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   FlatList,
+  RefreshControl,
   TouchableOpacity,
   Image,
   ActivityIndicator,
@@ -17,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Header from '../components/Header';
 import VideoPost from '../components/VideoPost';
 import AddFriendsModal from '../components/social/AddFriendsModal';
+import UserSearchModal from '../components/social/UserSearchModal';
 import CommentSheet from '../components/feed/CommentSheet';
 import NotificationPanel from '../components/feed/NotificationPanel';
 import PostActionsSheet from '../components/feed/PostActionsSheet';
@@ -39,6 +41,7 @@ import { createNotification } from '../services/notifications';
 import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
 import { saveMediaToDevice, saveImageWithWatermarkWeb, saveLocalUriToLibrary } from '../utils/saveMedia';
+import { supabase } from '../services/supabase';
 
 function PostSlide({
   post,
@@ -313,8 +316,10 @@ export default function FeedScreen({ navigation, route }) {
   const [toastMessage, setToastMessage] = useState(null);
   const [toastType, setToastType] = useState(null);
   const [loadingFeed, setLoadingFeed] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [activePostId, setActivePostId] = useState(null);
   const [addFriendsVisible, setAddFriendsVisible] = useState(false);
+  const [userSearchVisible, setUserSearchVisible] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [commentPost, setCommentPost] = useState(null);
   const [actionsSheetPost, setActionsSheetPost] = useState(null);
@@ -392,6 +397,37 @@ export default function FeedScreen({ navigation, route }) {
       setLoadingFeed(false);
     }
   }, [user?.id]);
+
+  const onRefreshFollowingFeed = useCallback(async () => {
+    setRefreshing(true);
+    await loadFollowingFeed();
+    setRefreshing(false);
+  }, [loadFollowingFeed]);
+
+  // Realtime top-up so a new post from someone the user follows (or the
+  // user's own new post) shows up without waiting for a manual pull-to-
+  // refresh — scoped to followingIdsRef so an unrelated stranger's post
+  // elsewhere in the app doesn't reload this feed out from under the user.
+  useEffect(() => {
+    if (filter || profileFeedPosts || !user?.id) return;
+    const channel = supabase
+      .channel('following-feed-new-posts')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'posts' },
+        (payload) => {
+          const posterId = payload.new?.user_id;
+          if (posterId && (posterId === user.id || followingIdsRef.current.includes(posterId))) {
+            loadFollowingFeed();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [filter, profileFeedPosts, user?.id, loadFollowingFeed]);
 
   const loadMoreFollowingPosts = useCallback(async () => {
     if (filter || profileFeedPosts || !followingHasMore || loadingMoreFollowing || !user?.id) return;
@@ -765,6 +801,13 @@ export default function FeedScreen({ navigation, route }) {
             <View style={styles.headerActions}>
               <TouchableOpacity
                 style={styles.headerIconButton}
+                onPress={() => setUserSearchVisible(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="search-outline" size={22} color={colors.white} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.headerIconButton}
                 onPress={() => setNotificationsVisible(true)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
@@ -848,6 +891,16 @@ export default function FeedScreen({ navigation, route }) {
               }}
               viewabilityConfig={viewabilityConfig}
               onViewableItemsChanged={onViewableItemsChanged}
+              refreshControl={
+                !filter && !profileFeedPosts ? (
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={onRefreshFollowingFeed}
+                    tintColor="#4dd860"
+                    colors={['#4dd860']}
+                  />
+                ) : undefined
+              }
               onEndReached={
                 filter ? loadMoreCourseFeedPosts : !profileFeedPosts ? loadMoreFollowingPosts : undefined
               }
@@ -869,6 +922,13 @@ export default function FeedScreen({ navigation, route }) {
       <AddFriendsModal
         visible={addFriendsVisible}
         onClose={() => setAddFriendsVisible(false)}
+        currentUserId={user?.id}
+        navigation={navigation}
+      />
+
+      <UserSearchModal
+        visible={userSearchVisible}
+        onClose={() => setUserSearchVisible(false)}
         currentUserId={user?.id}
         navigation={navigation}
       />
@@ -1243,7 +1303,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 60,
-    bottom: 14,
+    bottom: 40,
   },
   avatarRow: {
     flexDirection: 'row',

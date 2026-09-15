@@ -16,6 +16,7 @@ import { getUserPosts, getPostsCount } from '../services/posts';
 import { getCourseRankings } from '../services/courseRankings';
 import { getMyCourses } from '../services/myCourses';
 import CourseActionSheet from '../components/profile/CourseActionSheet';
+import FollowListModal from '../components/profile/FollowListModal';
 import { navigateToCourseOnMap, navigateToCourseDetail } from '../utils/courseNavigation';
 
 const TABS = ['Uploads', 'Courses Played', 'Course Rankings'];
@@ -108,8 +109,10 @@ function UploadsGrid({ posts, loading, onPressPost }) {
       keyExtractor={(item) => item.id}
       numColumns={3}
       scrollEnabled={false}
-      columnWrapperStyle={{ gap: 8 }}
-      contentContainerStyle={{ gap: 8 }}
+      // Nested (non-scrolling) inside this screen's outer ScrollView — see
+      // ProfileScreen's identical UploadsGrid for why this is needed.
+      initialNumToRender={posts.length}
+      columnWrapperStyle={styles.uploadRow}
       renderItem={({ item, index }) => (
         <TouchableOpacity
           style={styles.uploadTile}
@@ -147,6 +150,8 @@ export default function OtherUserProfileScreen({ route, navigation }) {
   const [uploads, setUploads] = useState([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
   const [actionSheetCourse, setActionSheetCourse] = useState(null);
+  const [followListVisible, setFollowListVisible] = useState(false);
+  const [followListMode, setFollowListMode] = useState('followers');
 
   const loadProfile = useCallback(async () => {
     if (!username) return;
@@ -284,6 +289,24 @@ export default function OtherUserProfileScreen({ route, navigation }) {
     }
   };
 
+  const refreshFollowCounts = useCallback(async () => {
+    if (!profile?.user_id) return;
+    try {
+      const [followers, following] = await Promise.all([
+        getFollowerCount(profile.user_id),
+        getFollowingCount(profile.user_id),
+      ]);
+      setStats((prev) => ({ ...prev, followers, following }));
+    } catch (err) {
+      console.error('Failed to refresh follow counts:', err);
+    }
+  }, [profile?.user_id]);
+
+  function openFollowList(mode) {
+    setFollowListMode(mode);
+    setFollowListVisible(true);
+  }
+
   const isSelf = currentUser?.id && profile?.user_id === currentUser.id;
 
   return (
@@ -328,14 +351,22 @@ export default function OtherUserProfileScreen({ route, navigation }) {
             )}
 
             <View style={styles.statsRow}>
-              <View style={styles.statItem}>
+              <TouchableOpacity
+                style={styles.statItem}
+                onPress={() => openFollowList('followers')}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.statValue}>{stats.followers}</Text>
                 <Text style={styles.statLabel}>Followers</Text>
-              </View>
-              <View style={styles.statItem}>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.statItem}
+                onPress={() => openFollowList('following')}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.statValue}>{stats.following}</Text>
                 <Text style={styles.statLabel}>Following</Text>
-              </View>
+              </TouchableOpacity>
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>{stats.posts}</Text>
                 <Text style={styles.statLabel}>Posts</Text>
@@ -412,6 +443,16 @@ export default function OtherUserProfileScreen({ route, navigation }) {
         onClose={() => setActionSheetCourse(null)}
         onViewMap={handleViewCourseOnMap}
         onViewCourseDetail={handleViewCourseDetail}
+      />
+
+      <FollowListModal
+        visible={followListVisible}
+        mode={followListMode}
+        profileUserId={profile?.user_id}
+        currentUserId={currentUser?.id}
+        onClose={() => setFollowListVisible(false)}
+        navigation={navigation}
+        onFollowChange={refreshFollowCounts}
       />
     </View>
   );
@@ -646,8 +687,14 @@ const styles = StyleSheet.create({
   listRowRatingFlag: {
     fontSize: 16,
   },
+  uploadRow: {
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
   uploadTile: {
-    flex: 1 / 3,
+    // Explicit width rather than a flex-basis share of the row — see
+    // ProfileScreen's identical uploadTile for why.
+    width: '32%',
     aspectRatio: 1,
     backgroundColor: colors.navyCard,
     borderWidth: 1,
@@ -657,7 +704,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   uploadTileImage: {
-    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   uploadPlayBadge: {
     position: 'absolute',

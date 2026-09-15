@@ -145,6 +145,7 @@ export default function MapScreen({ navigation, route }) {
     clearFriendFilter,
     quotaExceeded,
     apiKeyError,
+    searchUnavailable,
     locationDenied,
     selectedCourse,
     selectedDetail,
@@ -326,7 +327,7 @@ export default function MapScreen({ navigation, route }) {
           Daily course search limit reached — showing previously found courses only.
         </MapWarningBanner>
       )}
-      {apiKeyError && (
+      {(apiKeyError || searchUnavailable) && (
         <MapWarningBanner icon="alert-circle-outline">
           Course search is temporarily unavailable — please try again later.
         </MapWarningBanner>

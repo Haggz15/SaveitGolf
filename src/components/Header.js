@@ -1,13 +1,17 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import colors from '../theme/colors';
 
 export default function Header({ right }) {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
-      <Text style={styles.logo}>SaveitGolf</Text>
+      <TouchableOpacity onPress={() => navigation.navigate('Following')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+        <Text style={styles.logo}>SaveitGolf</Text>
+      </TouchableOpacity>
       {right ? <View style={styles.right}>{right}</View> : null}
     </View>
   );

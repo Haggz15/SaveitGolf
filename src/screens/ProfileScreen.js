@@ -128,8 +128,14 @@ function UploadsGrid({ posts, loading, onPressPost }) {
       keyExtractor={(item) => item.id}
       numColumns={3}
       scrollEnabled={false}
-      columnWrapperStyle={{ gap: 8 }}
-      contentContainerStyle={{ gap: 8 }}
+      // Nested (non-scrolling) inside this screen's outer ScrollView — a
+      // plain FlatList only renders its default window of items regardless,
+      // and since it never receives scroll events itself here, that window
+      // never grows, leaving later tiles permanently unrendered. Render
+      // everything up front instead; scrollEnabled={false} means
+      // virtualization was buying nothing anyway.
+      initialNumToRender={posts.length}
+      columnWrapperStyle={styles.uploadRow}
       renderItem={({ item, index }) => (
         <TouchableOpacity
           style={styles.uploadTile}
@@ -1188,8 +1194,16 @@ const styles = StyleSheet.create({
   removeCourseButton: {
     marginLeft: 8,
   },
+  uploadRow: {
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
   uploadTile: {
-    flex: 1 / 3,
+    // An explicit width (rather than a flex-basis share of the row) so
+    // aspectRatio always has a resolved width to compute height from on the
+    // very first layout pass — see UploadsGrid's initialNumToRender comment
+    // for the other half of this fix.
+    width: '32%',
     aspectRatio: 1,
     backgroundColor: colors.navyCard,
     borderWidth: 1,
@@ -1198,7 +1212,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   uploadTileImage: {
-    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   uploadPlayBadge: {
     position: 'absolute',

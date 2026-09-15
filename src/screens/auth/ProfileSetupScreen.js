@@ -7,6 +7,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +21,7 @@ import HandicapInputModal from '../../components/profile/HandicapInputModal';
 import { useAuth } from '../../context/AuthContext';
 import { friendlyAuthError } from '../../services/authErrors';
 import { uploadAvatar } from '../../services/profiles';
+import { signOut } from '../../services/auth';
 
 export default function ProfileSetupScreen() {
   const insets = useSafeAreaInsets();
@@ -89,11 +91,48 @@ export default function ProfileSetupScreen() {
     }
   };
 
+  // There's no earlier onboarding screen to pop back to — a signed-in user
+  // with no profile row is routed straight here (see needsOnboarding in
+  // AuthContext) — so "back" means leaving the flow entirely rather than
+  // navigating anywhere.
+  const handleBack = () => {
+    Alert.alert(
+      'Go back?',
+      "You'll be signed out. Log back in anytime to finish setting up your profile.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: () => {
+            signOut().catch((err) => console.error('Failed to sign out:', err));
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <TouchableOpacity
+        onPress={handleBack}
+        disabled={loading}
+        style={[styles.backButton, { top: insets.top + 16 }]}
+      >
+        <Text style={styles.backButtonText}>←</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        onPress={handleSkip}
+        disabled={loading}
+        style={[styles.topSkipButton, { top: insets.top + 16 }]}
+      >
+        <Text style={styles.topSkipButtonText}>Skip</Text>
+      </TouchableOpacity>
+
       <View style={{ paddingTop: insets.top + 20 }}>
         <ProgressSteps step={2} total={3} />
       </View>
@@ -150,10 +189,6 @@ export default function ProfileSetupScreen() {
             disabled={loading}
           >
             <Text style={styles.primaryButtonText}>{loading ? 'Saving…' : 'Continue'}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={handleSkip} style={styles.skipWrapper} disabled={loading}>
-            <Text style={styles.skipLink}>Skip for now</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -238,13 +273,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  skipWrapper: {
+  backButton: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 100,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
-    marginTop: 18,
+    justifyContent: 'center',
   },
-  skipLink: {
-    color: colors.red,
+  backButtonText: {
+    color: colors.white,
+    fontSize: 20,
+  },
+  topSkipButton: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 100,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  topSkipButtonText: {
+    color: 'rgba(255,255,255,0.5)',
     fontSize: 14,
-    fontWeight: '600',
   },
 });

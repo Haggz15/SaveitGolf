@@ -98,6 +98,11 @@ export function useCourseMapData({
   // instead of quietly showing "No courses found" (see GOLF_COURSE_API_KEY
   // in .env / Netlify environment variables).
   const [apiKeyError, setApiKeyError] = useState(false);
+  // Set on any search failure that isn't specifically a rate limit or a bad
+  // API key (a network error, a non-2xx we don't otherwise recognize) — so
+  // the "temporarily unavailable" banner still shows instead of the search
+  // silently coming back empty with no explanation.
+  const [searchUnavailable, setSearchUnavailable] = useState(false);
   const [locationDenied, setLocationDenied] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [selectedDetail, setSelectedDetail] = useState(null); // { holes, loading, error }
@@ -641,13 +646,19 @@ export function useCourseMapData({
           setSearchResults(results);
           setQuotaExceeded(false);
           setApiKeyError(false);
+          setSearchUnavailable(false);
         }
       } catch (err) {
         console.error('[useCourseMapData] search failed:', err.message);
         if (requestId === searchRequestIdRef.current) {
           setSearchResults([]);
-          if (err instanceof RateLimitError) setQuotaExceeded(true);
-          if (err instanceof ApiKeyError) setApiKeyError(true);
+          if (err instanceof RateLimitError) {
+            setQuotaExceeded(true);
+          } else if (err instanceof ApiKeyError) {
+            setApiKeyError(true);
+          } else {
+            setSearchUnavailable(true);
+          }
         }
       } finally {
         if (requestId === searchRequestIdRef.current) setSearching(false);
@@ -701,6 +712,7 @@ export function useCourseMapData({
     clearFriendFilter,
     quotaExceeded,
     apiKeyError,
+    searchUnavailable,
     locationDenied,
     selectedCourse,
     selectedDetail,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,7 +7,6 @@ import colors from '../theme/colors';
 import { getCourseById } from '../services/golfCourseApi';
 import { getCourseHoleStats, UNGROUPED_NINE } from '../services/posts';
 import { getScorecardsForCourse } from '../services/scorecards';
-import { getCoursePhoto } from '../data/coursePhotos';
 
 const TABS = ['All Posts', 'Hole by Hole', 'Scorecards'];
 
@@ -21,9 +20,17 @@ function scoreDiffLabel(score, par) {
   return diff > 0 ? `+${diff}` : `${diff}`;
 }
 
-function HoleCard({ number, par, yardage, postCount, isMostPopular, image, onPress }) {
-  const content = (
-    <>
+// Hole number, par/yardage, and post count only — no image previews. Every
+// card renders identically sized (see styles.holeCard's fixed width +
+// aspectRatio) regardless of whether golfcourseapi.com happened to return
+// tee data for this hole; only the red border (isMostPopular) varies.
+function HoleCard({ number, par, yardage, postCount, isMostPopular, onPress }) {
+  return (
+    <TouchableOpacity
+      style={[styles.holeCard, isMostPopular && styles.holeCardPopular]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
       <Text style={styles.holeCardNumber}>{number}</Text>
       <Text style={styles.holeCardMeta}>
         Par {par}{yardage ? ` · ${yardage} yds` : ''}
@@ -32,30 +39,6 @@ function HoleCard({ number, par, yardage, postCount, isMostPopular, image, onPre
         <Ionicons name="image-outline" size={12} color={colors.red} />
         <Text style={styles.holeCardPosts}>{postCount}</Text>
       </View>
-    </>
-  );
-
-  if (image) {
-    return (
-      <TouchableOpacity
-        style={[styles.holeCard, isMostPopular && styles.holeCardPopular]}
-        onPress={onPress}
-        activeOpacity={0.8}
-      >
-        <Image source={image} style={styles.holeCardImage} resizeMode="cover" />
-        <View style={styles.holeCardImageOverlay} />
-        {content}
-      </TouchableOpacity>
-    );
-  }
-
-  return (
-    <TouchableOpacity
-      style={[styles.holeCard, isMostPopular && styles.holeCardPopular]}
-      onPress={onPress}
-      activeOpacity={0.8}
-    >
-      {content}
     </TouchableOpacity>
   );
 }
@@ -181,10 +164,9 @@ export default function CourseDetailScreen({ route, navigation }) {
         par: liveHole?.par ?? DEFAULT_HOLE_PATTERN[index % DEFAULT_HOLE_PATTERN.length],
         yardage: liveHole?.yardage ?? null,
         postCount: coursePosts.filter((p) => p.hole === number).length,
-        image: getCoursePhoto(courseName, number),
       };
     });
-  }, [primaryTee, holesCount, courseName, coursePosts]);
+  }, [primaryTee, holesCount, coursePosts]);
 
   // Distinct composite nine names among this course's posts, in first-seen
   // order — drives the Hole by Hole tab's grouping (Step 5). Empty when no
@@ -203,8 +185,8 @@ export default function CourseDetailScreen({ route, navigation }) {
   }, [coursePosts]);
 
   // A composite-named nine is always holes 1-9 regardless of which real
-  // 9 of the course it maps to — same holes/par/image metadata as the
-  // course's front nine, just re-scoped to whichever posts named `nine`.
+  // 9 of the course it maps to — same holes/par metadata as the course's
+  // front nine, just re-scoped to whichever posts named `nine`.
   function nineHoles(nine) {
     return Array.from({ length: 9 }, (_, index) => {
       const liveHole = primaryTee?.holes?.[index];
@@ -214,7 +196,6 @@ export default function CourseDetailScreen({ route, navigation }) {
         par: liveHole?.par ?? DEFAULT_HOLE_PATTERN[index % DEFAULT_HOLE_PATTERN.length],
         yardage: liveHole?.yardage ?? null,
         postCount: coursePosts.filter((p) => p.hole === number && p.compositeName === nine).length,
-        image: getCoursePhoto(courseName, number),
       };
     });
   }
@@ -320,11 +301,15 @@ export default function CourseDetailScreen({ route, navigation }) {
             <Ionicons name="chevron-back" size={22} color={colors.red} />
             <Text style={styles.headerBackText}>Map</Text>
           </TouchableOpacity>
-          <View style={styles.headerLogoWrap} pointerEvents="none">
+          <TouchableOpacity
+            style={styles.headerLogoWrap}
+            onPress={() => navigation.navigate('Tabs', { screen: 'Following' })}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
             <Text style={styles.headerLogo} numberOfLines={1}>
               SaveitGolf
             </Text>
-          </View>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.headerRight} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="share-outline" size={21} color={colors.white} />
           </TouchableOpacity>
@@ -380,7 +365,6 @@ export default function CourseDetailScreen({ route, navigation }) {
                         yardage={hole.yardage}
                         postCount={hole.postCount}
                         isMostPopular={isMostPopular(hole.number)}
-                        image={hole.image}
                         onPress={() => handleSelectHole(hole.number)}
                       />
                     ))}
@@ -399,7 +383,6 @@ export default function CourseDetailScreen({ route, navigation }) {
                               yardage={hole.yardage}
                               postCount={hole.postCount}
                               isMostPopular={isMostPopular(hole.number, nine)}
-                              image={hole.image}
                               onPress={() => handleSelectHole(hole.number, nine)}
                             />
                           ))}
@@ -418,7 +401,6 @@ export default function CourseDetailScreen({ route, navigation }) {
                               yardage={hole.yardage}
                               postCount={hole.postCount}
                               isMostPopular={isMostPopular(hole.number, UNGROUPED_NINE)}
-                              image={hole.image}
                               onPress={() => handleSelectHole(hole.number, UNGROUPED_NINE)}
                             />
                           ))}
@@ -651,13 +633,6 @@ const styles = StyleSheet.create({
   holeCardPopular: {
     borderColor: colors.red,
     borderWidth: 1.5,
-  },
-  holeCardImage: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  holeCardImageOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(6, 14, 26, 0.4)',
   },
   holeCardNumber: {
     color: colors.white,

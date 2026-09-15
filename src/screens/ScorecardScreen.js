@@ -413,9 +413,14 @@ export default function ScorecardScreen() {
   // first, since the ViewShot capture uri can be a transient cache file.
   async function handleShareInstagram() {
     try {
-      const FileSystem = require('expo-file-system');
-      const destPath = `${FileSystem.cacheDirectory}SaveitGolf-Scorecard.png`;
-      await FileSystem.copyAsync({ from: shareImageUri, to: destPath });
+      // expo-file-system's top-level cacheDirectory/copyAsync were removed
+      // in favor of the File/Directory/Paths API (the ones still exported
+      // from the main module are deprecated stubs that throw at runtime —
+      // see legacyWarnings.js) — copy through a File instance instead.
+      const { File, Paths } = require('expo-file-system');
+      const destFile = new File(Paths.cache, 'SaveitGolf-Scorecard.png');
+      new File(shareImageUri).copy(destFile);
+      const destPath = destFile.uri;
       setShowShareModal(false);
       await new Promise((resolve) => setTimeout(resolve, 300));
 

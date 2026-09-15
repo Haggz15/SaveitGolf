@@ -207,35 +207,56 @@ export async function incrementShareCount(postId) {
   if (error) throw error;
 }
 
+// Posts for the same physical course can carry either a real
+// golfcourseapi.com id (logged after picking a search result) or none at all
+// (logged by typing the course name directly — the only option while course
+// search is down, see golfCourseApi's ApiKeyError) — real data has courses
+// with posts of both kinds. Matching by course_id alone whenever one happens
+// to be known silently drops the free-typed posts (and vice versa for a
+// name-only match missing the id-tagged ones), which is why a course's hole
+// grid can undercount, or a specific hole's tap can come back empty, even
+// though posts for it exist. Queries by id and by name (whichever are
+// known) and merges the results, deduped by post id, so every caller sees
+// the full set regardless of which identity it was handed.
+async function fetchCourseRows(select, { courseId, courseName }, refine = (q) => q) {
+  const queries = [];
+  if (courseId) {
+    queries.push(refine(supabase.from('posts').select(select).eq('hidden', false).eq('course_id', courseId)));
+  }
+  if (courseName) {
+    queries.push(refine(supabase.from('posts').select(select).eq('hidden', false).ilike('course_name', courseName)));
+  }
+  if (queries.length === 0) return [];
+
+  const results = await Promise.all(queries);
+  for (const { error } of results) {
+    if (error) throw error;
+  }
+  const merged = new Map();
+  for (const { data } of results) {
+    for (const row of data ?? []) merged.set(row.id, row);
+  }
+  return [...merged.values()];
+}
+
 // All posts at a given course, sorted most-liked first — used by the Course
-// Detail screen's All Posts tab. Matches by course_id when the post was
-// logged against a golfcourseapi.com course; falls back to a case-insensitive
-// name match for posts logged with a free-typed course name (course_id null).
+// Detail screen's All Posts tab.
 export async function getPostsForCourse({ courseId, courseName }) {
-  let request = supabase
-    .from('posts')
-    .select('*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)')
-    .eq('hidden', false);
-
-  request = courseId ? request.eq('course_id', courseId) : request.ilike('course_name', courseName ?? '');
-
-  const { data, error } = await request;
-  if (error) throw error;
-  return (data ?? []).map(mapRow).sort((a, b) => b.likes - a.likes);
+  const rows = await fetchCourseRows(
+    '*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)',
+    { courseId, courseName }
+  );
+  return rows.map(mapRow).sort((a, b) => b.likes - a.likes);
 }
 
 // Lightweight per-post `{ hole, compositeName }` pairs for the Course Detail
 // screen's stats bar and Hole by Hole grid — those only ever count/group by
 // hole and nine, never render the posts themselves (that's CourseFeed's
 // job), so this skips the profile join and full row (media, caption, likes)
-// that getPostsForCourse fetches. Same course_id-with-name-fallback match.
+// that getPostsForCourse fetches.
 export async function getCourseHoleStats({ courseId, courseName }) {
-  let request = supabase.from('posts').select('hole, composite_name').eq('hidden', false);
-  request = courseId ? request.eq('course_id', courseId) : request.ilike('course_name', courseName ?? '');
-
-  const { data, error } = await request;
-  if (error) throw error;
-  return (data ?? []).map((row) => ({ hole: row.hole, compositeName: row.composite_name ?? null }));
+  const rows = await fetchCourseRows('id, hole, composite_name', { courseId, courseName });
+  return rows.map((row) => ({ hole: row.hole, compositeName: row.composite_name ?? null }));
 }
 
 // Backfills lat/lng on a post once its course has been geocoded on demand
@@ -272,29 +293,28 @@ export async function getCourseFeedPosts({
   offset = 0,
   limit = 10,
 }) {
-  let request = supabase
-    .from('posts')
-    .select('*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)')
-    .eq('hidden', false);
+  const rows = await fetchCourseRows(
+    '*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)',
+    { courseId, courseName },
+    (q) => {
+      if (hole != null) q = q.eq('hole', hole);
+      if (compositeName === UNGROUPED_NINE) {
+        q = q.is('composite_name', null);
+      } else if (compositeName) {
+        q = q.eq('composite_name', compositeName);
+      }
+      return q;
+    }
+  );
 
-  request = courseId ? request.eq('course_id', courseId) : request.ilike('course_name', courseName ?? '');
+  // Sorted/paginated client-side now that rows can come from two merged
+  // queries (see fetchCourseRows) — scoped down to one hole (and course) at
+  // a time, so this stays a small, cheap set rather than the whole feed.
+  const sorted = rows
+    .map(mapRow)
+    .sort((a, b) =>
+      sort === 'recent' ? new Date(b.createdAt) - new Date(a.createdAt) : b.likes - a.likes
+    );
 
-  if (hole != null) {
-    request = request.eq('hole', hole);
-  }
-  if (compositeName === UNGROUPED_NINE) {
-    request = request.is('composite_name', null);
-  } else if (compositeName) {
-    request = request.eq('composite_name', compositeName);
-  }
-
-  request =
-    sort === 'recent'
-      ? request.order('created_at', { ascending: false })
-      : request.order('likes_count', { ascending: false });
-  request = request.range(offset, offset + limit - 1);
-
-  const { data, error } = await request;
-  if (error) throw error;
-  return (data ?? []).map(mapRow);
+  return sorted.slice(offset, offset + limit);
 }

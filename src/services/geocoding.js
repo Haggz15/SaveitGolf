@@ -79,6 +79,17 @@ function geocodeQueryChain({ name, city, state } = {}) {
   if (name && state) queries.push(`${name} golf club ${state}`);
   if (name && state) queries.push(`${name} country club ${state}`);
   if (city && state) queries.push(`${city} ${state} golf course`);
+  // Courses saved with no state on file — a freely-typed name at post
+  // creation when search results weren't picked from (e.g. course search
+  // was down, see golfCourseApi's ApiKeyError) — used to fall through this
+  // whole chain with zero queries, so they could never be geocoded and a
+  // later tap on the course name had nowhere to go. Same specificity ladder
+  // minus the state qualifier so these still get a real attempt.
+  if (name && city) queries.push(`${name} ${city}`);
+  if (name) queries.push(name);
+  if (name) queries.push(`${name} golf club`);
+  if (name) queries.push(`${name} country club`);
+  if (city) queries.push(`${city} golf course`);
   return [...new Set(queries.filter(Boolean))];
 }
 
