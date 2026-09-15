@@ -18,9 +18,18 @@ module.exports = {
     userInterfaceStyle: 'dark',
     backgroundColor: '#0d1f3c',
     scheme: 'saveitgolf',
+    updates: {
+      url: 'https://u.expo.dev/48ad35b3-294a-4970-b8fe-612a50cd94fb',
+      enabled: true,
+      checkAutomatically: 'ON_LOAD',
+      fallbackToCacheTimeout: 0,
+    },
+    runtimeVersion: {
+      policy: 'appVersion',
+    },
     ios: {
       bundleIdentifier: 'com.saveitgolf.app',
-      buildNumber: '8',
+      buildNumber: '9',
       supportsTablet: true,
       config: {
         googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,

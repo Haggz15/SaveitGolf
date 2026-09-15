@@ -3,6 +3,7 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
+import * as Updates from 'expo-updates';
 import { useFonts, DancingScript_700Bold } from '@expo-google-fonts/dancing-script';
 import { BarlowCondensed_700Bold, BarlowCondensed_800ExtraBold } from '@expo-google-fonts/barlow-condensed';
 import { Courgette_400Regular } from '@expo-google-fonts/courgette';
@@ -29,7 +30,23 @@ export default function App() {
           window.location.reload();
         }
       }
+      return;
     }
+
+    const checkForUpdates = async () => {
+      try {
+        if (!__DEV__) {
+          const update = await Updates.checkForUpdateAsync();
+          if (update.isAvailable) {
+            await Updates.fetchUpdateAsync();
+            await Updates.reloadAsync();
+          }
+        }
+      } catch (err) {
+        console.log('Update check error:', err);
+      }
+    };
+    checkForUpdates();
   }, []);
 
   const [fontsLoaded] = useFonts({
