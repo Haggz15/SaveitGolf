@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getAssetByID } from '@react-native/assets-registry/registry';
@@ -28,19 +28,21 @@ function resolveWebAssetUri(source) {
   return new URL(path, window.location.origin).toString();
 }
 
-export default function VideoPost({ source, mobileSource, isActive }) {
+// `muted`/`setMuted` are lifted to the feed screen (see FeedScreen.js's
+// isMuted state) so toggling sound on one post applies to every other video
+// in the feed, not just this one.
+export default function VideoPost({ source, mobileSource, isActive, muted, setMuted }) {
   const videoRef = useRef(null);
-  const [muted, setMuted] = useState(true);
   const asset = isMobileDevice() && mobileSource ? mobileSource : source;
   const uri = resolveWebAssetUri(asset);
 
   // React doesn't recognize a `defaultMuted` JSX prop on <video> in this
-  // setup (it warns and drops it), so the initial autoplay-compliant muted
-  // state is set imperatively here, the same way toggling is — via a plain
-  // ref assignment, never a JSX `muted` attribute.
+  // setup (it warns and drops it), so the initial muted state is set
+  // imperatively here, the same way toggling is — via a plain ref
+  // assignment, never a JSX `muted` attribute.
   const setVideoRef = (node) => {
     videoRef.current = node;
-    if (node) node.muted = true;
+    if (node) node.muted = muted;
   };
 
   useEffect(() => {
@@ -48,9 +50,20 @@ export default function VideoPost({ source, mobileSource, isActive }) {
     if (!video) return;
 
     if (isActive) {
+      video.muted = muted;
       const playPromise = video.play();
       if (playPromise && typeof playPromise.catch === 'function') {
-        playPromise.catch(() => {});
+        playPromise.catch(() => {
+          // Browsers block audible autoplay without a prior user gesture —
+          // fall back to muted playback and reflect that back up to the
+          // shared feed-level state, so every other post starts muted too
+          // instead of each one failing/retrying independently.
+          if (!video.muted) {
+            video.muted = true;
+            setMuted(true);
+            video.play().catch(() => {});
+          }
+        });
       }
     } else {
       video.pause();
@@ -79,7 +92,7 @@ export default function VideoPost({ source, mobileSource, isActive }) {
       </video>
       <TouchableOpacity
         style={styles.speakerButton}
-        onPress={() => setMuted((prev) => !prev)}
+        onPress={() => setMuted(!muted)}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         activeOpacity={0.75}
       >

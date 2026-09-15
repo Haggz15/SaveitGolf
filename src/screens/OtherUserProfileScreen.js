@@ -405,6 +405,16 @@ export default function OtherUserProfileScreen({ route, navigation }) {
               <Ionicons name="reader-outline" size={16} color={colors.white} />
               <Text style={styles.scorecardsButtonText}>Scorecards</Text>
             </TouchableOpacity>
+
+            {profile?.handicap_index != null && (
+              <View style={styles.handicapBox}>
+                <Ionicons name="golf-outline" size={20} color={colors.red} />
+                <View style={{ marginLeft: 10, flex: 1 }}>
+                  <Text style={styles.handicapValue}>{profile.handicap_index}</Text>
+                  <Text style={styles.handicapLabel}>Handicap Index</Text>
+                </View>
+              </View>
+            )}
           </View>
 
           <View style={styles.tabRow}>
@@ -613,6 +623,27 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 13,
     fontWeight: '700',
+  },
+  handicapBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    width: '100%',
+    marginTop: 10,
+  },
+  handicapValue: {
+    color: colors.white,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  handicapLabel: {
+    color: colors.muted,
+    fontSize: 11,
   },
   tabRow: {
     flexDirection: 'row',

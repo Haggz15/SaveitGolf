@@ -27,23 +27,56 @@ function guessContentType(uri, mediaType) {
   return (ext && EXT_TO_CONTENT_TYPE[ext]) || (mediaType === 'video' ? 'video/mp4' : 'image/jpeg');
 }
 
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const UPLOAD_TIMEOUT_MS = 120000;
+const MAX_UPLOAD_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 2000;
+
+function uploadWithTimeout(path, body, contentType) {
+  const uploadPromise = supabase.storage.from('posts').upload(path, body, { contentType, upsert: false });
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Upload timed out. Please check your connection and try again.')), UPLOAD_TIMEOUT_MS)
+  );
+  return Promise.race([uploadPromise, timeoutPromise]);
+}
+
 // Uploads a local file uri (from expo-image-picker) into the public `posts`
 // storage bucket under the owning user's folder, then returns its public URL.
-async function uploadMedia(userId, uri, mediaType) {
+// Large/video files occasionally fail on flaky connections, so the actual
+// storage upload (not the initial fetch-to-bytes step) is retried a couple
+// times with a short backoff; `onRetry(attempt)` — if given — lets the
+// caller surface a "retrying" status while that happens.
+async function uploadMedia(userId, uri, mediaType, onRetry) {
   const ext = getFileExtension(uri) || (mediaType === 'video' ? 'mp4' : 'jpg');
   const path = `${userId}/${Date.now()}.${ext}`;
   const contentType = guessContentType(uri, mediaType);
 
   const response = await fetch(uri);
+  if (!response.ok) throw new Error('Failed to read the selected file.');
   const arrayBuffer = await response.arrayBuffer();
 
-  const { error: uploadError } = await supabase.storage
-    .from('posts')
-    .upload(path, arrayBuffer, { contentType, upsert: false });
-  if (uploadError) throw uploadError;
+  if (arrayBuffer.byteLength > MAX_UPLOAD_BYTES) {
+    throw new Error('File is too large. Please use a shorter video.');
+  }
 
-  const { data } = supabase.storage.from('posts').getPublicUrl(path);
-  return data.publicUrl;
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; attempt++) {
+    try {
+      const { error: uploadError } = await uploadWithTimeout(path, arrayBuffer, contentType);
+      if (uploadError) throw new Error(uploadError.message);
+
+      const { data } = supabase.storage.from('posts').getPublicUrl(path);
+      return data.publicUrl;
+    } catch (err) {
+      lastError = err;
+      console.error(`Media upload attempt ${attempt} failed:`, err.message);
+      if (attempt < MAX_UPLOAD_ATTEMPTS) {
+        onRetry?.(attempt);
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt));
+      }
+    }
+  }
+  throw lastError;
 }
 
 export async function createPost({
@@ -55,8 +88,9 @@ export async function createPost({
   mediaUri,
   mediaType,
   compositeName,
+  onUploadRetry,
 }) {
-  const mediaUrl = await uploadMedia(userId, mediaUri, mediaType);
+  const mediaUrl = await uploadMedia(userId, mediaUri, mediaType, onUploadRetry);
 
   const { data, error } = await supabase
     .from('posts')

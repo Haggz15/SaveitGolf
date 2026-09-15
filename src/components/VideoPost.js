@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { StyleSheet, TouchableOpacity } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
 
-export default function VideoPost({ source, isActive }) {
-  const [muted, setMuted] = useState(true);
+// `muted`/`setMuted` are lifted to the feed screen (see FeedScreen.js's
+// isMuted state) so toggling sound on one post applies to every other video
+// in the feed, not just this one.
+export default function VideoPost({ source, isActive, muted, setMuted }) {
   const player = useVideoPlayer(source, (p) => {
     p.loop = true;
-    p.muted = true;
+    p.muted = muted;
   });
 
   useEffect(() => {
@@ -47,7 +49,7 @@ export default function VideoPost({ source, isActive }) {
       />
       <TouchableOpacity
         style={styles.speakerButton}
-        onPress={() => setMuted((prev) => !prev)}
+        onPress={() => setMuted(!muted)}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         activeOpacity={0.75}
       >

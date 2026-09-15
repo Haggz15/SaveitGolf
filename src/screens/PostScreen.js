@@ -14,6 +14,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Modal,
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +27,8 @@ import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { createPost } from '../services/posts';
 import { searchCourses } from '../services/golfCourseApi';
+import { searchProfiles } from '../services/social';
+import { MENTION_RE } from '../services/mentions';
 import { notifyFollowersOfPost } from '../services/notifications';
 import { geocodeCourseCoordinates } from '../services/geocoding';
 import { courseHasValidCoordinates } from '../utils/mapCoords';
@@ -42,7 +45,7 @@ const BANNER_CONTENT_HEIGHT = 56;
 // supports the native driver on either platform anyway, so there's no need
 // for a separate CSS-transition code path). Owns its own slide/progress
 // animations, driven purely by the `visible`/`phase` props the parent sets.
-function UploadBanner({ visible, phase, onRetry }) {
+function UploadBanner({ visible, phase, retryAttempt, onRetry }) {
   const insets = useSafeAreaInsets();
   const ballFont = useGolfBallFont();
   const bannerHeight = BANNER_CONTENT_HEIGHT + insets.top;
@@ -102,7 +105,9 @@ function UploadBanner({ visible, phase, onRetry }) {
     phase === 'optimizing'
       ? 'Optimizing…'
       : phase === 'uploading'
-      ? 'Uploading your shot…'
+      ? retryAttempt > 0
+        ? `Upload failed — retrying (attempt ${retryAttempt + 1})…`
+        : 'Uploading your shot… (this may take a moment for videos)'
       : phase === 'processing'
       ? 'Almost there…'
       : isSuccess
@@ -201,6 +206,7 @@ function VideoPreviewPlayer({ uri, onChangeMedia }) {
 
 const SEARCH_DEBOUNCE_MS = 400;
 const MAX_VIDEO_DURATION_SECONDS = 30;
+const LARGE_VIDEO_WARNING_BYTES = 50 * 1024 * 1024;
 
 function isVideoTooLong(durationSeconds) {
   return typeof durationSeconds === 'number' && durationSeconds > MAX_VIDEO_DURATION_SECONDS;
@@ -208,6 +214,25 @@ function isVideoTooLong(durationSeconds) {
 
 function alertVideoTooLong() {
   Alert.alert('Video too long', `Videos must be under ${MAX_VIDEO_DURATION_SECONDS} seconds. Please choose a shorter clip.`);
+}
+
+// Resolves to false only when the user explicitly backs out of a
+// large-video warning — every other case (no known size, size under the
+// threshold, or the user confirming) resolves true so the picker flow can
+// proceed unchanged.
+function confirmLargeVideo(fileSize) {
+  if (!fileSize || fileSize <= LARGE_VIDEO_WARNING_BYTES) return Promise.resolve(true);
+
+  const message = 'This video is large and may take a while to upload. Make sure you have a good connection.';
+  if (Platform.OS === 'web') {
+    return Promise.resolve(window.confirm(`Large Video\n\n${message}`));
+  }
+  return new Promise((resolve) => {
+    Alert.alert('Large Video', message, [
+      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+      { text: 'Upload Anyway', onPress: () => resolve(true) },
+    ]);
+  });
 }
 
 // Web has no equivalent of expo-image-picker's asset.duration, so read it
@@ -238,7 +263,13 @@ export default function PostScreen({ navigation }) {
   // null | 'uploading' | 'processing' | 'success' | 'error' — drives the
   // UploadBanner below; null means it's hidden.
   const [uploadPhase, setUploadPhase] = useState(null);
+  const [uploadRetryAttempt, setUploadRetryAttempt] = useState(0);
+  const [showTagSearch, setShowTagSearch] = useState(false);
+  const [tagSearchQuery, setTagSearchQuery] = useState('');
+  const [tagSearchResults, setTagSearchResults] = useState([]);
+  const [tagSearching, setTagSearching] = useState(false);
   const searchTimer = useRef(null);
+  const tagSearchTimer = useRef(null);
   const processingTimerRef = useRef(null);
   const hideTimerRef = useRef(null);
 
@@ -246,8 +277,59 @@ export default function PostScreen({ navigation }) {
     return () => {
       if (processingTimerRef.current) clearTimeout(processingTimerRef.current);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      if (tagSearchTimer.current) clearTimeout(tagSearchTimer.current);
     };
   }, []);
+
+  // Usernames currently @mentioned in the caption — the single source of
+  // truth for who's tagged, whether they got there by typing "@" directly
+  // (MentionTextInput's own dropdown) or via the Tag Friends picker below.
+  // Reusing this instead of a separate taggedUsers array means createPost's
+  // existing mention-resolution pipeline (post_tags + notifications) needs
+  // no changes to support the picker.
+  const taggedUsernames = [...new Set([...caption.matchAll(MENTION_RE)].map((m) => m[1].toLowerCase()))];
+
+  function handleTagSearchChange(text) {
+    setTagSearchQuery(text);
+    if (tagSearchTimer.current) clearTimeout(tagSearchTimer.current);
+
+    const trimmed = text.trim();
+    if (trimmed.length < 2) {
+      setTagSearchResults([]);
+      setTagSearching(false);
+      return;
+    }
+
+    setTagSearching(true);
+    tagSearchTimer.current = setTimeout(async () => {
+      try {
+        const results = await searchProfiles(trimmed, user?.id);
+        setTagSearchResults(results);
+      } catch (err) {
+        console.error('Failed to search golfers to tag:', err);
+        setTagSearchResults([]);
+      } finally {
+        setTagSearching(false);
+      }
+    }, SEARCH_DEBOUNCE_MS);
+  }
+
+  function handleCloseTagSearch() {
+    setShowTagSearch(false);
+    setTagSearchQuery('');
+    setTagSearchResults([]);
+  }
+
+  function handleToggleTagUser(profile) {
+    const username = profile.username;
+    if (!username) return;
+    const isTagged = taggedUsernames.includes(username.toLowerCase());
+    if (isTagged) {
+      setCaption((prev) => prev.replace(new RegExp(`@${username}\\b\\s?`, 'i'), '').trimEnd());
+    } else {
+      setCaption((prev) => (prev.length > 0 && !/\s$/.test(prev) ? `${prev} @${username} ` : `${prev}@${username} `));
+    }
+  }
 
   const handleChangeCourseQuery = (text) => {
     setCourseQuery(text);
@@ -338,6 +420,10 @@ export default function PostScreen({ navigation }) {
         } catch (err) {
           console.error('Could not read video duration:', err);
         }
+        if (!(await confirmLargeVideo(file.size))) {
+          URL.revokeObjectURL(uri);
+          return;
+        }
       }
 
       await setMediaFromPick(uri, type);
@@ -368,6 +454,9 @@ export default function PostScreen({ navigation }) {
           alertVideoTooLong();
           return;
         }
+        if (type === 'video' && !(await confirmLargeVideo(asset.fileSize))) {
+          return;
+        }
         await setMediaFromPick(asset.uri, type);
       }
     } catch (err) {
@@ -396,6 +485,9 @@ export default function PostScreen({ navigation }) {
         // recordings are, so this is the only enforcement point for them.
         if (type === 'video' && isVideoTooLong(asset.duration != null ? asset.duration / 1000 : null)) {
           alertVideoTooLong();
+          return;
+        }
+        if (type === 'video' && !(await confirmLargeVideo(asset.fileSize))) {
           return;
         }
         await setMediaFromPick(asset.uri, type);
@@ -455,6 +547,7 @@ export default function PostScreen({ navigation }) {
 
     setPosting(true);
     setUploadPhase('uploading');
+    setUploadRetryAttempt(0);
     processingTimerRef.current = setTimeout(() => setUploadPhase('processing'), 2200);
 
     try {
@@ -468,6 +561,7 @@ export default function PostScreen({ navigation }) {
         mediaUri: media.uri,
         mediaType: media.type,
         compositeName: hasMultipleNines ? compositeName.trim() || null : null,
+        onUploadRetry: setUploadRetryAttempt,
       });
 
       clearTimeout(processingTimerRef.current);
@@ -723,6 +817,16 @@ export default function PostScreen({ navigation }) {
           placeholderTextColor={colors.muted}
           multiline
         />
+
+        <TouchableOpacity style={styles.tagButton} onPress={() => setShowTagSearch(true)} activeOpacity={0.8}>
+          <Ionicons name="person-add-outline" size={16} color={colors.muted} />
+          <Text style={styles.tagButtonText} numberOfLines={1}>
+            {taggedUsernames.length > 0
+              ? `Tagged: ${taggedUsernames.map((name) => `@${name}`).join(', ')}`
+              : 'Tag Friends'}
+          </Text>
+        </TouchableOpacity>
+
         <Text style={styles.copyrightNotice}>
           By posting you confirm this content is your own and does not
           contain copyrighted music or material you do not have rights to use.
@@ -737,7 +841,77 @@ export default function PostScreen({ navigation }) {
         </TouchableOpacity>
       </ScrollView>
 
-      <UploadBanner visible={uploadPhase != null} phase={uploadPhase} onRetry={handleRetryUpload} />
+      <UploadBanner
+        visible={uploadPhase != null}
+        phase={uploadPhase}
+        retryAttempt={uploadRetryAttempt}
+        onRetry={handleRetryUpload}
+      />
+
+      <Modal visible={showTagSearch} animationType="slide" onRequestClose={handleCloseTagSearch}>
+        <View style={[styles.tagModal, { paddingTop: insets.top }]}>
+          <View style={styles.tagModalHeader}>
+            <TextInput
+              autoFocus
+              value={tagSearchQuery}
+              onChangeText={handleTagSearchChange}
+              placeholder="Search golfers to tag..."
+              placeholderTextColor={colors.muted}
+              autoCorrect={false}
+              style={styles.tagModalInput}
+            />
+            <TouchableOpacity onPress={handleCloseTagSearch} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.tagModalDone}>Done</Text>
+            </TouchableOpacity>
+          </View>
+
+          <FlatList
+            data={tagSearchResults}
+            keyExtractor={(item) => item.user_id}
+            keyboardShouldPersistTaps="handled"
+            ListEmptyComponent={
+              tagSearching ? (
+                <View style={styles.statusRow}>
+                  <ActivityIndicator size="small" color={colors.red} />
+                  <Text style={styles.statusText}>Searching…</Text>
+                </View>
+              ) : (
+                <View style={styles.statusRow}>
+                  <Text style={styles.statusText}>
+                    {tagSearchQuery.trim().length > 1 ? 'No golfers found' : 'Search for golfers to tag'}
+                  </Text>
+                </View>
+              )
+            }
+            renderItem={({ item }) => {
+              const isTagged = taggedUsernames.includes((item.username || '').toLowerCase());
+              return (
+                <TouchableOpacity
+                  onPress={() => handleToggleTagUser(item)}
+                  style={[styles.tagResultRow, isTagged && styles.tagResultRowTagged]}
+                >
+                  {item.avatar_url ? (
+                    <Image source={{ uri: item.avatar_url }} style={styles.tagResultAvatar} />
+                  ) : (
+                    <Ionicons name="person-circle-outline" size={44} color={colors.muted} />
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.tagResultName} numberOfLines={1}>
+                      {item.full_name || item.username}
+                    </Text>
+                    <Text style={styles.tagResultUsername} numberOfLines={1}>@{item.username}</Text>
+                  </View>
+                  <View style={[styles.tagCheck, isTagged && styles.tagCheckActive]}>
+                    <Text style={[styles.tagCheckText, isTagged && styles.tagCheckTextActive]}>
+                      {isTagged ? '✓' : '+'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            }}
+          />
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -1012,5 +1186,94 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontWeight: '700',
     fontSize: 16,
+  },
+  tagButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 16,
+    backgroundColor: colors.navyCard,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+  },
+  tagButtonText: {
+    flex: 1,
+    color: colors.muted,
+    fontSize: 13,
+  },
+  tagModal: {
+    flex: 1,
+    backgroundColor: colors.navy,
+  },
+  tagModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.navyBorder,
+  },
+  tagModalInput: {
+    flex: 1,
+    backgroundColor: colors.navyCard,
+    borderRadius: 10,
+    padding: 12,
+    color: colors.white,
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+  },
+  tagModalDone: {
+    color: colors.brightGreen,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  tagResultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.navyBorder,
+  },
+  tagResultRowTagged: {
+    backgroundColor: 'rgba(77,216,96,0.1)',
+  },
+  tagResultAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.navyCard,
+  },
+  tagResultName: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  tagResultUsername: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  tagCheck: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.navyCard,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tagCheckActive: {
+    backgroundColor: colors.brightGreen,
+  },
+  tagCheckText: {
+    color: colors.white,
+    fontSize: 14,
+  },
+  tagCheckTextActive: {
+    color: colors.brightGreenText,
   },
 });

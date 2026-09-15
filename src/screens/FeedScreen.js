@@ -50,6 +50,8 @@ function PostSlide({
   currentUserId,
   initiallyLiked,
   initiallySaved,
+  isMuted,
+  setIsMuted,
   onStatePress,
   onCoursePress,
   onUserPress,
@@ -166,6 +168,8 @@ function PostSlide({
           source={post.mediaUrl || post.video}
           mobileSource={post.videoMobile}
           isActive={isActive}
+          muted={isMuted}
+          setMuted={setIsMuted}
         />
       ) : (
         <Image
@@ -318,6 +322,9 @@ export default function FeedScreen({ navigation, route }) {
   const [loadingFeed, setLoadingFeed] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activePostId, setActivePostId] = useState(null);
+  // Shared across every video in the feed (not per-post) so toggling sound
+  // on one post carries over as the user scrolls to the next.
+  const [isMuted, setIsMuted] = useState(false);
   const [addFriendsVisible, setAddFriendsVisible] = useState(false);
   const [userSearchVisible, setUserSearchVisible] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
@@ -863,6 +870,8 @@ export default function FeedScreen({ navigation, route }) {
                   currentUserId={user?.id}
                   initiallyLiked={likedPostIds.has(item.id)}
                   initiallySaved={savedPostIds.has(item.id)}
+                  isMuted={isMuted}
+                  setIsMuted={setIsMuted}
                   onStatePress={handleStatePress}
                   onCoursePress={handleCoursePress}
                   onUserPress={handleUserPress}
