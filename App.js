@@ -1,5 +1,5 @@
-import { useCallback } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useCallback, useEffect } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
@@ -14,10 +14,24 @@ import { AuthProvider } from './src/context/AuthContext';
 import { NotificationsProvider } from './src/context/NotificationsContext';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import colors from './src/theme/colors';
+import { version as appVersion } from './package.json';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function App() {
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      const lastVersion = localStorage.getItem('appVersion');
+      if (lastVersion !== appVersion) {
+        localStorage.setItem('appVersion', appVersion);
+        // Skip reload on a first-ever visit, only when the version actually changed
+        if (lastVersion !== null) {
+          window.location.reload();
+        }
+      }
+    }
+  }, []);
+
   const [fontsLoaded] = useFonts({
     DancingScript_700Bold,
     BarlowCondensed_700Bold,
