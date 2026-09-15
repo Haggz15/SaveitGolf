@@ -88,6 +88,7 @@ export async function createPost({
   mediaUri,
   mediaType,
   compositeName,
+  subCourseName,
   onUploadRetry,
 }) {
   const mediaUrl = await uploadMedia(userId, mediaUri, mediaType, onUploadRetry);
@@ -108,6 +109,8 @@ export async function createPost({
       media_url: mediaUrl,
       media_type: mediaType,
       composite_name: compositeName || null,
+      sub_course_name: subCourseName || null,
+      manual_entry: !course?.id,
     })
     .select()
     .single();
@@ -158,6 +161,8 @@ export function mapRow(row) {
     hole: row.hole,
     par: row.par,
     compositeName: row.composite_name ?? null,
+    subCourseName: row.sub_course_name ?? null,
+    manualEntry: row.manual_entry ?? false,
     caption: row.caption ?? '',
     likes: row.likes_count ?? 0,
     comments: row.comments_count ?? 0,
@@ -270,6 +275,24 @@ async function fetchCourseRows(select, { courseId, courseName }, refine = (q) =>
   for (const { data } of results) {
     for (const row of data ?? []) merged.set(row.id, row);
   }
+
+  // Someone landing on this course page having typed a short/partial name
+  // ("Elmhurst" instead of "Elmhurst Country Club") won't exact-match any
+  // post's stored course_name above — fall back to a partial match on the
+  // name's first significant word so those posts still show up. Only tried
+  // when the exact match came back empty, so a course that already has
+  // exact-matching posts never pulls in unrelated ones by accident.
+  if (merged.size === 0 && courseName) {
+    const firstWord = courseName.trim().split(/\s+/)[0];
+    if (firstWord && firstWord.length >= 3) {
+      const { data, error } = await refine(
+        supabase.from('posts').select(select).eq('hidden', false).ilike('course_name', `%${firstWord}%`)
+      );
+      if (error) throw error;
+      for (const row of data ?? []) merged.set(row.id, row);
+    }
+  }
+
   return [...merged.values()];
 }
 
@@ -289,8 +312,12 @@ export async function getPostsForCourse({ courseId, courseName }) {
 // job), so this skips the profile join and full row (media, caption, likes)
 // that getPostsForCourse fetches.
 export async function getCourseHoleStats({ courseId, courseName }) {
-  const rows = await fetchCourseRows('id, hole, composite_name', { courseId, courseName });
-  return rows.map((row) => ({ hole: row.hole, compositeName: row.composite_name ?? null }));
+  const rows = await fetchCourseRows('id, hole, composite_name, sub_course_name', { courseId, courseName });
+  return rows.map((row) => ({
+    hole: row.hole,
+    compositeName: row.composite_name ?? null,
+    subCourseName: row.sub_course_name ?? null,
+  }));
 }
 
 // Backfills lat/lng on a post once its course has been geocoded on demand
@@ -305,6 +332,23 @@ export async function updatePostCoordinates(postId, lat, lng) {
   if (error) console.error('Failed to save geocoded coordinates back to post:', error);
 }
 
+// Editing a post's own caption from the profile uploads grid — RLS (see
+// "Users can update their own posts" in schema.sql) already scopes this to
+// rows the caller owns, so there's no ownership check needed client-side.
+export async function updatePostCaption(postId, caption) {
+  const { error } = await supabase.from('posts').update({ caption: caption || null }).eq('id', postId);
+  if (error) throw error;
+}
+
+// Deleting a post from the profile uploads grid — RLS scopes this to the
+// caller's own rows (see schema.sql). The underlying storage object is left
+// in place (same as scorecards.deleteScorecard leaving photo_url's file
+// behind) rather than adding a second failure mode to a delete action.
+export async function deletePost(postId) {
+  const { error } = await supabase.from('posts').delete().eq('id', postId);
+  if (error) throw error;
+}
+
 // Sentinel for "posts at this course that never tagged a nine" — distinct
 // from `compositeName: undefined/null`, which means "don't filter by nine at
 // all" (used when the course has no composite-named posts in the first
@@ -312,17 +356,26 @@ export async function updatePostCoordinates(postId, lat, lng) {
 // getCourseFeedPosts below, which needs to tell the two cases apart.
 export const UNGROUPED_NINE = '__ungrouped__';
 
+// Same sentinel idea as UNGROUPED_NINE, but for "posts at this course never
+// tagged to one of its named sub-courses" (see CourseDetailScreen's
+// sub-course grouping, Fix 6) — a golf complex like PGA West where some
+// posts name a specific course (Stadium, Nicklaus) and others were logged
+// before that field existed or without picking one.
+export const UNGROUPED_SUB_COURSE = '__ungrouped_sub_course__';
+
 // Paginated, sortable feed for the course/hole full-screen swipe views
-// (CourseDetailScreen -> CourseFeed). `hole` and `compositeName` are both
-// optional filters layered on top of the course match; `compositeName` is
-// only applied when explicitly a real name or UNGROUPED_NINE — omitting it
-// (the classic non-composite course) returns every post at that hole
-// regardless of nine, same as getPostsForCourse's hole-agnostic behavior.
+// (CourseDetailScreen -> CourseFeed). `hole`, `compositeName`, and
+// `subCourseName` are all optional filters layered on top of the course
+// match; `compositeName`/`subCourseName` are only applied when explicitly a
+// real name or their respective UNGROUPED_* sentinel — omitting them (the
+// classic single-course case) returns every post at that hole regardless of
+// nine or sub-course, same as getPostsForCourse's hole-agnostic behavior.
 export async function getCourseFeedPosts({
   courseId,
   courseName,
   hole,
   compositeName,
+  subCourseName,
   sort = 'likes',
   offset = 0,
   limit = 10,
@@ -336,6 +389,11 @@ export async function getCourseFeedPosts({
         q = q.is('composite_name', null);
       } else if (compositeName) {
         q = q.eq('composite_name', compositeName);
+      }
+      if (subCourseName === UNGROUPED_SUB_COURSE) {
+        q = q.is('sub_course_name', null);
+      } else if (subCourseName) {
+        q = q.eq('sub_course_name', subCourseName);
       }
       return q;
     }

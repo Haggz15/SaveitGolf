@@ -12,6 +12,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,7 +35,7 @@ import {
 } from '../theme/layout';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
-import { getFeedPosts, getCourseFeedPosts, UNGROUPED_NINE } from '../services/posts';
+import { getFeedPosts, getCourseFeedPosts, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
 import { getFollowingIds } from '../services/social';
 import { likePost, unlikePost, getLikedPostIds } from '../services/likes';
 import { createNotification } from '../services/notifications';
@@ -195,7 +196,11 @@ function PostSlide({
         >
           <Text style={styles.topLeftCourseName}>{post.course}</Text>
         </TouchableOpacity>
-        {post.compositeName ? (
+        {post.subCourseName ? (
+          <Text style={styles.topLeftCompositeName} numberOfLines={1}>
+            {post.subCourseName}
+          </Text>
+        ) : post.compositeName ? (
           <Text style={styles.topLeftCompositeName} numberOfLines={1}>
             {post.compositeName}
           </Text>
@@ -466,10 +471,16 @@ export default function FeedScreen({ navigation, route }) {
     }
   }, [filter, profileFeedPosts, followingHasMore, loadingMoreFollowing, followingOffset, user?.id]);
 
-  useEffect(() => {
-    if (filter || profileFeedPosts) return; // filtered/profile-feed modes have their own loaders
-    loadFollowingFeed();
-  }, [loadFollowingFeed, filter, profileFeedPosts]);
+  // Loads on initial mount and re-loads every time this tab regains focus —
+  // covers both a plain tab switch back to Following and a logo tap
+  // elsewhere in the app navigating here (see handleLogoTap/Header below).
+  // Filtered/profile-feed modes have their own loaders.
+  useFocusEffect(
+    useCallback(() => {
+      if (filter || profileFeedPosts) return;
+      loadFollowingFeed();
+    }, [loadFollowingFeed, filter, profileFeedPosts])
+  );
 
   useEffect(() => {
     if (filter || profileFeedPosts) return; // main feed tab only
@@ -520,6 +531,7 @@ export default function FeedScreen({ navigation, route }) {
           courseName: filter.courseName,
           hole: filter.hole,
           compositeName: filter.compositeName,
+          subCourseName: filter.subCourseName,
           sort: sortMode,
           offset: 0,
           limit: COURSE_FEED_PAGE_SIZE,
@@ -546,7 +558,7 @@ export default function FeedScreen({ navigation, route }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter?.courseId, filter?.courseName, filter?.hole, filter?.compositeName, sortMode, user?.id]);
+  }, [filter?.courseId, filter?.courseName, filter?.hole, filter?.compositeName, filter?.subCourseName, sortMode, user?.id]);
 
   const loadMoreCourseFeedPosts = useCallback(async () => {
     if (!filter || !courseFeedHasMore || loadingMorePosts) return;
@@ -557,6 +569,7 @@ export default function FeedScreen({ navigation, route }) {
         courseName: filter.courseName,
         hole: filter.hole,
         compositeName: filter.compositeName,
+        subCourseName: filter.subCourseName,
         sort: sortMode,
         offset: courseFeedOffset,
         limit: COURSE_FEED_PAGE_SIZE,
@@ -642,6 +655,15 @@ export default function FeedScreen({ navigation, route }) {
       courseId: filter.courseId,
       courseName: filter.courseName,
     });
+  };
+
+  // Logo tap while already on the main Following feed — every other screen
+  // just falls through to Header's default navigate('Following'), but that
+  // would be a no-op here since we're already on this tab, so scroll to the
+  // top and pull a fresh page instead.
+  const handleLogoTap = () => {
+    postsListRef.current?.scrollToOffset({ offset: 0, animated: true });
+    onRefreshFollowingFeed();
   };
 
   const handleUserPress = (post) => {
@@ -742,12 +764,16 @@ export default function FeedScreen({ navigation, route }) {
     }
   }).current;
 
+  const filteredCourseLabel =
+    filter?.subCourseName && filter.subCourseName !== UNGROUPED_SUB_COURSE
+      ? `${filter.subCourseName} — ${filter.courseName}`
+      : filter?.courseName;
   const filteredTitle = filter
     ? filter.hole != null
       ? `Hole ${filter.hole}${
           filter.compositeName && filter.compositeName !== UNGROUPED_NINE ? ` — ${filter.compositeName}` : ''
-        } — ${filter.courseName}`
-      : filter.courseName
+        } — ${filteredCourseLabel}`
+      : filteredCourseLabel
     : null;
   const filteredEmptyText =
     filter?.hole != null ? 'No posts on this hole yet.' : 'No posts at this course yet. Be the first to post!';
@@ -804,6 +830,7 @@ export default function FeedScreen({ navigation, route }) {
         </View>
       ) : (
         <Header
+          onLogoPress={handleLogoTap}
           right={
             <View style={styles.headerActions}>
               <TouchableOpacity

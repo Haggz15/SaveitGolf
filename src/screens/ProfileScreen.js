@@ -12,6 +12,8 @@ import {
   Linking,
   Modal,
   Platform,
+  TextInput,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
@@ -29,7 +31,7 @@ import { getCourseRankings, addCourseRanking, updateCourseRanking } from '../ser
 import { getMyCourses, addMyCourse, removeMyCourse, getSavedCourseCoordinates } from '../services/myCourses';
 import { geocodeCourseCoordinates } from '../services/geocoding';
 import { submitNewCourse } from '../services/golfCourseApi';
-import { getUserPosts } from '../services/posts';
+import { getUserPosts, updatePostCaption, deletePost } from '../services/posts';
 import { getFollowerCount, getFollowingCount } from '../services/social';
 import { deleteAccount } from '../services/auth';
 
@@ -115,7 +117,7 @@ function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, on
   );
 }
 
-function UploadsGrid({ posts, loading, onPressPost }) {
+function UploadsGrid({ posts, loading, onPressPost, onLongPressPost }) {
   if (loading) {
     return <ActivityIndicator color={colors.red} style={{ marginTop: 16 }} />;
   }
@@ -140,6 +142,8 @@ function UploadsGrid({ posts, loading, onPressPost }) {
         <TouchableOpacity
           style={styles.uploadTile}
           onPress={() => onPressPost(item, index)}
+          onLongPress={() => onLongPressPost(item)}
+          delayLongPress={400}
           activeOpacity={0.85}
         >
           <Image source={{ uri: item.mediaUrl }} style={styles.uploadTileImage} resizeMode="cover" />
@@ -198,6 +202,9 @@ export default function ProfileScreen({ navigation }) {
   const [actionSheetCourse, setActionSheetCourse] = useState(null);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [editingPost, setEditingPost] = useState(null);
+  const [editCaption, setEditCaption] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
 
   function handleDeleteAccount() {
     const message =
@@ -317,6 +324,71 @@ export default function ProfileScreen({ navigation }) {
       startIndex: index,
       username: profileData?.username,
     });
+  }
+
+  // Deleting a post is only ever offered on the caller's own uploads grid
+  // (see UploadsGrid's onLongPressPost, wired below), same as
+  // CommentSheet.confirmDeleteComment's own-row-only guard — RLS also blocks
+  // it server-side regardless.
+  async function handleDeletePost(postId) {
+    try {
+      await deletePost(postId);
+      setUploadPosts((prev) => prev.filter((p) => p.id !== postId));
+    } catch (err) {
+      console.error('Failed to delete post:', err);
+      Alert.alert('Something went wrong', 'Could not delete this post. Please try again.');
+    }
+  }
+
+  function confirmDeletePost(postId) {
+    if (Platform.OS === 'web') {
+      if (window.confirm('Delete this post? This cannot be undone.')) {
+        handleDeletePost(postId);
+      }
+      return;
+    }
+    Alert.alert('Delete Post', 'Are you sure? This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => handleDeletePost(postId) },
+    ]);
+  }
+
+  function handleEditPost(post) {
+    setEditingPost(post);
+    setEditCaption(post.caption || '');
+    setShowEditModal(true);
+  }
+
+  async function handleSaveEditedCaption() {
+    if (!editingPost) return;
+    const trimmed = editCaption.trim();
+    try {
+      await updatePostCaption(editingPost.id, trimmed);
+      setUploadPosts((prev) =>
+        prev.map((p) => (p.id === editingPost.id ? { ...p, caption: trimmed } : p))
+      );
+      setShowEditModal(false);
+      setEditingPost(null);
+    } catch (err) {
+      console.error('Failed to update caption:', err);
+      Alert.alert('Something went wrong', 'Could not update this caption. Please try again.');
+    }
+  }
+
+  // Web has no long-press action-sheet equivalent (Alert.alert is a no-op on
+  // react-native-web, same reasoning as handleDeleteAccount above), so a
+  // long press there goes straight to a delete confirmation rather than
+  // offering Edit Caption too.
+  function handleLongPressPost(post) {
+    if (Platform.OS === 'web') {
+      confirmDeletePost(post.id);
+      return;
+    }
+    Alert.alert('Post Options', undefined, [
+      { text: 'Edit Caption', onPress: () => handleEditPost(post) },
+      { text: 'Delete Post', style: 'destructive', onPress: () => confirmDeletePost(post.id) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   }
 
   const loadMyCourses = useCallback(async () => {
@@ -756,7 +828,12 @@ export default function ProfileScreen({ navigation }) {
             />
           )}
           {activeTab === 'Uploads' && (
-            <UploadsGrid posts={uploadPosts} loading={uploadsLoading} onPressPost={handlePostTap} />
+            <UploadsGrid
+              posts={uploadPosts}
+              loading={uploadsLoading}
+              onPressPost={handlePostTap}
+              onLongPressPost={handleLongPressPost}
+            />
           )}
         </View>
 
@@ -871,6 +948,41 @@ export default function ProfileScreen({ navigation }) {
         onViewMap={handleViewCourseOnMap}
         onViewCourseDetail={handleViewCourseDetail}
       />
+
+      <Modal
+        visible={showEditModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowEditModal(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.editModalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setShowEditModal(false)}
+          />
+          <View style={styles.editModalSheet}>
+            <Text style={styles.editModalTitle}>Edit Caption</Text>
+            <TextInput
+              value={editCaption}
+              onChangeText={setEditCaption}
+              multiline
+              placeholder="Write a caption..."
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              style={styles.editModalInput}
+            />
+            <TouchableOpacity onPress={handleSaveEditedCaption} style={styles.editModalSaveButton}>
+              <Text style={styles.editModalSaveButtonText}>Save</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowEditModal(false)} style={styles.editModalCancelButton}>
+              <Text style={styles.editModalCancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -1299,6 +1411,58 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   accountModalCancelText: {
+    color: colors.muted,
+    fontSize: 14,
+  },
+  editModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  editModalSheet: {
+    backgroundColor: colors.navy,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    paddingBottom: 32,
+    borderTopWidth: 0.5,
+    borderColor: colors.navyBorder,
+  },
+  editModalTitle: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  editModalInput: {
+    backgroundColor: colors.navyCard,
+    borderRadius: 10,
+    padding: 12,
+    color: colors.white,
+    fontSize: 14,
+    minHeight: 80,
+    textAlignVertical: 'top',
+    borderWidth: 0.5,
+    borderColor: colors.navyBorder,
+    marginBottom: 16,
+  },
+  editModalSaveButton: {
+    backgroundColor: colors.brightGreen,
+    borderRadius: 10,
+    padding: 14,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  editModalSaveButtonText: {
+    color: '#0d2a0d',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  editModalCancelButton: {
+    padding: 12,
+    alignItems: 'center',
+  },
+  editModalCancelButtonText: {
     color: colors.muted,
     fontSize: 14,
   },

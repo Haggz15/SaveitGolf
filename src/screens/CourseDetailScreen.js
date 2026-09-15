@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
 import { getCourseById } from '../services/golfCourseApi';
-import { getCourseHoleStats, UNGROUPED_NINE } from '../services/posts';
+import { getCourseHoleStats, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
 import { getScorecardsForCourse } from '../services/scorecards';
 
 const TABS = ['All Posts', 'Hole by Hole', 'Scorecards'];
@@ -40,6 +40,140 @@ function HoleCard({ number, par, yardage, postCount, isMostPopular, onPress }) {
         <Text style={styles.holeCardPosts}>{postCount}</Text>
       </View>
     </TouchableOpacity>
+  );
+}
+
+// Renders the classic single-grid layout, or nines grouped as their own
+// sections plus an "Other Holes" catch-all, for whatever subset of a
+// course's posts it's given — used directly for a single-course page, and
+// once per named sub-course (see CourseDetailScreen's subCourseNames, Fix 6)
+// for a golf complex with multiple distinct courses under one name.
+function HoleByHoleGrid({ posts, holeShells, onSelectHole }) {
+  const compositeNames = useMemo(() => {
+    const seen = new Set();
+    const ordered = [];
+    posts.forEach((p) => {
+      if (p.compositeName && !seen.has(p.compositeName)) {
+        seen.add(p.compositeName);
+        ordered.push(p.compositeName);
+      }
+    });
+    return ordered;
+  }, [posts]);
+
+  const holes = useMemo(
+    () => holeShells.map((h) => ({ ...h, postCount: posts.filter((p) => p.hole === h.number).length })),
+    [holeShells, posts]
+  );
+
+  // A composite-named nine is always holes 1-9 regardless of which real 9 of
+  // the course it maps to — same holes/par metadata as the course's front
+  // nine, just re-scoped to whichever posts named `nine`.
+  function nineHoles(nine) {
+    return holeShells.slice(0, 9).map((h) => ({
+      ...h,
+      postCount: posts.filter((p) => p.hole === h.number && p.compositeName === nine).length,
+    }));
+  }
+
+  // Posts logged here without ever toggling "multiple nines" — shown as
+  // their own "Other Holes" section (full hole range) once at least one
+  // composite-named nine exists, so they don't just disappear.
+  const otherHoles = useMemo(
+    () => holes.map((h) => ({ ...h, postCount: posts.filter((p) => p.hole === h.number && !p.compositeName).length })),
+    [holes, posts]
+  );
+
+  const mostPopularEntry = useMemo(() => {
+    let entries;
+    if (compositeNames.length === 0) {
+      entries = holes.map((h) => ({ number: h.number, nine: null, postCount: h.postCount }));
+    } else {
+      entries = [];
+      compositeNames.forEach((nine) => {
+        for (let number = 1; number <= 9; number++) {
+          entries.push({
+            number,
+            nine,
+            postCount: posts.filter((p) => p.hole === number && p.compositeName === nine).length,
+          });
+        }
+      });
+      if (posts.some((p) => !p.compositeName)) {
+        holes.forEach((h) => {
+          entries.push({
+            number: h.number,
+            nine: UNGROUPED_NINE,
+            postCount: posts.filter((p) => p.hole === h.number && !p.compositeName).length,
+          });
+        });
+      }
+    }
+    if (entries.length === 0) return null;
+    return entries.reduce((max, e) => (e.postCount > max.postCount ? e : max), entries[0]);
+  }, [compositeNames, holes, posts]);
+
+  function isMostPopular(number, nine = null) {
+    return !!mostPopularEntry && mostPopularEntry.number === number && mostPopularEntry.nine === nine;
+  }
+
+  if (compositeNames.length === 0) {
+    return (
+      <View style={styles.holeGrid}>
+        {holes.map((hole) => (
+          <HoleCard
+            key={hole.number}
+            number={hole.number}
+            par={hole.par}
+            yardage={hole.yardage}
+            postCount={hole.postCount}
+            isMostPopular={isMostPopular(hole.number)}
+            onPress={() => onSelectHole(hole.number)}
+          />
+        ))}
+      </View>
+    );
+  }
+
+  return (
+    <>
+      {compositeNames.map((nine) => (
+        <View key={nine} style={styles.nineSection}>
+          <Text style={styles.nineSectionHeader}>{nine}</Text>
+          <View style={styles.holeGrid}>
+            {nineHoles(nine).map((hole) => (
+              <HoleCard
+                key={hole.number}
+                number={hole.number}
+                par={hole.par}
+                yardage={hole.yardage}
+                postCount={hole.postCount}
+                isMostPopular={isMostPopular(hole.number, nine)}
+                onPress={() => onSelectHole(hole.number, nine)}
+              />
+            ))}
+          </View>
+        </View>
+      ))}
+      {posts.some((p) => !p.compositeName) && (
+        <View style={styles.nineSection}>
+          <Text style={styles.nineSectionHeader}>Other Holes</Text>
+          <View style={styles.holeGrid}>
+            {otherHoles.map((hole) => (
+              <HoleCard
+                key={hole.number}
+                number={hole.number}
+                par={hole.par}
+                yardage={hole.yardage}
+                postCount={hole.postCount}
+                isMostPopular={isMostPopular(hole.number, UNGROUPED_NINE)}
+                onPress={() => onSelectHole(hole.number, UNGROUPED_NINE)}
+              />
+            ))}
+          </View>
+        </View>
+      )}
+    </>
   );
 }
 
@@ -155,106 +289,46 @@ export default function CourseDetailScreen({ route, navigation }) {
   const holesCount = primaryTee?.holes?.length ?? 18;
   const parTotal = primaryTee?.par_total ?? 72;
 
-  const holes = useMemo(() => {
+  // Hole number/par/yardage shells, independent of any posts — HoleByHoleGrid
+  // layers postCount onto these per whichever subset of coursePosts it's
+  // given (see subCourseNames below).
+  const holeShells = useMemo(() => {
     return Array.from({ length: holesCount }, (_, index) => {
       const liveHole = primaryTee?.holes?.[index];
-      const number = index + 1;
       return {
-        number,
+        number: index + 1,
         par: liveHole?.par ?? DEFAULT_HOLE_PATTERN[index % DEFAULT_HOLE_PATTERN.length],
         yardage: liveHole?.yardage ?? null,
-        postCount: coursePosts.filter((p) => p.hole === number).length,
       };
     });
-  }, [primaryTee, holesCount, coursePosts]);
+  }, [primaryTee, holesCount]);
 
-  // Distinct composite nine names among this course's posts, in first-seen
-  // order — drives the Hole by Hole tab's grouping (Step 5). Empty when no
-  // post here has ever tagged a nine, which keeps that tab's classic
-  // single-grid layout unchanged.
-  const compositeNames = useMemo(() => {
+  // Distinct sub-course names among this course's posts, in first-seen
+  // order — an outer grouping layer above HoleByHoleGrid's own nine
+  // grouping, for a golf complex with multiple distinct courses under one
+  // name (e.g. PGA West's Stadium/Nicklaus/Palmer courses — Fix 6). Empty
+  // when no post here has ever tagged one, which keeps the classic
+  // single-course layout unchanged.
+  const subCourseNames = useMemo(() => {
     const seen = new Set();
     const ordered = [];
     coursePosts.forEach((p) => {
-      if (p.compositeName && !seen.has(p.compositeName)) {
-        seen.add(p.compositeName);
-        ordered.push(p.compositeName);
+      if (p.subCourseName && !seen.has(p.subCourseName)) {
+        seen.add(p.subCourseName);
+        ordered.push(p.subCourseName);
       }
     });
     return ordered;
   }, [coursePosts]);
 
-  // A composite-named nine is always holes 1-9 regardless of which real
-  // 9 of the course it maps to — same holes/par metadata as the course's
-  // front nine, just re-scoped to whichever posts named `nine`.
-  function nineHoles(nine) {
-    return Array.from({ length: 9 }, (_, index) => {
-      const liveHole = primaryTee?.holes?.[index];
-      const number = index + 1;
-      return {
-        number,
-        par: liveHole?.par ?? DEFAULT_HOLE_PATTERN[index % DEFAULT_HOLE_PATTERN.length],
-        yardage: liveHole?.yardage ?? null,
-        postCount: coursePosts.filter((p) => p.hole === number && p.compositeName === nine).length,
-      };
-    });
-  }
-
-  // Posts logged at this course without ever toggling "multiple nines" —
-  // shown as their own "Other Holes" section (full hole range) once at
-  // least one composite-named nine exists, so they don't just disappear.
-  const otherHoles = useMemo(
-    () => holes.map((h) => ({ ...h, postCount: coursePosts.filter((p) => p.hole === h.number && !p.compositeName).length })),
-    [holes, coursePosts]
-  );
-
-  // The single most-posted-to hole card across whichever grouping is
-  // actually rendered below (plain grid, or nine-grouped + "Other Holes") —
-  // highlighted in red (see HoleCard's isMostPopular). Keyed by
-  // {number, nine} so the same hole number under two different nines is
-  // judged independently rather than lumped together.
-  const mostPopularEntry = useMemo(() => {
-    let entries;
-    if (compositeNames.length === 0) {
-      entries = holes.map((h) => ({ number: h.number, nine: null, postCount: h.postCount }));
-    } else {
-      entries = [];
-      compositeNames.forEach((nine) => {
-        for (let number = 1; number <= 9; number++) {
-          entries.push({
-            number,
-            nine,
-            postCount: coursePosts.filter((p) => p.hole === number && p.compositeName === nine).length,
-          });
-        }
-      });
-      if (coursePosts.some((p) => !p.compositeName)) {
-        holes.forEach((h) => {
-          entries.push({
-            number: h.number,
-            nine: UNGROUPED_NINE,
-            postCount: coursePosts.filter((p) => p.hole === h.number && !p.compositeName).length,
-          });
-        });
-      }
-    }
-    if (entries.length === 0) return null;
-    return entries.reduce((max, e) => (e.postCount > max.postCount ? e : max), entries[0]);
-  }, [compositeNames, holes, coursePosts]);
-
-  function isMostPopular(number, nine = null) {
-    return !!mostPopularEntry && mostPopularEntry.number === number && mostPopularEntry.nine === nine;
-  }
-
   // All Posts and Hole by Hole's individual hole cards both open the
   // full-screen swipe feed (reusing FeedScreen — see its `filter` prop and
   // RootNavigator's "CourseFeed" route) rather than rendering inline.
-  // `compositeName` mirrors the three states getCourseFeedPosts expects:
-  // omitted (no nine filter — classic non-composite course), a real nine
-  // name, or UNGROUPED_NINE for the "Other Holes" bucket.
-  function navigateToCourseFeed({ hole = null, compositeName = null } = {}) {
+  // `compositeName`/`subCourseName` mirror the states getCourseFeedPosts
+  // expects: omitted (no filter), a real name, or their UNGROUPED_* sentinel.
+  function navigateToCourseFeed({ hole = null, compositeName = null, subCourseName = null } = {}) {
     navigation.navigate('CourseFeed', {
-      filter: { courseId, courseName, hole, compositeName },
+      filter: { courseId, courseName, hole, compositeName, subCourseName },
     });
   }
 
@@ -266,8 +340,8 @@ export default function CourseDetailScreen({ route, navigation }) {
     setActiveTab(tab);
   }
 
-  function handleSelectHole(number, nine = null) {
-    navigateToCourseFeed({ hole: number, compositeName: nine });
+  function handleSelectHole(number, nine = null, subCourse = null) {
+    navigateToCourseFeed({ hole: number, compositeName: nine, subCourseName: subCourse });
   }
 
   const goToTab = (screen) => navigation.navigate('Tabs', { screen });
@@ -355,56 +429,32 @@ export default function CourseDetailScreen({ route, navigation }) {
             {activeTab === 'Hole by Hole' && (
               <View style={styles.tabContent}>
                 <Text style={styles.helperText}>Tap any hole to see posts</Text>
-                {compositeNames.length === 0 ? (
-                  <View style={styles.holeGrid}>
-                    {holes.map((hole) => (
-                      <HoleCard
-                        key={hole.number}
-                        number={hole.number}
-                        par={hole.par}
-                        yardage={hole.yardage}
-                        postCount={hole.postCount}
-                        isMostPopular={isMostPopular(hole.number)}
-                        onPress={() => handleSelectHole(hole.number)}
-                      />
-                    ))}
-                  </View>
+                {subCourseNames.length === 0 ? (
+                  <HoleByHoleGrid
+                    posts={coursePosts}
+                    holeShells={holeShells}
+                    onSelectHole={handleSelectHole}
+                  />
                 ) : (
                   <>
-                    {compositeNames.map((nine) => (
-                      <View key={nine} style={styles.nineSection}>
-                        <Text style={styles.nineSectionHeader}>{nine}</Text>
-                        <View style={styles.holeGrid}>
-                          {nineHoles(nine).map((hole) => (
-                            <HoleCard
-                              key={hole.number}
-                              number={hole.number}
-                              par={hole.par}
-                              yardage={hole.yardage}
-                              postCount={hole.postCount}
-                              isMostPopular={isMostPopular(hole.number, nine)}
-                              onPress={() => handleSelectHole(hole.number, nine)}
-                            />
-                          ))}
-                        </View>
+                    {subCourseNames.map((subCourse) => (
+                      <View key={subCourse} style={styles.subCourseSection}>
+                        <Text style={styles.subCourseSectionHeader}>{subCourse}</Text>
+                        <HoleByHoleGrid
+                          posts={coursePosts.filter((p) => p.subCourseName === subCourse)}
+                          holeShells={holeShells}
+                          onSelectHole={(number, nine) => handleSelectHole(number, nine, subCourse)}
+                        />
                       </View>
                     ))}
-                    {coursePosts.some((p) => !p.compositeName) && (
-                      <View style={styles.nineSection}>
-                        <Text style={styles.nineSectionHeader}>Other Holes</Text>
-                        <View style={styles.holeGrid}>
-                          {otherHoles.map((hole) => (
-                            <HoleCard
-                              key={hole.number}
-                              number={hole.number}
-                              par={hole.par}
-                              yardage={hole.yardage}
-                              postCount={hole.postCount}
-                              isMostPopular={isMostPopular(hole.number, UNGROUPED_NINE)}
-                              onPress={() => handleSelectHole(hole.number, UNGROUPED_NINE)}
-                            />
-                          ))}
-                        </View>
+                    {coursePosts.some((p) => !p.subCourseName) && (
+                      <View style={styles.subCourseSection}>
+                        <Text style={styles.subCourseSectionHeader}>Other Courses</Text>
+                        <HoleByHoleGrid
+                          posts={coursePosts.filter((p) => !p.subCourseName)}
+                          holeShells={holeShells}
+                          onSelectHole={(number, nine) => handleSelectHole(number, nine, UNGROUPED_SUB_COURSE)}
+                        />
                       </View>
                     )}
                   </>
@@ -611,6 +661,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.white,
     marginBottom: 10,
+  },
+  subCourseSection: {
+    marginBottom: 24,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.navyBorder,
+  },
+  subCourseSectionHeader: {
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 16,
+    color: colors.red,
+    marginBottom: 12,
   },
   holeGrid: {
     flexDirection: 'row',

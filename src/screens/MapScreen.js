@@ -262,22 +262,23 @@ export default function MapScreen({ navigation, route }) {
   return (
     <View style={styles.screen}>
       <Header />
-      {zoomLevel !== ZOOM_LEVEL.COUNTRY && (
-        <>
-          <Text style={styles.searchHeading}>Search courses in {currentStateName}</Text>
-          <CourseSearchBar
-            query={searchQuery}
-            onChangeQuery={handleSearchQueryChange}
-            onClear={clearSearch}
-            results={searchResults}
-            searching={searching}
-            onSelectResult={handleSelectSearchResult}
-            placeholder="Search for a course"
-            onFocus={() => setCourseSearchFocused(true)}
-            onBlur={() => setCourseSearchFocused(false)}
-          />
-        </>
-      )}
+      {/* Always rendered immediately on mount — no zoom-level gating, no
+          loading state — so the search bar is never hidden behind the
+          Level 1 full-US pin view (see Fix 1). */}
+      <Text style={styles.searchHeading}>
+        {currentStateName ? `Search courses in ${currentStateName}` : 'Search for a course'}
+      </Text>
+      <CourseSearchBar
+        query={searchQuery}
+        onChangeQuery={handleSearchQueryChange}
+        onClear={clearSearch}
+        results={searchResults}
+        searching={searching}
+        onSelectResult={handleSelectSearchResult}
+        placeholder="Search for a course"
+        onFocus={() => setCourseSearchFocused(true)}
+        onBlur={() => setCourseSearchFocused(false)}
+      />
       {!courseSearchFocused && (
         <FriendSearchBar currentUserId={user?.id} onSelectFriend={loadFriendCourses} />
       )}

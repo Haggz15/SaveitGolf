@@ -938,3 +938,14 @@ end;
 $$;
 
 grant execute on function public.delete_own_account() to authenticated;
+
+-- manual_entry marks a post whose course was typed by hand because
+-- golfcourseapi.com's search came up empty (see PostScreen) rather than
+-- picked from a search result — course_id is null either way, but this
+-- distinguishes "no match yet, submitted for review" from any other
+-- null-course_id post. sub_course_name is for golf complexes with multiple
+-- distinct full courses under one name (e.g. PGA West's Stadium/Nicklaus/
+-- Palmer courses) — unlike composite_name (one nine of a single course),
+-- a sub-course is a whole separate course sharing the parent club_name.
+alter table public.posts add column if not exists manual_entry boolean not null default false;
+alter table public.posts add column if not exists sub_course_name text;

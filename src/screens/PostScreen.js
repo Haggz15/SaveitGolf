@@ -26,7 +26,7 @@ import GolfBallMark, { useGolfBallFont } from '../components/common/GolfBallMark
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { createPost } from '../services/posts';
-import { searchCourses } from '../services/golfCourseApi';
+import { searchCourses, submitNewCourse } from '../services/golfCourseApi';
 import { searchProfiles } from '../services/social';
 import { MENTION_RE } from '../services/mentions';
 import { notifyFollowersOfPost } from '../services/notifications';
@@ -255,6 +255,7 @@ export default function PostScreen({ navigation }) {
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [hasMultipleNines, setHasMultipleNines] = useState(false);
   const [compositeName, setCompositeName] = useState('');
+  const [subCourseName, setSubCourseName] = useState('');
   const [hole, setHole] = useState('');
   const [par, setPar] = useState('');
   const [caption, setCaption] = useState('');
@@ -359,6 +360,19 @@ export default function PostScreen({ navigation }) {
   const handleSelectCourse = (course) => {
     setSelectedCourse(course);
     setCourseQuery(course.name);
+    setCourseResults([]);
+  };
+
+  // Course search came up empty and the user wants to post anyway — treated
+  // the same as picking a real search result (closes the dropdown, shows the
+  // typed name as "selected"), except with no id, so createPost stamps
+  // manual_entry: true and this course also gets submitted to
+  // golfcourseapi.com in handleSharePost below so it's findable for everyone
+  // once it's added for real.
+  const handleUseManualCourse = () => {
+    const name = courseQuery.trim();
+    if (!name) return;
+    setSelectedCourse({ id: null, name, city: null, state: null });
     setCourseResults([]);
   };
 
@@ -552,6 +566,20 @@ export default function PostScreen({ navigation }) {
 
     try {
       const course = await resolveCourseCoordinates(selectedCourse ?? { id: null, name: courseName });
+
+      // No golfcourseapi.com id means this course was typed by hand (search
+      // came up empty — see the "Post to..." button above) rather than
+      // picked from a result. The post itself never waits on this: it's
+      // submitted to golfcourseapi.com fire-and-forget, same as
+      // ProfileScreen.handleAddManualCourse, so the course becomes findable
+      // for everyone once it's added for real — a failure here is only ever
+      // logged.
+      if (!course.id) {
+        submitNewCourse({ name: course.name, city: course.city, state: course.state, lat: course.lat, lng: course.lng })
+          .then((result) => console.log('[golfcourseapi] submitted manually-typed course from post:', result))
+          .catch((err) => console.error('[golfcourseapi] failed to submit manually-typed course from post:', err.message));
+      }
+
       const post = await createPost({
         userId: user.id,
         course,
@@ -561,6 +589,7 @@ export default function PostScreen({ navigation }) {
         mediaUri: media.uri,
         mediaType: media.type,
         compositeName: hasMultipleNines ? compositeName.trim() || null : null,
+        subCourseName: subCourseName.trim() || null,
         onUploadRetry: setUploadRetryAttempt,
       });
 
@@ -573,6 +602,7 @@ export default function PostScreen({ navigation }) {
       setSelectedCourse(null);
       setHasMultipleNines(false);
       setCompositeName('');
+      setSubCourseName('');
       setHole('');
       setPar('');
       setCaption('');
@@ -724,8 +754,13 @@ export default function PostScreen({ navigation }) {
                 <Text style={styles.statusText}>Searching…</Text>
               </View>
             ) : courseResults.length === 0 ? (
-              <View style={styles.statusRow}>
-                <Text style={styles.statusText}>No matches — you can still post with this name</Text>
+              <View style={styles.noMatchBox}>
+                <Text style={styles.statusText}>
+                  Course not found in our database — post anyway and we will add it
+                </Text>
+                <TouchableOpacity style={styles.noMatchButton} onPress={handleUseManualCourse} activeOpacity={0.85}>
+                  <Text style={styles.noMatchButtonText}>Post to {courseQuery.trim()}</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               <FlatList
@@ -772,6 +807,20 @@ export default function PostScreen({ navigation }) {
               value={compositeName}
               onChangeText={setCompositeName}
               placeholder="e.g. Blue, Ridge, Trail, North, South"
+              placeholderTextColor={colors.muted}
+              autoCorrect={false}
+            />
+          </>
+        )}
+
+        {courseQuery.trim().length > 0 && (
+          <>
+            <Text style={styles.label}>Specific Course (optional)</Text>
+            <TextInput
+              style={styles.input}
+              value={subCourseName}
+              onChangeText={setSubCourseName}
+              placeholder="For clubs with multiple courses, e.g. Stadium Course"
               placeholderTextColor={colors.muted}
               autoCorrect={false}
             />
@@ -1110,6 +1159,22 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     textAlign: 'center',
+  },
+  noMatchBox: {
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 10,
+  },
+  noMatchButton: {
+    backgroundColor: colors.red,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  noMatchButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700',
   },
   resultRow: {
     flexDirection: 'row',
