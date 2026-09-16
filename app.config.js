@@ -29,7 +29,7 @@ module.exports = {
     },
     ios: {
       bundleIdentifier: 'com.saveitgolf.app',
-      buildNumber: '9',
+      buildNumber: '10',
       supportsTablet: true,
       config: {
         googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
@@ -97,7 +97,7 @@ module.exports = {
       'expo-video',
     ],
     extra: {
-      golfCourseApiKey: process.env.GOLF_COURSE_API_KEY,
+      golfCourseApiKey: process.env.GOLF_COURSE_API_KEY || 'YFLVNLXAT3GXCYCBS64LDXZXOY',
       googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
       supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
       supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY,

@@ -7,17 +7,23 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "environment": "development",
       "ios": {
         "resourceClass": "m-medium"
       }
     },
     "preview": {
       "distribution": "internal",
+      "environment": "preview",
       "ios": {
         "resourceClass": "m-medium"
       }
     },
     "production": {
+      "environment": "production",
+      "env": {
+        "GOLF_COURSE_API_KEY": "YFLVNLXAT3GXCYCBS64LDXZXOY"
+      },
       "ios": {
         "resourceClass": "m-medium"
       }
