@@ -17,6 +17,40 @@ function getApiKey() {
   );
 }
 
+// Debug-only: dumps which of the three key sources resolved, without
+// printing the full key. Temporary — remove once the "temporarily
+// unavailable" issue is root-caused.
+export const testApiKey = () => {
+  const key1 = Constants.expoConfig?.extra?.golfCourseApiKey;
+  const key2 = process.env.EXPO_PUBLIC_GOLF_COURSE_API_KEY;
+  const key3 = process.env.GOLF_COURSE_API_KEY;
+  console.log('=== API KEY TEST ===');
+  console.log('Constants key:', key1 ? key1.substring(0, 6) + '...' : 'MISSING');
+  console.log('EXPO_PUBLIC key:', key2 ? key2.substring(0, 6) + '...' : 'MISSING');
+  console.log('GOLF_COURSE key:', key3 ? key3.substring(0, 6) + '...' : 'MISSING');
+  console.log('===================');
+};
+
+// Debug-only: hits golfcourseapi.com directly and logs the raw response,
+// bypassing apiFetch's quota/error handling so the true status/body is
+// visible. Temporary — remove once the "temporarily unavailable" issue is
+// root-caused.
+export const testApiCall = async () => {
+  const apiKey = Constants.expoConfig?.extra?.golfCourseApiKey || 'YFLVNLXAT3GXCYCBS64LDXZXOY';
+  console.log('Testing API with key:', apiKey.substring(0, 6) + '...');
+  try {
+    const response = await fetch(
+      'https://api.golfcourseapi.com/v1/search?search_query=pebble+beach',
+      { headers: { Authorization: `Key ${apiKey}` } }
+    );
+    console.log('API Status:', response.status);
+    const data = await response.json();
+    console.log('API Response:', JSON.stringify(data).substring(0, 200));
+  } catch (err) {
+    console.log('API Error:', err.message);
+  }
+};
+
 const BASE_URL = 'https://api.golfcourseapi.com/v1';
 
 const resolvedApiKey = getApiKey();

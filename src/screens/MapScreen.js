@@ -24,6 +24,7 @@ import {
   MAP_FILTERS,
   ZOOM_LEVEL,
 } from '../hooks/useCourseMapData';
+import { testApiKey, testApiCall } from '../services/golfCourseApi';
 import { useAuth } from '../context/AuthContext';
 import { filterCoursesWithValidCoordinates } from '../utils/mapCoords';
 
@@ -191,6 +192,13 @@ export default function MapScreen({ navigation, route }) {
       refreshMyCourses();
     }, [refreshMyCourses])
   );
+
+  // Debug-only: root-causing the "temporarily unavailable" API error.
+  // Remove once resolved.
+  useEffect(() => {
+    testApiKey();
+    testApiCall();
+  }, []);
 
   useEffect(() => {
     if (!focusRegion) return;
