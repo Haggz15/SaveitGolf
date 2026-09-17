@@ -9,12 +9,15 @@ import { hasValidCoordinates } from '../utils/mapCoords';
 // chain down to the same hardcoded key so course search never silently goes
 // dead for lack of a key.
 function getApiKey() {
-  return (
-    Constants.expoConfig?.extra?.golfCourseApiKey ||
+  // Try all possible sources in order
+  const key =
     process.env.EXPO_PUBLIC_GOLF_COURSE_API_KEY ||
     process.env.GOLF_COURSE_API_KEY ||
-    'YFLVNLXAT3GXCYCBS64LDXZXOY'
-  );
+    Constants.expoConfig?.extra?.golfCourseApiKey ||
+    'YFLVNLXAT3GXCYCBS64LDXZXOY'; // hardcoded final fallback
+
+  console.log('[golfcourseapi] getApiKey result:', key ? key.substring(0, 6) + '...' : 'MISSING');
+  return key;
 }
 
 // Debug-only: dumps which of the three key sources resolved, without
@@ -127,14 +130,9 @@ export async function hasBackgroundQuota() {
 }
 
 async function apiFetch(path) {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    const err = new Error('Missing GOLF_COURSE_API_KEY — add it to .env');
-    console.error('[golfcourseapi]', err.message);
-    throw err;
-  }
+  const apiKey = getApiKey(); // always returns a value now
   const url = `${BASE_URL}${path}`;
-  console.log('[golfcourseapi] GET', url);
+  console.log('[golfcourseapi] GET', url, 'with key:', apiKey.substring(0, 6) + '...');
   const res = await fetch(url, {
     headers: { Authorization: `Key ${apiKey}` },
   });

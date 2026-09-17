@@ -34,6 +34,7 @@ import { submitNewCourse } from '../services/golfCourseApi';
 import { getUserPosts, updatePostCaption, deletePost } from '../services/posts';
 import { getFollowerCount, getFollowingCount } from '../services/social';
 import { deleteAccount } from '../services/auth';
+import { friendlyAuthError } from '../services/authErrors';
 
 const TABS = ['Uploads', 'Courses Played', 'Course Rankings'];
 
@@ -219,6 +220,10 @@ export default function ProfileScreen({ navigation }) {
   const [editingPost, setEditingPost] = useState(null);
   const [editCaption, setEditCaption] = useState('');
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showUsernameModal, setShowUsernameModal] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [usernameError, setUsernameError] = useState('');
+  const [usernameLoading, setUsernameLoading] = useState(false);
 
   function handleDeleteAccount() {
     const message =
@@ -371,6 +376,42 @@ export default function ProfileScreen({ navigation }) {
     setEditingPost(post);
     setEditCaption(post.caption || '');
     setShowEditModal(true);
+  }
+
+  function closeUsernameModal() {
+    setShowUsernameModal(false);
+    setNewUsername('');
+    setUsernameError('');
+  }
+
+  // Mirrors ProfileSetupScreen's own username validation (same regex/length
+  // rule) so a changed username is held to the same bar as one chosen at
+  // signup. Uniqueness isn't pre-checked here — profiles.username is a DB
+  // unique constraint (see schema.sql), and friendlyAuthError already turns
+  // that violation into "That username is already taken" below, so a
+  // separate check-then-update round trip would just add a race condition.
+  async function handleChangeUsername() {
+    const trimmed = newUsername.trim().toLowerCase();
+    if (!trimmed) {
+      setUsernameError('Choose a username.');
+      return;
+    }
+    if (!/^[a-z0-9_.]{3,20}$/i.test(trimmed)) {
+      setUsernameError('3-20 characters: letters, numbers, underscores.');
+      return;
+    }
+
+    setUsernameError('');
+    setUsernameLoading(true);
+    try {
+      await updateProfile({ username: trimmed });
+      closeUsernameModal();
+    } catch (err) {
+      console.error('Failed to update username:', err);
+      setUsernameError(friendlyAuthError(err));
+    } finally {
+      setUsernameLoading(false);
+    }
   }
 
   async function handleSaveEditedCaption() {
@@ -893,6 +934,20 @@ export default function ProfileScreen({ navigation }) {
           <TouchableOpacity
             onPress={() => {
               setShowAccountMenu(false);
+              setShowUsernameModal(true);
+            }}
+            style={styles.accountModalOption}
+          >
+            <Ionicons name="create-outline" size={20} color={colors.white} />
+            <View>
+              <Text style={styles.accountModalOptionTitle}>Change Username</Text>
+              <Text style={styles.accountModalOptionSubtitle}>Update your @username</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              setShowAccountMenu(false);
               handleLogout();
             }}
             style={styles.accountModalOption}
@@ -993,6 +1048,62 @@ export default function ProfileScreen({ navigation }) {
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setShowEditModal(false)} style={styles.editModalCancelButton}>
               <Text style={styles.editModalCancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={showUsernameModal}
+        transparent
+        animationType="slide"
+        onRequestClose={closeUsernameModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.editModalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeUsernameModal} />
+          <View style={styles.usernameModalSheet}>
+            <Text style={styles.usernameModalTitle}>Change Username</Text>
+            <Text style={styles.usernameModalSubtitle}>
+              Current username: @{profileData?.username || 'none'}
+            </Text>
+
+            <TextInput
+              value={newUsername}
+              onChangeText={(text) => {
+                setNewUsername(text);
+                setUsernameError('');
+              }}
+              placeholder="Enter new username"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              maxLength={20}
+              style={[styles.usernameModalInput, usernameError && styles.usernameModalInputError]}
+            />
+
+            {usernameError ? (
+              <Text style={styles.usernameModalError}>{usernameError}</Text>
+            ) : (
+              <Text style={styles.usernameModalHint}>3-20 characters: letters, numbers, underscores.</Text>
+            )}
+
+            <TouchableOpacity
+              onPress={handleChangeUsername}
+              disabled={usernameLoading}
+              style={[styles.usernameModalSaveButton, usernameLoading && styles.usernameModalSaveButtonDisabled]}
+            >
+              {usernameLoading ? (
+                <ActivityIndicator color={colors.brightGreenText} size="small" />
+              ) : (
+                <Text style={styles.usernameModalSaveButtonText}>Save Username</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={closeUsernameModal} style={styles.usernameModalCancelButton}>
+              <Text style={styles.usernameModalCancelButtonText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -1477,6 +1588,74 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   editModalCancelButtonText: {
+    color: colors.muted,
+    fontSize: 14,
+  },
+  usernameModalSheet: {
+    backgroundColor: colors.navy,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    paddingBottom: 32,
+    borderTopWidth: 0.5,
+    borderColor: colors.navyBorder,
+  },
+  usernameModalTitle: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  usernameModalSubtitle: {
+    color: colors.muted,
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  usernameModalInput: {
+    backgroundColor: colors.navyCard,
+    borderRadius: 10,
+    padding: 14,
+    color: colors.white,
+    fontSize: 15,
+    borderWidth: 0.5,
+    borderColor: colors.navyBorder,
+    marginBottom: 8,
+  },
+  usernameModalInputError: {
+    borderColor: colors.red,
+  },
+  usernameModalError: {
+    color: colors.red,
+    fontSize: 12,
+    marginBottom: 12,
+  },
+  usernameModalHint: {
+    color: colors.muted,
+    fontSize: 11,
+    marginBottom: 12,
+  },
+  usernameModalSaveButton: {
+    backgroundColor: colors.brightGreen,
+    borderRadius: 10,
+    padding: 14,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  usernameModalSaveButtonDisabled: {
+    opacity: 0.6,
+  },
+  usernameModalSaveButtonText: {
+    color: colors.brightGreenText,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  usernameModalCancelButton: {
+    padding: 12,
+    alignItems: 'center',
+  },
+  usernameModalCancelButtonText: {
     color: colors.muted,
     fontSize: 14,
   },
