@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ScrollView, TouchableOpacity, Image, ActivityIndicator, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
@@ -119,7 +119,17 @@ function UploadsGrid({ posts, loading, onPressPost }) {
           onPress={() => onPressPost(item, index)}
           activeOpacity={0.85}
         >
-          <Image source={{ uri: item.mediaUrl }} style={styles.uploadTileImage} resizeMode="cover" />
+          {item.isVideo && Platform.OS === 'web' ? (
+            <video
+              src={`${item.mediaUrl}#t=0.5`}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              preload="metadata"
+              muted
+              playsInline
+            />
+          ) : (
+            <Image source={{ uri: item.mediaUrl }} style={styles.uploadTileImage} resizeMode="cover" />
+          )}
           {item.isVideo && (
             <View style={styles.uploadPlayBadge}>
               <Ionicons name="play" size={10} color={colors.white} />

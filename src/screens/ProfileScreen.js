@@ -146,7 +146,21 @@ function UploadsGrid({ posts, loading, onPressPost, onLongPressPost }) {
           delayLongPress={400}
           activeOpacity={0.85}
         >
-          <Image source={{ uri: item.mediaUrl }} style={styles.uploadTileImage} resizeMode="cover" />
+          {item.isVideo && Platform.OS === 'web' ? (
+            // <Image> can't decode video files, which left these tiles blank —
+            // a muted <video> seeked to 0.5s (via the #t= media fragment)
+            // renders that frame as a thumbnail without needing a
+            // server-generated poster image.
+            <video
+              src={`${item.mediaUrl}#t=0.5`}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              preload="metadata"
+              muted
+              playsInline
+            />
+          ) : (
+            <Image source={{ uri: item.mediaUrl }} style={styles.uploadTileImage} resizeMode="cover" />
+          )}
           {item.isVideo && (
             <View style={styles.uploadPlayBadge}>
               <Ionicons name="play" size={10} color={colors.white} />

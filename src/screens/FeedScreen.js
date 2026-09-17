@@ -422,22 +422,34 @@ export default function FeedScreen({ navigation, route }) {
   // elsewhere in the app doesn't reload this feed out from under the user.
   useEffect(() => {
     if (filter || profileFeedPosts || !user?.id) return;
-    const channel = supabase
-      .channel('following-feed-new-posts')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'posts' },
-        (payload) => {
-          const posterId = payload.new?.user_id;
-          if (posterId && (posterId === user.id || followingIdsRef.current.includes(posterId))) {
-            loadFollowingFeed();
+    let channel;
+
+    try {
+      // Unique channel name per mount so a lingering unremoved channel from a
+      // prior mount (e.g. fast refresh, strict-mode double-invoke) can never
+      // collide with this one and trigger "cannot add postgres_changes
+      // callbacks after subscribe()".
+      channel = supabase
+        .channel(`following-feed-new-posts-${user.id}-${Date.now()}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'posts' },
+          (payload) => {
+            const posterId = payload.new?.user_id;
+            if (posterId && (posterId === user.id || followingIdsRef.current.includes(posterId))) {
+              loadFollowingFeed();
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    } catch (err) {
+      console.log('Realtime setup error:', err);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        supabase.removeChannel(channel).catch((err) => console.log('Channel removal error:', err));
+      }
     };
   }, [filter, profileFeedPosts, user?.id, loadFollowingFeed]);
 
@@ -984,6 +996,7 @@ export default function FeedScreen({ navigation, route }) {
         onCommentPosted={handleCommentPosted}
         onCommentDeleted={handleCommentDeleted}
         onMentionPress={handleMentionPress}
+        onUserPress={handleMentionPress}
       />
 
       <PostActionsSheet

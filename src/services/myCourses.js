@@ -81,6 +81,39 @@ export async function getSavedCourseCoordinates(courseId) {
   return data ? { lat: data.latitude, lng: data.longitude } : null;
 }
 
+// Auto-adds a course to My Courses the first time a user posts to it, so
+// Courses Played reflects everywhere they've actually played without an
+// extra manual "Add course" step. Looked up by course_name rather than
+// course_id since a manually-typed post (no golfcourseapi.com match) has no
+// id to key off of, and the my_courses_user_course_idx unique index only
+// dedupes on (user_id, course_id) — this covers the null-course_id case that
+// index intentionally leaves alone.
+export async function addCourseFromPost(userId, course) {
+  if (!userId || !course?.name) return;
+  const { data: existing, error: lookupError } = await supabase
+    .from('my_courses')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('course_name', course.name)
+    .limit(1)
+    .maybeSingle();
+
+  if (lookupError) {
+    console.error('[myCourses] addCourseFromPost lookup failed:', lookupError);
+    return;
+  }
+  if (existing) return;
+
+  await addMyCourse(userId, {
+    courseId: course.id ?? null,
+    courseName: course.name,
+    city: course.city ?? null,
+    state: course.state ?? null,
+    latitude: course.lat ?? null,
+    longitude: course.lng ?? null,
+  });
+}
+
 export async function removeMyCourse(id) {
   const { error } = await supabase.from('my_courses').delete().eq('id', id);
   if (error) throw error;

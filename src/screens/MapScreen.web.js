@@ -174,7 +174,6 @@ export default function MapScreen({ navigation, route }) {
     focusRegion,
     zoomLevel,
     stateMarkers,
-    currentStateName,
     handleSelectStateMarker,
     mapMarkers,
     friendFilter,
@@ -301,9 +300,6 @@ export default function MapScreen({ navigation, route }) {
       {/* Always rendered immediately on mount — no zoom-level gating, no
           loading state — so the search bar is never hidden behind the
           Level 1 full-US pin view (see Fix 1). */}
-      <Text style={styles.searchHeading}>
-        {currentStateName ? `Search courses in ${currentStateName}` : 'Search for a course'}
-      </Text>
       <CourseSearchBar
         query={searchQuery}
         onChangeQuery={handleSearchQueryChange}
@@ -495,13 +491,6 @@ const styles = StyleSheet.create({
   },
   mapContainer: {
     flex: 1,
-  },
-  searchHeading: {
-    color: colors.white,
-    fontSize: 15,
-    fontWeight: '700',
-    paddingHorizontal: 16,
-    paddingTop: 12,
   },
   requestCourseButton: {
     flexDirection: 'row',

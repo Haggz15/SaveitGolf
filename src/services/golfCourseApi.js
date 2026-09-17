@@ -2,12 +2,27 @@ import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { hasValidCoordinates } from '../utils/mapCoords';
 
-const API_KEY = Constants.expoConfig?.extra?.golfCourseApiKey;
+// app.config.js already bakes a hardcoded fallback into extra.golfCourseApiKey
+// at build time, but that only reaches native builds where Constants.expoConfig
+// is populated from the compiled manifest — a web build (or an environment
+// where the manifest didn't carry `extra` through) needs its own fallback
+// chain down to the same hardcoded key so course search never silently goes
+// dead for lack of a key.
+function getApiKey() {
+  return (
+    Constants.expoConfig?.extra?.golfCourseApiKey ||
+    process.env.EXPO_PUBLIC_GOLF_COURSE_API_KEY ||
+    process.env.GOLF_COURSE_API_KEY ||
+    'YFLVNLXAT3GXCYCBS64LDXZXOY'
+  );
+}
+
 const BASE_URL = 'https://api.golfcourseapi.com/v1';
 
+const resolvedApiKey = getApiKey();
 console.log(
-  API_KEY
-    ? `[golfcourseapi] GOLF_COURSE_API_KEY found (${API_KEY.length} chars)`
+  resolvedApiKey
+    ? `[golfcourseapi] GOLF_COURSE_API_KEY found (${resolvedApiKey.length} chars)`
     : '[golfcourseapi] GOLF_COURSE_API_KEY is undefined — check .env and app.config.js'
 );
 
@@ -78,7 +93,8 @@ export async function hasBackgroundQuota() {
 }
 
 async function apiFetch(path) {
-  if (!API_KEY) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
     const err = new Error('Missing GOLF_COURSE_API_KEY — add it to .env');
     console.error('[golfcourseapi]', err.message);
     throw err;
@@ -86,7 +102,7 @@ async function apiFetch(path) {
   const url = `${BASE_URL}${path}`;
   console.log('[golfcourseapi] GET', url);
   const res = await fetch(url, {
-    headers: { Authorization: `Key ${API_KEY}` },
+    headers: { Authorization: `Key ${apiKey}` },
   });
   await recordRequest();
 
@@ -121,7 +137,8 @@ export async function searchCourses(query) {
 // Callers treat this as fire-and-forget: the local my_courses save is what
 // the user's pin/UI depends on, so a failure here is only ever logged.
 export async function submitNewCourse({ name, city, state, lat, lng }) {
-  if (!API_KEY) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
     throw new Error('Missing GOLF_COURSE_API_KEY — add it to .env');
   }
   const url = `${BASE_URL}/courses`;
@@ -138,7 +155,7 @@ export async function submitNewCourse({ name, city, state, lat, lng }) {
   const res = await fetch(url, {
     method: 'POST',
     headers: {
-      Authorization: `Key ${API_KEY}`,
+      Authorization: `Key ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),

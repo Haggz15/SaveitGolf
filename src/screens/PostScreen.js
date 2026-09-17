@@ -27,6 +27,7 @@ import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { createPost } from '../services/posts';
 import { searchCourses, submitNewCourse } from '../services/golfCourseApi';
+import { addCourseFromPost } from '../services/myCourses';
 import { searchProfiles } from '../services/social';
 import { MENTION_RE } from '../services/mentions';
 import { notifyFollowersOfPost } from '../services/notifications';
@@ -596,6 +597,9 @@ export default function PostScreen({ navigation }) {
       clearTimeout(processingTimerRef.current);
       notifyFollowersOfPost(user.id, post.id, courseName).catch((err) =>
         console.error('Failed to notify followers of post:', err)
+      );
+      addCourseFromPost(user.id, course).catch((err) =>
+        console.error('Failed to add course to Courses Played:', err)
       );
 
       setCourseQuery('');

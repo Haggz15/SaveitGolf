@@ -50,6 +50,7 @@ export default function CommentSheet({
   onCommentPosted,
   onCommentDeleted,
   onMentionPress,
+  onUserPress,
 }) {
   const insets = useSafeAreaInsets();
   const [comments, setComments] = useState([]);
@@ -208,7 +209,15 @@ export default function CommentSheet({
                       <CommentAvatar avatarUrl={item.avatarUrl} name={item.fullName || item.username} />
                       <View style={styles.commentBody}>
                         <View style={styles.commentMetaRow}>
-                          <Text style={styles.commentUsername}>{item.username}</Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              onClose();
+                              onUserPress?.(item.username);
+                            }}
+                            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                          >
+                            <Text style={styles.commentUsername}>{item.username}</Text>
+                          </TouchableOpacity>
                           <Text style={styles.commentTime}>{item.timeAgo}</Text>
                         </View>
                         <MentionText
