@@ -35,6 +35,7 @@ import { getUserPosts, updatePostCaption, deletePost } from '../services/posts';
 import { getFollowerCount, getFollowingCount } from '../services/social';
 import { deleteAccount } from '../services/auth';
 import { friendlyAuthError } from '../services/authErrors';
+import { hasValidCoordinates } from '../utils/mapCoords';
 
 const TABS = ['Uploads', 'Courses Played', 'Course Rankings'];
 
@@ -101,7 +102,12 @@ function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, on
           <View key={item.id} style={styles.listRow}>
             <Ionicons name="flag-outline" size={18} color={colors.red} style={{ marginRight: 12 }} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.listRowTitle}>{item.courseName}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.listRowTitle}>{item.courseName}</Text>
+                {!hasValidCoordinates(item.latitude, item.longitude) && (
+                  <Text style={styles.notOnMapAsterisk}>*</Text>
+                )}
+              </View>
               <Text style={styles.listRowSubtitle}>
                 {[item.city, item.state].filter(Boolean).join(', ') || 'Location unknown'}
               </Text>
@@ -137,6 +143,9 @@ function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, on
             )}
           </View>
         ))
+      )}
+      {courses.some((item) => !hasValidCoordinates(item.latitude, item.longitude)) && (
+        <Text style={styles.notOnMapNote}>* Course location not yet available on map</Text>
       )}
     </View>
   );
@@ -1389,6 +1398,16 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     marginTop: 2,
+  },
+  notOnMapAsterisk: {
+    color: '#6a8ab0',
+    fontSize: 11,
+  },
+  notOnMapNote: {
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 12,
   },
   listRowRating: {
     color: colors.gold,

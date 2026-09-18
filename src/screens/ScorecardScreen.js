@@ -357,20 +357,31 @@ export default function ScorecardScreen() {
 
   async function handleSaveToPhotos() {
     try {
+      console.log('=== SAVE TO PHOTOS START (ScorecardScreen) ===');
+      console.log('Platform:', Platform.OS);
+      console.log('shareImageUri:', shareImageUri);
+
       // Required lazily: this native module isn't available on web and
       // throws at import time if loaded statically there.
       const MediaLibrary = require('expo-media-library');
-      const { status } = await MediaLibrary.requestPermissionsAsync();
+      const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
+      console.log('Permission status:', status, 'canAskAgain:', canAskAgain);
       if (status !== 'granted') {
+        console.log('Permission denied');
         Alert.alert('Permission needed', 'Please allow photo access in Settings.');
         return;
       }
-      await MediaLibrary.saveToLibraryAsync(shareImageUri);
+      console.log('Attempting saveToLibraryAsync with uri:', shareImageUri);
+      const asset = await MediaLibrary.saveToLibraryAsync(shareImageUri);
+      console.log('Save successful:', asset);
       setShowShareModal(false);
       setToastMessage({ text: 'Scorecard saved to Camera Roll', type: 'success' });
     } catch (err) {
-      console.error('Save error:', err);
-      Alert.alert('Something went wrong', 'Could not save your scorecard. Please try again.');
+      console.error('=== SAVE TO PHOTOS ERROR (ScorecardScreen) ===');
+      console.error('Error message:', err.message);
+      console.error('Error code:', err.code);
+      console.error('Full error:', JSON.stringify(err));
+      Alert.alert('Something went wrong', `Could not save your scorecard.\n\n${err.message}`);
     }
   }
 
