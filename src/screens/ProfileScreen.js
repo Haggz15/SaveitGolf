@@ -28,7 +28,7 @@ import CourseActionSheet from '../components/profile/CourseActionSheet';
 import { navigateToCourseOnMap, navigateToCourseDetail } from '../utils/courseNavigation';
 import { uploadAvatar } from '../services/profiles';
 import { getCourseRankings, addCourseRanking, updateCourseRanking } from '../services/courseRankings';
-import { getMyCourses, addMyCourse, removeMyCourse, getSavedCourseCoordinates } from '../services/myCourses';
+import { getMyCourses, addMyCourse, removeMyCourse, getSavedCourseCoordinates, updateMyCoursesOrder } from '../services/myCourses';
 import { geocodeCourseCoordinates } from '../services/geocoding';
 import { submitNewCourse } from '../services/golfCourseApi';
 import { getUserPosts, updatePostCaption, deletePost } from '../services/posts';
@@ -75,7 +75,7 @@ function RankingsList({ rankings, loading, onUpdate, onAdd, onPressCourse }) {
   );
 }
 
-function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, onRemove }) {
+function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, onRemove, onMove }) {
   return (
     <View>
       <View style={styles.myCoursesHeaderRow}>
@@ -97,7 +97,7 @@ function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, on
       ) : courses.length === 0 ? (
         <Text style={styles.emptyText}>You haven't added any courses yet.</Text>
       ) : (
-        courses.map((item) => (
+        courses.map((item, index) => (
           <View key={item.id} style={styles.listRow}>
             <Ionicons name="flag-outline" size={18} color={colors.red} style={{ marginRight: 12 }} />
             <View style={{ flex: 1 }}>
@@ -107,9 +107,33 @@ function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, on
               </Text>
             </View>
             {editMode && (
-              <TouchableOpacity onPress={() => onRemove(item)} hitSlop={8} style={styles.removeCourseButton}>
-                <Ionicons name="close-circle" size={22} color={colors.red} />
-              </TouchableOpacity>
+              <>
+                <View style={styles.reorderButtons}>
+                  <TouchableOpacity
+                    onPress={() => onMove(index, -1)}
+                    disabled={index === 0}
+                    hitSlop={8}
+                    style={styles.reorderButton}
+                  >
+                    <Ionicons name="chevron-up" size={18} color={index === 0 ? colors.muted : colors.white} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => onMove(index, 1)}
+                    disabled={index === courses.length - 1}
+                    hitSlop={8}
+                    style={styles.reorderButton}
+                  >
+                    <Ionicons
+                      name="chevron-down"
+                      size={18}
+                      color={index === courses.length - 1 ? colors.muted : colors.white}
+                    />
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity onPress={() => onRemove(item)} hitSlop={8} style={styles.removeCourseButton}>
+                  <Ionicons name="close-circle" size={22} color={colors.red} />
+                </TouchableOpacity>
+              </>
             )}
           </View>
         ))
@@ -580,6 +604,15 @@ export default function ProfileScreen({ navigation }) {
     setMyCourses((prev) => [created, ...prev]);
   }
 
+  function moveCourse(index, direction) {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= myCourses.length) return;
+    const reordered = [...myCourses];
+    [reordered[index], reordered[newIndex]] = [reordered[newIndex], reordered[index]];
+    setMyCourses(reordered);
+    updateMyCoursesOrder(reordered).catch((err) => console.error('Failed to save course order:', err));
+  }
+
   function handleRemoveMyCourse(course) {
     Alert.alert('Remove course?', `Remove ${course.courseName} from Courses Played?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -880,6 +913,7 @@ export default function ProfileScreen({ navigation }) {
               onToggleEdit={() => setMyCoursesEditMode((prev) => !prev)}
               onAdd={() => setCourseSearchVisible(true)}
               onRemove={handleRemoveMyCourse}
+              onMove={moveCourse}
             />
           )}
           {activeTab === 'Uploads' && (
@@ -1431,16 +1465,23 @@ const styles = StyleSheet.create({
   removeCourseButton: {
     marginLeft: 8,
   },
+  reorderButtons: {
+    marginLeft: 8,
+  },
+  reorderButton: {
+    paddingVertical: 1,
+  },
   uploadRow: {
-    justifyContent: 'space-between',
     marginBottom: 8,
   },
   uploadTile: {
     // An explicit width (rather than a flex-basis share of the row) so
     // aspectRatio always has a resolved width to compute height from on the
     // very first layout pass — see UploadsGrid's initialNumToRender comment
-    // for the other half of this fix.
-    width: '32%',
+    // for the other half of this fix. Exactly a third (not 32%/33%, which
+    // leave rounding slack that shows up as an uneven horizontal gap) for a
+    // seamless 3-per-row grid.
+    width: '33.333%',
     aspectRatio: 1,
     backgroundColor: colors.navyCard,
     borderWidth: 1,

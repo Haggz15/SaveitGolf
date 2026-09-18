@@ -15,6 +15,7 @@ import {
   Animated,
   Easing,
   Modal,
+  Keyboard,
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,7 +26,7 @@ import MentionTextInput from '../components/social/MentionTextInput';
 import GolfBallMark, { useGolfBallFont } from '../components/common/GolfBallMark';
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
-import { createPost } from '../services/posts';
+import { createPost, getUserPosts } from '../services/posts';
 import { searchCourses, submitNewCourse } from '../services/golfCourseApi';
 import { addCourseFromPost } from '../services/myCourses';
 import { searchProfiles } from '../services/social';
@@ -254,6 +255,7 @@ export default function PostScreen({ navigation }) {
   const [courseResults, setCourseResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
+  const [frequentCourses, setFrequentCourses] = useState([]);
   const [hasMultipleNines, setHasMultipleNines] = useState(false);
   const [compositeName, setCompositeName] = useState('');
   const [subCourseName, setSubCourseName] = useState('');
@@ -282,6 +284,41 @@ export default function PostScreen({ navigation }) {
       if (tagSearchTimer.current) clearTimeout(tagSearchTimer.current);
     };
   }, []);
+
+  // Quick-select shortcuts shown above the course search before the user
+  // types anything — the courses this user posts to most, so a repeat round
+  // at the same course doesn't need a full search every time.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    getUserPosts(user.id)
+      .then((userPosts) => {
+        if (cancelled) return;
+        const byCourse = new Map();
+        userPosts.forEach((p) => {
+          if (!p.course) return;
+          const existing = byCourse.get(p.course);
+          if (existing) {
+            existing.count += 1;
+          } else {
+            byCourse.set(p.course, { id: p.courseId ?? null, name: p.course, city: p.city, state: p.state, count: 1 });
+          }
+        });
+        const sorted = [...byCourse.values()].sort((a, b) => b.count - a.count).slice(0, 5);
+        setFrequentCourses(sorted);
+      })
+      .catch((err) => console.error('Failed to load frequent courses:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  function handleSelectFrequentCourse(course) {
+    setCourseQuery(course.name);
+    setSelectedCourse({ id: course.id, name: course.name, city: course.city, state: course.state });
+    setCourseResults([]);
+    Keyboard.dismiss();
+  }
 
   // Usernames currently @mentioned in the caption — the single source of
   // truth for who's tagged, whether they got there by typing "@" directly
@@ -362,6 +399,7 @@ export default function PostScreen({ navigation }) {
     setSelectedCourse(course);
     setCourseQuery(course.name);
     setCourseResults([]);
+    Keyboard.dismiss();
   };
 
   // Course search came up empty and the user wants to post anyway — treated
@@ -375,6 +413,7 @@ export default function PostScreen({ navigation }) {
     if (!name) return;
     setSelectedCourse({ id: null, name, city: null, state: null });
     setCourseResults([]);
+    Keyboard.dismiss();
   };
 
   // Toggling on narrows the hole picker from 1-18 down to 1-9 (see the Hole
@@ -750,6 +789,27 @@ export default function PostScreen({ navigation }) {
           placeholderTextColor={colors.muted}
           autoCorrect={false}
         />
+        {frequentCourses.length > 0 && courseQuery.trim().length === 0 && !selectedCourse && (
+          <View style={styles.frequentCourses}>
+            <Text style={styles.frequentCoursesLabel}>Your Courses</Text>
+            {frequentCourses.map((course) => (
+              <TouchableOpacity
+                key={course.name}
+                style={styles.resultRow}
+                onPress={() => handleSelectFrequentCourse(course)}
+              >
+                <Ionicons name="flag-outline" size={16} color={colors.red} />
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <Text style={styles.resultName} numberOfLines={1}>{course.name}</Text>
+                  <Text style={styles.resultLocation}>
+                    {course.count} post{course.count !== 1 ? 's' : ''}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
         {courseQuery.trim().length >= 2 && !selectedCourse && (
           <View style={styles.dropdown}>
             {searching ? (
@@ -1151,6 +1211,25 @@ const styles = StyleSheet.create({
     borderColor: colors.navyBorder,
     borderRadius: 12,
     overflow: 'hidden',
+  },
+  frequentCourses: {
+    marginTop: -10,
+    marginBottom: 16,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  frequentCoursesLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 4,
   },
   statusRow: {
     flexDirection: 'row',

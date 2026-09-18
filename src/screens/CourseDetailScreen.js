@@ -375,15 +375,16 @@ export default function CourseDetailScreen({ route, navigation }) {
             <Ionicons name="chevron-back" size={22} color={colors.red} />
             <Text style={styles.headerBackText}>Map</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerLogoWrap}
-            onPress={() => navigation.navigate('Tabs', { screen: 'Following' })}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={styles.headerLogo} numberOfLines={1}>
-              SaveitGolf
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.headerLogoWrap} pointerEvents="box-none">
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Tabs', { screen: 'Following' })}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.headerLogo} numberOfLines={1}>
+                SaveitGolf
+              </Text>
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity style={styles.headerRight} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="share-outline" size={21} color={colors.white} />
           </TouchableOpacity>

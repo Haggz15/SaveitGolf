@@ -9,18 +9,33 @@ function mapRow(row) {
     state: row.state,
     latitude: row.latitude,
     longitude: row.longitude,
+    sortOrder: row.sort_order ?? 0,
   };
 }
 
+// Ordered by sort_order (the user's own drag/arrow-reordered position — see
+// ProfileScreen's Courses Played tab), falling back to most-recently-added
+// first among rows that still share the same default sort_order of 0 (i.e.
+// before the user has ever reordered anything).
 export async function getMyCourses(userId) {
   const { data, error } = await supabase
     .from('my_courses')
     .select('*')
     .eq('user_id', userId)
+    .order('sort_order', { ascending: true })
     .order('created_at', { ascending: false });
 
   if (error) throw error;
   return (data ?? []).map(mapRow);
+}
+
+// Persists a full reordering of the user's Courses Played list — called with
+// every row (not just the two swapped) since a plain index-based swap
+// doesn't know which rows already had distinct sort_order values.
+export async function updateMyCoursesOrder(courses) {
+  await Promise.all(
+    courses.map((course, index) => supabase.from('my_courses').update({ sort_order: index }).eq('id', course.id))
+  );
 }
 
 // Mirrors addCourseRanking's shape exactly (see courseRankings.js): a plain

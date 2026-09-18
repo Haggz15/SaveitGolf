@@ -709,6 +709,12 @@ create table if not exists public.my_courses (
 
 create index if not exists my_courses_user_id_idx on public.my_courses (user_id);
 
+-- User-controlled display order for the Courses Played tab (see
+-- ProfileScreen's Edit/reorder mode) — defaults to 0 for every existing row,
+-- so getMyCourses falls back to created_at desc among ties until a user
+-- actually reorders their list.
+alter table public.my_courses add column if not exists sort_order integer not null default 0;
+
 -- Lets the app upsert on (user_id, course_id) so re-adding the same course
 -- updates the existing row instead of creating a duplicate. Rows with a null
 -- course_id never collide (nulls are never equal in a unique index), so

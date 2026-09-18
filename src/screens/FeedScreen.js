@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -41,6 +41,7 @@ import { likePost, unlikePost, getLikedPostIds } from '../services/likes';
 import { createNotification } from '../services/notifications';
 import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
+import { getCurrentShotOfWeek } from '../services/shotOfWeek';
 import { saveMediaToDevice, saveImageWithWatermarkWeb, saveLocalUriToLibrary } from '../utils/saveMedia';
 import { supabase } from '../services/supabase';
 
@@ -48,6 +49,7 @@ function PostSlide({
   post,
   height,
   isActive,
+  isShotOfWeek,
   currentUserId,
   initiallyLiked,
   initiallySaved,
@@ -189,7 +191,15 @@ function PostSlide({
         pointerEvents="none"
       />
 
-      <View style={styles.topLeftStack} pointerEvents="box-none">
+      {isShotOfWeek && (
+        <View style={styles.shotOfWeekBanner} pointerEvents="none">
+          <Text style={styles.shotOfWeekEmoji}>🏆</Text>
+          <Text style={styles.shotOfWeekText}>SHOT OF THE WEEK</Text>
+          <Text style={styles.shotOfWeekEmoji}>🏆</Text>
+        </View>
+      )}
+
+      <View style={[styles.topLeftStack, isShotOfWeek && styles.topLeftStackShifted]} pointerEvents="box-none">
         <TouchableOpacity
           onPress={() => onCoursePress(post)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -297,6 +307,15 @@ function PostSlide({
 
 const COURSE_FEED_PAGE_SIZE = 10;
 
+// Shot of the Week's winning post is computed and stored server-side all
+// week (see calculate_shot_of_week() in supabase/schema.sql) — this just
+// gates when the pinned banner is actually shown: Friday, 12am-12pm local
+// time, matching the weekly reveal window.
+function isShotOfWeekTime() {
+  const now = new Date();
+  return now.getDay() === 5 && now.getHours() < 12;
+}
+
 export default function FeedScreen({ navigation, route }) {
   const { user, profile } = useAuth();
   const { unreadCount, decrementUnread } = useNotifications();
@@ -314,6 +333,7 @@ export default function FeedScreen({ navigation, route }) {
   const profileFeedUsername = route?.params?.username ?? null;
   const [sortMode, setSortMode] = useState('likes'); // 'likes' | 'recent' — filtered mode only, resets on remount
   const [posts, setPosts] = useState([]);
+  const [shotOfWeek, setShotOfWeek] = useState(null);
   const [followingOffset, setFollowingOffset] = useState(0);
   const [followingHasMore, setFollowingHasMore] = useState(true);
   const [loadingMoreFollowing, setLoadingMoreFollowing] = useState(false);
@@ -410,11 +430,37 @@ export default function FeedScreen({ navigation, route }) {
     }
   }, [user?.id]);
 
+  // Pinned to the top of the main feed only (see the FlatList data below) —
+  // the fetch itself doesn't need to be gated by isShotOfWeekTime, but
+  // skipping it outside the reveal window avoids the extra round-trip on
+  // every other day of the week.
+  const loadShotOfWeek = useCallback(async () => {
+    if (!isShotOfWeekTime()) {
+      setShotOfWeek(null);
+      return;
+    }
+    try {
+      const post = await getCurrentShotOfWeek();
+      setShotOfWeek(post);
+      if (post && user?.id) {
+        const [liked, saved] = await Promise.all([
+          getLikedPostIds(user.id, [post.id]),
+          getSavedPostIds(user.id, [post.id]),
+        ]);
+        setLikedPostIds((prev) => new Set([...prev, ...liked]));
+        setSavedPostIds((prev) => new Set([...prev, ...saved]));
+      }
+    } catch (err) {
+      console.error('Failed to load Shot of the Week:', err);
+      setShotOfWeek(null);
+    }
+  }, [user?.id]);
+
   const onRefreshFollowingFeed = useCallback(async () => {
     setRefreshing(true);
-    await loadFollowingFeed();
+    await Promise.all([loadFollowingFeed(), loadShotOfWeek()]);
     setRefreshing(false);
-  }, [loadFollowingFeed]);
+  }, [loadFollowingFeed, loadShotOfWeek]);
 
   // Realtime top-up so a new post from someone the user follows (or the
   // user's own new post) shows up without waiting for a manual pull-to-
@@ -491,7 +537,8 @@ export default function FeedScreen({ navigation, route }) {
     useCallback(() => {
       if (filter || profileFeedPosts) return;
       loadFollowingFeed();
-    }, [loadFollowingFeed, filter, profileFeedPosts])
+      loadShotOfWeek();
+    }, [loadFollowingFeed, loadShotOfWeek, filter, profileFeedPosts])
   );
 
   useEffect(() => {
@@ -769,6 +816,15 @@ export default function FeedScreen({ navigation, route }) {
     setToastType(type);
   }, []);
 
+  // Pinned to the very top of the main feed, ahead of its normal
+  // chronological position (deduped by id so it doesn't also show twice).
+  // Filtered/profile-feed modes never set shotOfWeek, so this is a no-op
+  // pass-through there.
+  const displayedPosts = useMemo(() => {
+    if (!shotOfWeek) return posts;
+    return [{ ...shotOfWeek, isShotOfWeek: true }, ...posts.filter((p) => p.id !== shotOfWeek.id)];
+  }, [posts, shotOfWeek]);
+
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
   const onViewableItemsChanged = useRef(({ viewableItems }) => {
     if (viewableItems.length > 0) {
@@ -899,13 +955,14 @@ export default function FeedScreen({ navigation, route }) {
           containerHeight > 0 && (
             <FlatList
               ref={postsListRef}
-              data={posts}
+              data={displayedPosts}
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => (
                 <PostSlide
                   post={item}
                   height={containerHeight}
                   isActive={item.id === activePostId}
+                  isShotOfWeek={item.isShotOfWeek}
                   currentUserId={user?.id}
                   initiallyLiked={likedPostIds.has(item.id)}
                   initiallySaved={savedPostIds.has(item.id)}
@@ -1258,11 +1315,38 @@ const styles = StyleSheet.create({
     bottom: 0,
     height: '55%',
   },
+  shotOfWeekBanner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    backgroundColor: 'rgba(13, 31, 60, 0.85)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  shotOfWeekEmoji: {
+    fontSize: 16,
+  },
+  shotOfWeekText: {
+    color: colors.gold,
+    fontFamily: 'Cinzel_700Bold',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
   topLeftStack: {
     position: 'absolute',
     top: 12,
     left: 14,
     maxWidth: 175,
+  },
+  topLeftStackShifted: {
+    top: 48,
   },
   topLeftCourseName: {
     fontFamily: 'Cinzel_700Bold',

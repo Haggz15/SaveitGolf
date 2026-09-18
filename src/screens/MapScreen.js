@@ -8,6 +8,7 @@ import CourseSearchBar from '../components/map/CourseSearchBar';
 import FriendSearchBar from '../components/map/FriendSearchBar';
 import FilterPills from '../components/map/FilterPills';
 import StatePushPin from '../components/map/StatePushPin';
+import CoursePushPin from '../components/map/CoursePushPin';
 import ZoomControls from '../components/map/ZoomControls';
 import CoursePopupCard from '../components/map/CoursePopupCard';
 import FeedCoursePopupCard from '../components/map/FeedCoursePopupCard';
@@ -66,13 +67,7 @@ function CourseMarker({ course, highlighted, green, onPress }) {
       tracksViewChanges={highlighted}
       zIndex={highlighted ? 10 : 1}
     >
-      {highlighted ? (
-        <View style={styles.highlightedMarker}>
-          <Ionicons name="flag" size={36} color={colors.red} />
-        </View>
-      ) : (
-        <Ionicons name="location" size={28} color={green ? colors.green : colors.red} />
-      )}
+      <CoursePushPin color={green ? colors.green : colors.red} size={highlighted ? 40 : 28} />
     </Marker>
   );
 }
@@ -480,16 +475,6 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
-  },
-  highlightedMarker: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(192, 0, 26, 0.18)',
-    borderWidth: 2,
-    borderColor: colors.red,
   },
   feedFocusMarker: {
     alignItems: 'center',

@@ -194,8 +194,12 @@ export default function OtherUserProfileScreen({ route, navigation }) {
         .finally(() => setRankingsLoading(false));
 
       setCoursesPlayedLoading(true);
+      console.log('Loading courses played for profile user:', row.user_id);
       getMyCourses(row.user_id)
-        .then(setCoursesPlayed)
+        .then((courses) => {
+          console.log('Courses played found:', courses?.length);
+          setCoursesPlayed(courses);
+        })
         .catch((err) => console.error('Failed to load courses played:', err))
         .finally(() => setCoursesPlayedLoading(false));
 
@@ -729,13 +733,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   uploadRow: {
-    justifyContent: 'space-between',
     marginBottom: 8,
   },
   uploadTile: {
     // Explicit width rather than a flex-basis share of the row — see
-    // ProfileScreen's identical uploadTile for why.
-    width: '32%',
+    // ProfileScreen's identical uploadTile for why. Exactly a third (not
+    // 32%/33%, which leave rounding slack that shows up as an uneven
+    // horizontal gap) for a seamless 3-per-row grid.
+    width: '33.333%',
     aspectRatio: 1,
     backgroundColor: colors.navyCard,
     borderWidth: 1,

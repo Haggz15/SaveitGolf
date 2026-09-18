@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Keyboard } from 'react-native';
 import * as Location from 'expo-location';
 import { stateCenters, allStateAbbreviations } from '../data/courses';
 import { getCourseById, searchCourses, RateLimitError, ApiKeyError } from '../services/golfCourseApi';
@@ -576,7 +577,9 @@ export function useCourseMapData({
       setShowOwnCourses(true);
       setFriendFilter({ userId: profile.user_id, displayName, courses: [], loading: true });
       try {
+        console.log('Loading courses for friend:', profile.user_id);
         const courses = await getFriendMyCourses(profile.user_id);
+        console.log('Friend courses found:', courses?.length);
         setFriendFilter({ userId: profile.user_id, displayName, courses, loading: false });
       } catch (err) {
         console.error("[useCourseMapData] failed to load friend's courses:", err.message);
@@ -676,6 +679,7 @@ export function useCourseMapData({
 
   const handleSelectSearchResult = useCallback(
     (course) => {
+      Keyboard.dismiss();
       clearSearch();
       focusCourseWithCoordinates(course, `search-${course.id}-${Date.now()}`);
     },
