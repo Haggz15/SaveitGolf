@@ -371,8 +371,9 @@ export default function ScorecardScreen() {
         Alert.alert('Permission needed', 'Please allow photo access in Settings.');
         return;
       }
-      console.log('Attempting saveToLibraryAsync with uri:', shareImageUri);
-      const asset = await MediaLibrary.saveToLibraryAsync(shareImageUri);
+      console.log('Attempting createAssetAsync with uri:', shareImageUri);
+      const asset = await MediaLibrary.createAssetAsync(shareImageUri);
+      await MediaLibrary.createAlbumAsync('SaveitGolf', asset, false);
       console.log('Save successful:', asset);
       setShowShareModal(false);
       setToastMessage({ text: 'Scorecard saved to Camera Roll', type: 'success' });
@@ -393,7 +394,8 @@ export default function ScorecardScreen() {
       const MediaLibrary = require('expo-media-library');
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status === 'granted') {
-        await MediaLibrary.saveToLibraryAsync(shareImageUri);
+        const asset = await MediaLibrary.createAssetAsync(shareImageUri);
+        await MediaLibrary.createAlbumAsync('SaveitGolf', asset, false);
       }
       setShowShareModal(false);
       await new Promise((resolve) => setTimeout(resolve, 500));

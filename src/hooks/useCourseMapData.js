@@ -574,7 +574,9 @@ export function useCourseMapData({
     async (profile) => {
       clearSelectedCourse();
       const displayName = profile.username || profile.full_name || 'this golfer';
-      setShowOwnCourses(true);
+      // Default to friend-only pins — the user can flip "Courses Played"
+      // back on to compare their own pins alongside the friend's.
+      setShowOwnCourses(false);
       setFriendFilter({ userId: profile.user_id, displayName, courses: [], loading: true });
       try {
         console.log('Loading courses for friend:', profile.user_id);

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../theme/colors';
@@ -266,6 +267,13 @@ export default function ScorecardCard({
   hideShareExtras,
   captureId,
 }) {
+  // sideLeft's height is the scores column's intrinsic content height —
+  // sideRight (the photo) has no content of its own to size against, so on
+  // web/html2canvas capture a bare `alignItems: 'stretch'` cross-axis
+  // doesn't reliably propagate it. Measuring sideLeft and applying it
+  // directly to sideRight guarantees the photo column matches exactly.
+  const [scoresHeight, setScoresHeight] = useState(0);
+
   const { isNineHoleRound, totalScore, diffLabel, diff } = computeTotals(scorecard);
   // Web has no native OS crop step (see WebPhotoCropModal) — instead of a
   // true pixel crop, the picker there hands back which part of the photo to
@@ -327,9 +335,11 @@ export default function ScorecardCard({
     <View nativeID={captureId} style={styles.cardOuter}>
       {isSideLayout ? (
         <View style={styles.sideRow}>
-          <View style={styles.sideLeft}>{cardBody}</View>
+          <View style={styles.sideLeft} onLayout={(e) => setScoresHeight(e.nativeEvent.layout.height)}>
+            {cardBody}
+          </View>
           <PhotoWrapper
-            style={styles.sideRight}
+            style={[styles.sideRight, scoresHeight > 0 ? { height: scoresHeight } : null]}
             onPress={onRequestPhoto}
             activeOpacity={onRequestPhoto ? 0.9 : 1}
           >

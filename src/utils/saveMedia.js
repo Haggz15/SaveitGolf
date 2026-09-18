@@ -13,7 +13,8 @@ export async function saveLocalUriToLibrary(uri) {
   if (status !== 'granted') {
     throw new Error('PERMISSION_DENIED');
   }
-  await MediaLibrary.saveToLibraryAsync(uri);
+  const asset = await MediaLibrary.createAssetAsync(uri);
+  await MediaLibrary.createAlbumAsync('SaveitGolf', asset, false);
 }
 
 function downloadBlobWeb(blob, filename) {
@@ -44,7 +45,7 @@ export async function saveMediaToDevice(mediaUrl) {
   // at import time if loaded statically there.
   const { File, Paths, Directory } = require('expo-file-system');
 
-  // saveToLibraryAsync needs a local file, not a remote URL, so download it
+  // createAssetAsync needs a local file, not a remote URL, so download it
   // into the cache directory first.
   const downloaded = await File.downloadFileAsync(mediaUrl, new Directory(Paths.cache), {
     idempotent: true,
