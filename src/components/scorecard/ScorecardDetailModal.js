@@ -1,24 +1,36 @@
-import { useEffect, useState } from 'react';
-import { Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform, Alert, ActivityIndicator } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform, Linking, Alert, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import ViewShot from 'react-native-view-shot';
 import colors from '../../theme/colors';
 import ScorecardCard from './ScorecardCard';
 import PhotoLayoutToggle from './PhotoLayoutToggle';
 import WebPhotoCropModal from './WebPhotoCropModal';
+import ShareOptionsModal from './ShareOptionsModal';
+import Toast from '../Toast';
 import { saveScorecardPhoto, updateScorecardPhotoLayout } from '../../services/scorecards';
 import { useAuth } from '../../context/AuthContext';
 
+const CAPTURE_ID = 'scorecard-detail-card';
+
 // Full view of a single past scorecard, opened from PastScorecardsList.
 // Matches the pageSheet convention used by NewScorecardModal /
-// CourseRankingModal. Always opens in the no-photo layout even when the
-// scorecard has a saved photo_url (Fix 1) — the green plus beside the
-// totals row reveals it. Adding a *new* photo (rather than just revealing
-// an existing one) is restricted to the scorecard's own owner; viewing
-// someone else's scorecard is otherwise fully read-only.
+// CourseRankingModal. Auto-shows the scorecard's saved photo_url on open
+// (Fix 2) — same as the live Scorecard screen — instead of hiding it behind
+// the green plus. Adding or changing a photo is restricted to the
+// scorecard's own owner; viewing someone else's scorecard is otherwise
+// fully read-only except for the Share button, which is always available.
 export default function ScorecardDetailModal({ visible, scorecard, fullName, onClose }) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const shareCardRef = useRef(null);
+  const [isSharing, setIsSharing] = useState(false);
+  // True while a share capture is in flight — hides the green plus / revert
+  // arrow (Fix 2/3) so neither ends up in the captured image.
+  const [hideShareExtras, setHideShareExtras] = useState(false);
+  const [shareImageUri, setShareImageUri] = useState(null);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
   const [savedPhotoUrl, setSavedPhotoUrl] = useState(null);
   // Web only: which part of the photo the `cover`-resized frame centers on
@@ -36,9 +48,10 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
   // background — the picked photo is already showing locally (see
   // applyPickedPhoto), this just drives a small "Uploading…" indicator.
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
 
   useEffect(() => {
-    setPhotoUri(null);
+    setPhotoUri(scorecard?.photoUrl ?? null);
     setPhotoPosition({ x: 50, y: 50 });
     setSavedPhotoUrl(scorecard?.photoUrl ?? null);
     setPhotoLayout(scorecard?.photoLayout || 'behind');
@@ -159,16 +172,178 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
     }
   }
 
-  // The green plus beside the totals row (Fix 2/4): reveals an already-saved
-  // photo for any viewer, but only opens the picker to attach a new one when
-  // the viewer owns this scorecard.
+  // The green plus beside the totals row only ever needs to open the picker
+  // now — the photo itself auto-shows once saved (Fix 2), so there's no
+  // "reveal" case left to handle, and the button is owner-only.
   function handleAddPhotoPress() {
-    if (savedPhotoUrl) {
-      setPhotoUri(savedPhotoUrl);
-    } else if (isOwner) {
-      handlePickPhoto();
+    if (isOwner) handlePickPhoto();
+  }
+
+  async function handleShare() {
+    if (Platform.OS === 'web') {
+      try {
+        setIsSharing(true);
+        setHideShareExtras(true);
+        // Let the hide re-render actually commit to the DOM before reading
+        // it — otherwise html2canvas can grab a frame from just before the
+        // buttons disappear.
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+        if (photoUri) {
+          await new Promise((resolve) => {
+            const img = new window.Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = resolve;
+            img.onerror = resolve;
+            img.src = photoUri;
+          });
+        }
+
+        // Required lazily: a browser-DOM library, not meaningful (and not
+        // necessarily safe to even load) on native.
+        const html2canvas = require('html2canvas');
+        const node = document.getElementById(CAPTURE_ID);
+        const canvas = await html2canvas(node, {
+          backgroundColor: colors.navy,
+          scale: 4,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+          imageTimeout: 15000,
+        });
+        setHideShareExtras(false);
+
+        canvas.toBlob((blob) => {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'SaveitGolf-Scorecard.jpg';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          setIsSharing(false);
+          setToastMessage({ text: 'Scorecard saved to Downloads', type: 'success' });
+        }, 'image/jpeg', 0.92);
+      } catch (err) {
+        setHideShareExtras(false);
+        setIsSharing(false);
+        Alert.alert('Something went wrong', 'Could not export your scorecard. Please try again.');
+      }
+      return;
+    }
+
+    try {
+      setIsSharing(true);
+      const uri = await captureScorecard();
+      setShareImageUri(uri);
+      setShowShareModal(true);
+    } catch (err) {
+      console.error('Capture error:', err);
+      Alert.alert('Something went wrong', 'Could not capture your scorecard. Please try again.');
+    } finally {
+      setIsSharing(false);
     }
   }
+
+  // Native only — mirrors ScorecardScreen's captureScorecard.
+  async function captureScorecard() {
+    setHideShareExtras(true);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    try {
+      return await shareCardRef.current.capture();
+    } finally {
+      setHideShareExtras(false);
+    }
+  }
+
+  async function handleSaveToPhotos() {
+    try {
+      const MediaLibrary = require('expo-media-library');
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please allow photo access in Settings.');
+        return;
+      }
+      await MediaLibrary.saveToLibraryAsync(shareImageUri);
+      setShowShareModal(false);
+      setToastMessage({ text: 'Scorecard saved to Camera Roll', type: 'success' });
+    } catch (err) {
+      console.error('Save error:', err);
+      Alert.alert('Something went wrong', 'Could not save your scorecard. Please try again.');
+    }
+  }
+
+  async function handleShareTikTok() {
+    try {
+      const MediaLibrary = require('expo-media-library');
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status === 'granted') {
+        await MediaLibrary.saveToLibraryAsync(shareImageUri);
+      }
+      setShowShareModal(false);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const canOpen = await Linking.canOpenURL('tiktok://');
+      if (!canOpen) {
+        Alert.alert('TikTok not installed', 'Please install TikTok to share there.');
+        return;
+      }
+      await Linking.openURL('tiktok://');
+      Alert.alert(
+        'TikTok Opened',
+        'Your scorecard has been saved to your Camera Roll. In TikTok tap + then select the scorecard from your photos to post.',
+        [{ text: 'Got it' }]
+      );
+    } catch (err) {
+      console.error('TikTok share error:', err);
+      Alert.alert('Something went wrong', 'Could not open TikTok. Please try again.');
+    }
+  }
+
+  async function handleShareInstagram() {
+    try {
+      const { File, Paths } = require('expo-file-system');
+      const destFile = new File(Paths.cache, 'SaveitGolf-Scorecard.png');
+      new File(shareImageUri).copy(destFile);
+      const destPath = destFile.uri;
+      setShowShareModal(false);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const canOpenStories = await Linking.canOpenURL('instagram-stories://share');
+      if (canOpenStories) {
+        await Linking.openURL(`instagram-stories://share?backgroundImage=${encodeURIComponent(destPath)}`);
+        return;
+      }
+
+      const Sharing = require('expo-sharing');
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(destPath, { mimeType: 'image/png', dialogTitle: 'Share Scorecard to Instagram' });
+      } else {
+        Alert.alert('Instagram not installed', 'Please install Instagram to share there.');
+      }
+    } catch (err) {
+      console.error('Instagram share error:', err);
+      Alert.alert('Something went wrong', 'Could not share to Instagram. Please try again.');
+    }
+  }
+
+  async function handleShareMore() {
+    try {
+      setShowShareModal(false);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const Sharing = require('expo-sharing');
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(shareImageUri, { mimeType: 'image/png', dialogTitle: 'Share your SaveitGolf Scorecard' });
+      }
+    } catch (err) {
+      console.error('Share error:', err);
+    }
+  }
+
+  const hasPhoto = Boolean(photoUri);
 
   return (
     <Modal
@@ -188,32 +363,72 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
 
         {scorecard && (
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-            <PhotoLayoutToggle layout={photoLayout} onChange={handlePhotoLayoutChange} hidden={!photoUri} />
+            <PhotoLayoutToggle layout={photoLayout} onChange={handlePhotoLayoutChange} hidden={!photoUri || hideShareExtras} />
 
             <View style={styles.cardWrapper}>
-              <ScorecardCard
-                scorecard={scorecard}
-                fullName={fullName}
-                photoUri={photoUri}
-                photoLayout={photoLayout}
-                photoPosition={photoPosition}
-                onRequestPhoto={isOwner ? handlePickPhoto : undefined}
-                onRemovePhoto={() => {
-                  setPhotoUri(null);
-                  setPhotoPosition({ x: 50, y: 50 });
-                }}
-                onAddPhoto={savedPhotoUrl || isOwner ? handleAddPhotoPress : undefined}
-              />
+              <ViewShot ref={shareCardRef} options={{ format: 'png', quality: 1 }}>
+                <ScorecardCard
+                  scorecard={scorecard}
+                  fullName={fullName}
+                  photoUri={photoUri}
+                  photoLayout={photoLayout}
+                  photoPosition={photoPosition}
+                  onRequestPhoto={isOwner ? handlePickPhoto : undefined}
+                  onRemovePhoto={() => {
+                    setPhotoUri(null);
+                    setPhotoPosition({ x: 50, y: 50 });
+                  }}
+                  onAddPhoto={savedPhotoUrl || isOwner ? handleAddPhotoPress : undefined}
+                  hideShareExtras={hideShareExtras}
+                  captureId={CAPTURE_ID}
+                />
+              </ViewShot>
+
               {uploadingPhoto && (
                 <View style={styles.uploadingPill}>
                   <ActivityIndicator size="small" color={colors.white} />
                   <Text style={styles.uploadingPillText}>Uploading…</Text>
                 </View>
               )}
+
+              {/* Always visible (Fix 2) — sits below the card's own top-right
+                  remove-photo button once a photo is showing in the "behind"
+                  layout so the two don't overlap, same as ScorecardScreen. */}
+              <View
+                style={[
+                  styles.topRightButtons,
+                  hasPhoto && photoLayout === 'behind' && styles.topRightButtonsBelowPhoto,
+                ]}
+              >
+                <TouchableOpacity
+                  style={styles.shareButton}
+                  onPress={handleShare}
+                  disabled={isSharing}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="share-outline" size={13} color={colors.white} />
+                  <Text style={styles.shareButtonText}>{isSharing ? 'Saving…' : 'Share'}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </ScrollView>
         )}
       </View>
+
+      <ShareOptionsModal
+        visible={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        onShareTikTok={handleShareTikTok}
+        onShareInstagram={handleShareInstagram}
+        onSaveToPhotos={handleSaveToPhotos}
+        onShareMore={handleShareMore}
+      />
+
+      <Toast
+        message={toastMessage?.text}
+        type={toastMessage?.type}
+        onHide={() => setToastMessage(null)}
+      />
 
       {Platform.OS === 'web' && (
         <WebPhotoCropModal
@@ -275,6 +490,36 @@ const styles = StyleSheet.create({
   uploadingPillText: {
     color: colors.white,
     fontSize: 11,
+    fontWeight: '700',
+  },
+  // Overlaid on top of the card (a sibling of the ViewShot-wrapped content,
+  // not a child of it) so it never shows up in the captured/saved image.
+  topRightButtons: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  // The card's own remove-photo button sits at top:10/right:10 inside the
+  // card itself once a photo is showing — drop this row down below it so
+  // the two don't overlap.
+  topRightButtonsBelowPhoto: {
+    top: 46,
+  },
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: colors.red,
+    borderRadius: 20,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+  },
+  shareButtonText: {
+    color: colors.white,
+    fontSize: 12,
     fontWeight: '700',
   },
 });

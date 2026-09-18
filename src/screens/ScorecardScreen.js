@@ -92,14 +92,14 @@ export default function ScorecardScreen() {
     })();
   }, [user?.id]);
 
-  // The card always opens in the no-photo layout, even when the active
-  // scorecard already has a saved photo_url (Fix 1) — `photoUri` only gets
-  // set once the user taps the green plus. Reset it back to null whenever a
-  // *different* scorecard becomes active (initial load, fetched latest, or
-  // just-saved) — keyed on id rather than the object itself so it doesn't
-  // clobber a reveal/upload the user just triggered on this same scorecard.
+  // The card auto-shows the active scorecard's saved photo_url, if any
+  // (Fix 2), rather than hiding it behind the green plus. Reset/reinitialize
+  // whenever a *different* scorecard becomes active (initial load, fetched
+  // latest, or just-saved) — keyed on id rather than the object itself so it
+  // doesn't clobber a photo/upload the user just triggered on this same
+  // scorecard.
   useEffect(() => {
-    setPhotoUri(null);
+    setPhotoUri(activeScorecard.photoUrl || null);
     setPhotoPosition({ x: 50, y: 50 });
     setPhotoLayout(activeScorecard.photoLayout || 'behind');
   }, [activeScorecard.id]);
@@ -253,16 +253,12 @@ export default function ScorecardScreen() {
     }
   }
 
-  // The green plus beside the totals row: reveals an already-saved photo
-  // instead of re-uploading it when one exists, otherwise opens the picker
-  // directly — Option 3's full-background layout has no placeholder column
-  // to switch into first.
+  // The green plus beside the totals row only ever needs to open the picker
+  // now — the photo itself auto-shows once saved (Fix 2), so there's no
+  // "reveal" case left to handle (the button is dimmed/disabled by
+  // ScorecardCard once a photo is showing).
   function handleAddPhotoPress() {
-    if (activeScorecard.photoUrl) {
-      setPhotoUri(activeScorecard.photoUrl);
-    } else {
-      handlePickPhoto();
-    }
+    handlePickPhoto();
   }
 
   async function handleShare() {

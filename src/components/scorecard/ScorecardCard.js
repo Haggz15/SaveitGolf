@@ -436,6 +436,7 @@ const styles = StyleSheet.create({
   // height — sideRight stretches (default alignItems) to match it.
   sideRow: {
     flexDirection: 'row',
+    alignItems: 'stretch',
   },
   sideLeft: {
     width: '52%',
