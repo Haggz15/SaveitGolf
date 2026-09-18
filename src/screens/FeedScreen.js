@@ -313,7 +313,9 @@ const COURSE_FEED_PAGE_SIZE = 10;
 // time, matching the weekly reveal window.
 function isShotOfWeekTime() {
   const now = new Date();
-  return now.getDay() === 5 && now.getHours() < 12;
+  const day = now.getDay();
+  const hour = now.getHours();
+  return day === 5 && hour >= 0 && hour < 12;
 }
 
 export default function FeedScreen({ navigation, route }) {
