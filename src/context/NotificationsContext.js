@@ -10,8 +10,6 @@ import { useAuth } from './AuthContext';
 
 const NotificationsContext = createContext(null);
 
-const POLL_INTERVAL_MS = 30000;
-
 // Single source of truth for "how many unread notifications does the
 // current user have" — the bell badge in FeedScreen's header and the
 // Profile tab badge in RootNavigator both read from here instead of each
@@ -41,15 +39,15 @@ export function NotificationsProvider({ children }) {
     }
   }, [userId]);
 
+  // No polling — counts load once here, then refresh on manual pull-to-refresh
+  // / logo tap (FeedScreen) or via the realtime top-up below.
   useEffect(() => {
     refreshCounts();
-    const interval = setInterval(refreshCounts, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
   }, [refreshCounts]);
 
   // Realtime top-up so the badge updates the instant a new notification
-  // lands, rather than waiting for the next 30s poll — only INSERT matters
-  // here since reads are already reflected locally by whoever marked them.
+  // lands — only INSERT matters here since reads are already reflected
+  // locally by whoever marked them.
   useEffect(() => {
     if (!userId) return;
     const channel = supabase

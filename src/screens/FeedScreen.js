@@ -43,7 +43,6 @@ import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
 import { getCurrentShotOfWeek } from '../services/shotOfWeek';
 import { saveMediaToDevice, saveImageWithWatermarkWeb, saveLocalUriToLibrary } from '../utils/saveMedia';
-import { supabase } from '../services/supabase';
 
 function PostSlide({
   post,
@@ -320,7 +319,7 @@ function isShotOfWeekTime() {
 
 export default function FeedScreen({ navigation, route }) {
   const { user, profile } = useAuth();
-  const { unreadCount, decrementUnread } = useNotifications();
+  const { unreadCount, decrementUnread, refreshCounts } = useNotifications();
   // Course/hole full-screen feed mode (pushed as the "CourseFeed" stack
   // route from CourseDetailScreen) — undefined/null here means this is the
   // normal main-feed tab. See getCourseFeedPosts in services/posts.js.
@@ -468,7 +467,7 @@ export default function FeedScreen({ navigation, route }) {
   // Cache-aware entry point for the main feed — skips the Supabase round trip
   // entirely when the last real fetch is still within CACHE_DURATION, unless
   // forceRefresh is set (pull-to-refresh, logo tap, or a realtime new-post
-  // event, which should always show fresh data immediately).
+  // tap), which should always show fresh data immediately.
   const loadFeed = useCallback(
     async (forceRefresh = false) => {
       const now = Date.now();
@@ -484,46 +483,9 @@ export default function FeedScreen({ navigation, route }) {
 
   const onRefreshFollowingFeed = useCallback(async () => {
     setRefreshing(true);
-    await loadFeed(true);
+    await Promise.all([loadFeed(true), refreshCounts()]);
     setRefreshing(false);
-  }, [loadFeed]);
-
-  // Realtime top-up so a new post from someone the user follows (or the
-  // user's own new post) shows up without waiting for a manual pull-to-
-  // refresh — scoped to followingIdsRef so an unrelated stranger's post
-  // elsewhere in the app doesn't reload this feed out from under the user.
-  useEffect(() => {
-    if (filter || profileFeedPosts || !user?.id) return;
-    let channel;
-
-    try {
-      // Unique channel name per mount so a lingering unremoved channel from a
-      // prior mount (e.g. fast refresh, strict-mode double-invoke) can never
-      // collide with this one and trigger "cannot add postgres_changes
-      // callbacks after subscribe()".
-      channel = supabase
-        .channel(`following-feed-new-posts-${user.id}-${Date.now()}`)
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'posts' },
-          (payload) => {
-            const posterId = payload.new?.user_id;
-            if (posterId && (posterId === user.id || followingIdsRef.current.includes(posterId))) {
-              loadFeed(true);
-            }
-          }
-        )
-        .subscribe();
-    } catch (err) {
-      console.log('Realtime setup error:', err);
-    }
-
-    return () => {
-      if (channel) {
-        supabase.removeChannel(channel).catch((err) => console.log('Channel removal error:', err));
-      }
-    };
-  }, [filter, profileFeedPosts, user?.id, loadFeed]);
+  }, [loadFeed, refreshCounts]);
 
   const loadMoreFollowingPosts = useCallback(async () => {
     if (filter || profileFeedPosts || !followingHasMore || loadingMoreFollowing || !user?.id) return;
