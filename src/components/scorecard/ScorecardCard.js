@@ -448,18 +448,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'stretch',
   },
+  // alignSelf: 'flex-start' opts out of sideRow's stretch so onLayout reports
+  // the score content's intrinsic height, not a height inflated by the photo.
   sideLeft: {
     width: '52%',
     backgroundColor: colors.navy,
+    alignSelf: 'flex-start',
   },
   sideRight: {
     width: '48%',
     position: 'relative',
     overflow: 'hidden',
   },
+  // Absolute so the photo's intrinsic size never contributes to the row's
+  // height — sideRight is sized only by the measured scores height.
   sidePhotoImage: {
-    width: '100%',
-    height: '100%',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   // Navy-to-transparent, left to right, over the photo's left edge so it
   // blends into the solid-navy left column rather than showing a hard seam.

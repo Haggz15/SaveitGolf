@@ -370,6 +370,13 @@ export default function FeedScreen({ navigation, route }) {
   // so "load more" pages don't re-query it on every scroll-to-bottom.
   const followingIdsRef = useRef([]);
   const FOLLOWING_PAGE_SIZE = 20;
+  // In-memory feed cache: timestamp of the last real Supabase fetch. Reads
+  // that land within CACHE_DURATION of it (e.g. switching tabs and back) reuse
+  // the posts already in state instead of re-querying — cuts egress for
+  // returning users who aren't actually looking for new content yet. Pull-to-
+  // refresh and the logo tap always bypass this via forceRefresh.
+  const lastFetchRef = useRef(null);
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
   // Off-screen capture rig for the watermarked save (Fix 3) — mounted once
   // here rather than per-slide so pagingthrough posts doesn't spin up a new
   // ViewShot for every card.
@@ -458,11 +465,28 @@ export default function FeedScreen({ navigation, route }) {
     }
   }, [user?.id]);
 
+  // Cache-aware entry point for the main feed — skips the Supabase round trip
+  // entirely when the last real fetch is still within CACHE_DURATION, unless
+  // forceRefresh is set (pull-to-refresh, logo tap, or a realtime new-post
+  // event, which should always show fresh data immediately).
+  const loadFeed = useCallback(
+    async (forceRefresh = false) => {
+      const now = Date.now();
+      if (!forceRefresh && lastFetchRef.current && now - lastFetchRef.current < CACHE_DURATION) {
+        console.log('Using cached feed');
+        return;
+      }
+      await Promise.all([loadFollowingFeed(), loadShotOfWeek()]);
+      lastFetchRef.current = Date.now();
+    },
+    [loadFollowingFeed, loadShotOfWeek]
+  );
+
   const onRefreshFollowingFeed = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([loadFollowingFeed(), loadShotOfWeek()]);
+    await loadFeed(true);
     setRefreshing(false);
-  }, [loadFollowingFeed, loadShotOfWeek]);
+  }, [loadFeed]);
 
   // Realtime top-up so a new post from someone the user follows (or the
   // user's own new post) shows up without waiting for a manual pull-to-
@@ -485,7 +509,7 @@ export default function FeedScreen({ navigation, route }) {
           (payload) => {
             const posterId = payload.new?.user_id;
             if (posterId && (posterId === user.id || followingIdsRef.current.includes(posterId))) {
-              loadFollowingFeed();
+              loadFeed(true);
             }
           }
         )
@@ -499,7 +523,7 @@ export default function FeedScreen({ navigation, route }) {
         supabase.removeChannel(channel).catch((err) => console.log('Channel removal error:', err));
       }
     };
-  }, [filter, profileFeedPosts, user?.id, loadFollowingFeed]);
+  }, [filter, profileFeedPosts, user?.id, loadFeed]);
 
   const loadMoreFollowingPosts = useCallback(async () => {
     if (filter || profileFeedPosts || !followingHasMore || loadingMoreFollowing || !user?.id) return;
@@ -531,16 +555,17 @@ export default function FeedScreen({ navigation, route }) {
     }
   }, [filter, profileFeedPosts, followingHasMore, loadingMoreFollowing, followingOffset, user?.id]);
 
-  // Loads on initial mount and re-loads every time this tab regains focus —
-  // covers both a plain tab switch back to Following and a logo tap
-  // elsewhere in the app navigating here (see handleLogoTap/Header below).
-  // Filtered/profile-feed modes have their own loaders.
+  // Re-checks every time this tab regains focus — covers both a plain tab
+  // switch back to Following and a logo tap elsewhere in the app navigating
+  // here (see handleLogoTap/Header below). Goes through loadFeed so a focus
+  // within CACHE_DURATION of the last real fetch reuses the in-memory posts
+  // instead of re-hitting Supabase. Filtered/profile-feed modes have their
+  // own loaders.
   useFocusEffect(
     useCallback(() => {
       if (filter || profileFeedPosts) return;
-      loadFollowingFeed();
-      loadShotOfWeek();
-    }, [loadFollowingFeed, loadShotOfWeek, filter, profileFeedPosts])
+      loadFeed();
+    }, [loadFeed, filter, profileFeedPosts])
   );
 
   useEffect(() => {
