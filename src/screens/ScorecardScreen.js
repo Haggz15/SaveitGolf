@@ -361,6 +361,15 @@ export default function ScorecardScreen() {
       console.log('Platform:', Platform.OS);
       console.log('shareImageUri:', shareImageUri);
 
+      // Fix 3: the capture can finish with an empty/undefined uri (e.g. the
+      // ViewShot ref wasn't ready yet) — createAssetAsync throws an opaque
+      // native error for that, so catch it here with a clearer message.
+      if (!shareImageUri) {
+        console.log('No shareImageUri to save');
+        Alert.alert('Something went wrong', 'Could not capture the scorecard image. Please try again.');
+        return;
+      }
+
       // Required lazily: this native module isn't available on web and
       // throws at import time if loaded statically there.
       const MediaLibrary = require('expo-media-library');

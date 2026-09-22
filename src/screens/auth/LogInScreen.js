@@ -13,11 +13,21 @@ import {
 import colors from '../../theme/colors';
 import AuthLogo from '../../components/auth/AuthLogo';
 import AuthTextField from '../../components/auth/AuthTextField';
-import { signInWithEmail } from '../../services/auth';
+import { signInWithEmail, requestPasswordReset } from '../../services/auth';
 import { friendlyAuthError, isEmailNotConfirmedError } from '../../services/authErrors';
-import { supabase } from '../../services/supabase';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// The recovery link has to land on the web build (see AuthContext's
+// passwordRecovery flag and services/auth.js's requestPasswordReset) — this
+// mirrors saveitgolf.com's existing convention from PostShareSheet.js's
+// POST_LINK_BASE, and on native just becomes the URL the device browser
+// opens when the emailed link is tapped. It must be allow-listed in the
+// Supabase dashboard under Authentication > URL Configuration > Redirect URLs.
+const PASSWORD_RESET_REDIRECT_URL =
+  Platform.OS === 'web' && typeof window !== 'undefined'
+    ? `${window.location.origin}/reset-password`
+    : 'https://saveitgolf.com/reset-password';
 
 export default function LogInScreen({ navigation }) {
   const [email, setEmail] = useState('');
@@ -59,8 +69,7 @@ export default function LogInScreen({ navigation }) {
       return;
     }
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
-      if (error) throw error;
+      await requestPasswordReset(email.trim(), PASSWORD_RESET_REDIRECT_URL);
       Alert.alert('Check your email', 'We sent you a link to reset your password.');
     } catch (err) {
       Alert.alert('Error', friendlyAuthError(err));

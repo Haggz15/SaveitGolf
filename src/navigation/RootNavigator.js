@@ -19,6 +19,7 @@ import CourseDetailScreen from '../screens/CourseDetailScreen';
 import SignUpScreen from '../screens/auth/SignUpScreen';
 import LogInScreen from '../screens/auth/LogInScreen';
 import ProfileSetupScreen from '../screens/auth/ProfileSetupScreen';
+import ResetPasswordScreen from '../screens/auth/ResetPasswordScreen';
 import TermsOfServiceScreen from '../screens/legal/TermsOfServiceScreen';
 import PrivacyPolicyScreen from '../screens/legal/PrivacyPolicyScreen';
 
@@ -123,7 +124,7 @@ function Tabs() {
 }
 
 export default function RootNavigator() {
-  const { session, needsOnboarding, initializing } = useAuth();
+  const { session, needsOnboarding, initializing, passwordRecovery } = useAuth();
 
   if (initializing) {
     return (
@@ -135,7 +136,12 @@ export default function RootNavigator() {
 
   return (
     <NavigationContainer theme={navigationTheme}>
-      {!session ? (
+      {passwordRecovery ? (
+        // Takes priority over the session-based routing below (Fix 9) — a
+        // password-reset link's session is real but temporary, and the point
+        // of following it is to land here, not straight into the main app.
+        <ResetPasswordScreen />
+      ) : !session ? (
         <AuthStack.Navigator screenOptions={{ headerShown: false }}>
           <AuthStack.Screen name="SignUp" component={SignUpScreen} />
           <AuthStack.Screen name="LogIn" component={LogInScreen} />

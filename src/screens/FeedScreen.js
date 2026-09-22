@@ -12,7 +12,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -320,6 +320,11 @@ function isShotOfWeekTime() {
 export default function FeedScreen({ navigation, route }) {
   const { user, profile } = useAuth();
   const { unreadCount, decrementUnread, refreshCounts } = useNotifications();
+  // Bottom-tab screens stay mounted when the user switches tabs, so without
+  // this a video kept playing (audio and all) after navigating away — gate
+  // isActive below on focus too, not just which slide is scrolled into view
+  // (Fix 8).
+  const isFocused = useIsFocused();
   // Course/hole full-screen feed mode (pushed as the "CourseFeed" stack
   // route from CourseDetailScreen) — undefined/null here means this is the
   // normal main-feed tab. See getCourseFeedPosts in services/posts.js.
@@ -950,7 +955,7 @@ export default function FeedScreen({ navigation, route }) {
                 <PostSlide
                   post={item}
                   height={containerHeight}
-                  isActive={item.id === activePostId}
+                  isActive={item.id === activePostId && isFocused}
                   isShotOfWeek={item.isShotOfWeek}
                   currentUserId={user?.id}
                   initiallyLiked={likedPostIds.has(item.id)}
@@ -1425,7 +1430,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 60,
-    bottom: 40,
+    // Raised from 40 (Fix 6) — username/caption sat too close to the bottom
+    // edge, especially on the course page's All Posts/Hole by Hole feeds.
+    bottom: 76,
   },
   avatarRow: {
     flexDirection: 'row',
@@ -1444,8 +1451,11 @@ const styles = StyleSheet.create({
   username: {
     color: colors.white,
     fontWeight: '700',
-    fontSize: 12,
+    fontSize: 15,
     marginRight: 8,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   timeAgo: {
     color: colors.muted,
@@ -1453,8 +1463,11 @@ const styles = StyleSheet.create({
   },
   caption: {
     color: colors.white,
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 14,
+    lineHeight: 20,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   stateBadge: {
     position: 'absolute',

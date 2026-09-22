@@ -12,6 +12,13 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [initializing, setInitializing] = useState(true);
+  // Set when Supabase's PASSWORD_RECOVERY auth event fires (Fix 9) — the
+  // web build lands here with a real, but temporary, session straight from
+  // the emailed reset link's token (see supabase.js's detectSessionInUrl).
+  // RootNavigator checks this ahead of the normal session-based routing so
+  // that temporary session opens ResetPasswordScreen instead of dropping the
+  // user straight into the main app under someone else's still-open link.
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   const loadProfile = useCallback(async (userId) => {
     if (!userId) {
@@ -37,8 +44,9 @@ export function AuthProvider({ children }) {
       if (mounted) setInitializing(false);
     });
 
-    const { data: subscription } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+    const { data: subscription } = supabase.auth.onAuthStateChange(async (event, nextSession) => {
       if (!mounted) return;
+      if (event === 'PASSWORD_RECOVERY') setPasswordRecovery(true);
       setSession(nextSession);
       await loadProfile(nextSession?.user?.id);
       setInitializing(false);
@@ -77,6 +85,21 @@ export function AuthProvider({ children }) {
     [session]
   );
 
+  // Clears the recovery flag once ResetPasswordScreen has set a new password
+  // — the now-ordinary session hands off to the normal session/needsOnboarding
+  // routing in RootNavigator, signing the user straight in.
+  const completePasswordRecovery = useCallback(() => {
+    setPasswordRecovery(false);
+  }, []);
+
+  // "Back to sign in" from ResetPasswordScreen — the recovery session is a
+  // real (if temporary) sign-in, so leaving it standing would sign the next
+  // person to open the app on this device in as whoever's link this was.
+  const cancelPasswordRecovery = useCallback(async () => {
+    setPasswordRecovery(false);
+    await supabase.auth.signOut();
+  }, []);
+
   const value = useMemo(
     () => ({
       session,
@@ -85,11 +108,24 @@ export function AuthProvider({ children }) {
       initializing,
       // profiles has no onboarding_complete flag — the row's existence is the signal.
       needsOnboarding: Boolean(session?.user) && !profile,
+      passwordRecovery,
       refreshProfile,
       completeOnboarding,
       updateProfile,
+      completePasswordRecovery,
+      cancelPasswordRecovery,
     }),
-    [session, profile, initializing, refreshProfile, completeOnboarding, updateProfile]
+    [
+      session,
+      profile,
+      initializing,
+      passwordRecovery,
+      refreshProfile,
+      completeOnboarding,
+      updateProfile,
+      completePasswordRecovery,
+      cancelPasswordRecovery,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
