@@ -33,6 +33,7 @@ import {
 import { notifyFollowersOfScorecard } from '../services/notifications';
 import { useAuth } from '../context/AuthContext';
 import { compressImage } from '../utils/imageCompression';
+import { saveLocalUriToLibrary } from '../utils/saveMedia';
 
 export default function ScorecardScreen() {
   const { user, profile } = useAuth();
@@ -362,7 +363,7 @@ export default function ScorecardScreen() {
       console.log('shareImageUri:', shareImageUri);
 
       // Fix 3: the capture can finish with an empty/undefined uri (e.g. the
-      // ViewShot ref wasn't ready yet) — createAssetAsync throws an opaque
+      // ViewShot ref wasn't ready yet) — Asset.create throws an opaque
       // native error for that, so catch it here with a clearer message.
       if (!shareImageUri) {
         console.log('No shareImageUri to save');
@@ -370,20 +371,13 @@ export default function ScorecardScreen() {
         return;
       }
 
-      // Required lazily: this native module isn't available on web and
-      // throws at import time if loaded statically there.
-      const MediaLibrary = require('expo-media-library');
-      const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
-      console.log('Permission status:', status, 'canAskAgain:', canAskAgain);
-      if (status !== 'granted') {
-        console.log('Permission denied');
+      try {
+        await saveLocalUriToLibrary(shareImageUri);
+      } catch (err) {
+        if (err.message !== 'PERMISSION_DENIED') throw err;
         Alert.alert('Permission needed', 'Please allow photo access in Settings.');
         return;
       }
-      console.log('Attempting createAssetAsync with uri:', shareImageUri);
-      const asset = await MediaLibrary.createAssetAsync(shareImageUri);
-      await MediaLibrary.createAlbumAsync('SaveitGolf', asset, false);
-      console.log('Save successful:', asset);
       setShowShareModal(false);
       setToastMessage({ text: 'Scorecard saved to Camera Roll', type: 'success' });
     } catch (err) {
@@ -400,11 +394,10 @@ export default function ScorecardScreen() {
   // roll first, then open TikTok and let the user pick it from Photos.
   async function handleShareTikTok() {
     try {
-      const MediaLibrary = require('expo-media-library');
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status === 'granted') {
-        const asset = await MediaLibrary.createAssetAsync(shareImageUri);
-        await MediaLibrary.createAlbumAsync('SaveitGolf', asset, false);
+      try {
+        await saveLocalUriToLibrary(shareImageUri);
+      } catch (err) {
+        if (err.message !== 'PERMISSION_DENIED') throw err;
       }
       setShowShareModal(false);
       await new Promise((resolve) => setTimeout(resolve, 500));

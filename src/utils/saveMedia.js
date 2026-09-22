@@ -7,14 +7,21 @@ import { Platform } from 'react-native';
 export async function saveLocalUriToLibrary(uri) {
   // Required lazily: this native module isn't available on web and throws
   // at import time if loaded statically there.
+  // expo-media-library 57 removed the function API (createAssetAsync,
+  // createAlbumAsync, saveToLibraryAsync all throw at runtime) in favour of
+  // the class-based Asset/Album API.
   const MediaLibrary = require('expo-media-library');
 
   const { status } = await MediaLibrary.requestPermissionsAsync();
   if (status !== 'granted') {
     throw new Error('PERMISSION_DENIED');
   }
-  const asset = await MediaLibrary.createAssetAsync(uri);
-  await MediaLibrary.createAlbumAsync('SaveitGolf', asset, false);
+  const album = await MediaLibrary.Album.get('SaveitGolf');
+  if (album) {
+    await MediaLibrary.Asset.create(uri, album);
+  } else {
+    await MediaLibrary.Album.create('SaveitGolf', [uri], false);
+  }
 }
 
 function downloadBlobWeb(blob, filename) {
@@ -45,7 +52,7 @@ export async function saveMediaToDevice(mediaUrl) {
   // at import time if loaded statically there.
   const { File, Paths, Directory } = require('expo-file-system');
 
-  // createAssetAsync needs a local file, not a remote URL, so download it
+  // Asset.create needs a local file, not a remote URL, so download it
   // into the cache directory first.
   const downloaded = await File.downloadFileAsync(mediaUrl, new Directory(Paths.cache), {
     idempotent: true,

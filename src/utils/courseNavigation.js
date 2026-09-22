@@ -60,5 +60,7 @@ export function navigateToCourseDetail(navigation, course) {
     courseName: course.courseName,
     city: course.city ?? null,
     state: course.state ?? null,
+    lat: course.lat ?? null,
+    lng: course.lng ?? null,
   });
 }

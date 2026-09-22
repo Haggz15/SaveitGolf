@@ -102,7 +102,7 @@ function RankingsList({ rankings, loading, onUpdate, onAdd, onPressCourse }) {
   );
 }
 
-function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, onRemove, onMove }) {
+function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, onRemove, onMove, onPressCourse }) {
   return (
     <View>
       <View style={styles.myCoursesHeaderRow}>
@@ -125,7 +125,13 @@ function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, on
         <Text style={styles.emptyText}>You haven't added any courses yet.</Text>
       ) : (
         courses.map((item, index) => (
-          <View key={item.id} style={styles.listRow}>
+          <TouchableOpacity
+            key={item.id}
+            style={styles.listRow}
+            onPress={() => onPressCourse(item)}
+            disabled={editMode}
+            activeOpacity={0.8}
+          >
             <Ionicons name="flag-outline" size={18} color={colors.red} style={{ marginRight: 12 }} />
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -167,7 +173,8 @@ function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, on
                 </TouchableOpacity>
               </>
             )}
-          </View>
+            {!editMode && <Ionicons name="chevron-forward" size={18} color={colors.muted} />}
+          </TouchableOpacity>
         ))
       )}
       {courses.some((item) => !hasValidCoordinates(item.latitude, item.longitude)) && (
@@ -349,6 +356,17 @@ export default function ProfileScreen({ navigation }) {
       state: null,
       lat: null,
       lng: null,
+    });
+  }
+
+  function handlePressMyCourse(item) {
+    navigateToCourseDetail(navigation, {
+      courseId: item.courseId,
+      courseName: item.courseName,
+      city: item.city,
+      state: item.state,
+      lat: hasValidCoordinates(item.latitude, item.longitude) ? item.latitude : null,
+      lng: hasValidCoordinates(item.latitude, item.longitude) ? item.longitude : null,
     });
   }
 
@@ -950,6 +968,7 @@ export default function ProfileScreen({ navigation }) {
               onAdd={() => setCourseSearchVisible(true)}
               onRemove={handleRemoveMyCourse}
               onMove={moveCourse}
+              onPressCourse={handlePressMyCourse}
             />
           )}
           {activeTab === 'Uploads' && (

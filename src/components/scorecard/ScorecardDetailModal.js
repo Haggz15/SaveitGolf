@@ -11,6 +11,7 @@ import ShareOptionsModal from './ShareOptionsModal';
 import Toast from '../Toast';
 import { saveScorecardPhoto, updateScorecardPhotoLayout } from '../../services/scorecards';
 import { useAuth } from '../../context/AuthContext';
+import { saveLocalUriToLibrary } from '../../utils/saveMedia';
 
 const CAPTURE_ID = 'scorecard-detail-card';
 
@@ -263,18 +264,13 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
       console.log('Platform:', Platform.OS);
       console.log('shareImageUri:', shareImageUri);
 
-      const MediaLibrary = require('expo-media-library');
-      const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
-      console.log('Permission status:', status, 'canAskAgain:', canAskAgain);
-      if (status !== 'granted') {
-        console.log('Permission denied');
+      try {
+        await saveLocalUriToLibrary(shareImageUri);
+      } catch (err) {
+        if (err.message !== 'PERMISSION_DENIED') throw err;
         Alert.alert('Permission needed', 'Please allow photo access in Settings.');
         return;
       }
-      console.log('Attempting createAssetAsync with uri:', shareImageUri);
-      const asset = await MediaLibrary.createAssetAsync(shareImageUri);
-      await MediaLibrary.createAlbumAsync('SaveitGolf', asset, false);
-      console.log('Save successful:', asset);
       setShowShareModal(false);
       setToastMessage({ text: 'Scorecard saved to Camera Roll', type: 'success' });
     } catch (err) {
@@ -288,11 +284,10 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
 
   async function handleShareTikTok() {
     try {
-      const MediaLibrary = require('expo-media-library');
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status === 'granted') {
-        const asset = await MediaLibrary.createAssetAsync(shareImageUri);
-        await MediaLibrary.createAlbumAsync('SaveitGolf', asset, false);
+      try {
+        await saveLocalUriToLibrary(shareImageUri);
+      } catch (err) {
+        if (err.message !== 'PERMISSION_DENIED') throw err;
       }
       setShowShareModal(false);
       await new Promise((resolve) => setTimeout(resolve, 500));

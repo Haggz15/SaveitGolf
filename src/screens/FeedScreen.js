@@ -30,8 +30,6 @@ import colors from '../theme/colors';
 import {
   HEADER_CONTENT_HEIGHT,
   TAB_BAR_HEIGHT,
-  FILTERED_FEED_HEADER_HEIGHT,
-  PROFILE_FEED_HEADER_HEIGHT,
 } from '../theme/layout';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
@@ -364,11 +362,16 @@ export default function FeedScreen({ navigation, route }) {
   const [showWelcome, setShowWelcome] = useState(false);
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
-  const containerHeight = filter
-    ? windowHeight - insets.top - FILTERED_FEED_HEADER_HEIGHT
-    : profileFeedPosts
-    ? windowHeight - insets.top - PROFILE_FEED_HEADER_HEIGHT
-    : windowHeight - insets.top - HEADER_CONTENT_HEIGHT - TAB_BAR_HEIGHT;
+  // The course/profile feeds' headers vary in height (safe-area inset, sort
+  // toggle row, font metrics), so a hardcoded estimate drifts from the real
+  // pager height — and since pagingEnabled pages by the list's actual
+  // height, every slide then lands offset, showing a strip of the previous
+  // post as a gap at the top. Measure the pager instead in those modes.
+  const [measuredPagerHeight, setMeasuredPagerHeight] = useState(0);
+  const containerHeight =
+    filter || profileFeedPosts
+      ? measuredPagerHeight
+      : windowHeight - insets.top - HEADER_CONTENT_HEIGHT - TAB_BAR_HEIGHT;
   const postsListRef = useRef(null);
   // Caches the current user's following list for the lifetime of a feed load
   // so "load more" pages don't re-query it on every scroll-to-bottom.
@@ -926,7 +929,10 @@ export default function FeedScreen({ navigation, route }) {
         />
       )}
 
-      <View style={styles.pagerContainer}>
+      <View
+        style={styles.pagerContainer}
+        onLayout={(e) => setMeasuredPagerHeight(Math.round(e.nativeEvent.layout.height))}
+      >
         {loadingFeed ? (
           <ActivityIndicator color={colors.red} size="large" style={{ marginTop: 40 }} />
         ) : posts.length === 0 && !filter && !profileFeedPosts ? (
