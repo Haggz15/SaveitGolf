@@ -1430,9 +1430,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 60,
-    // Raised from 40 (Fix 6) — username/caption sat too close to the bottom
-    // edge, especially on the course page's All Posts/Hole by Hole feeds.
-    bottom: 76,
+    // Was 76 (Fix 6) — that raised it too far off the bottom edge on the
+    // course page's All Posts/Hole by Hole feeds. Settled back down.
+    bottom: 45,
   },
   avatarRow: {
     flexDirection: 'row',

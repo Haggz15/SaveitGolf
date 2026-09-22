@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { addUnrankedCourseRanking } from './courseRankings';
 
 function mapRow(row) {
   return {
@@ -74,6 +75,12 @@ export async function addMyCourse(userId, { courseId, courseName, city, state, l
   }
 
   console.log('[myCourses] addMyCourse succeeded, row id:', data.id);
+
+  // Fire-and-forget: addUnrankedCourseRanking swallows its own errors (a
+  // ranking row is a convenience, not something that should ever fail or
+  // delay the Courses Played save itself).
+  addUnrankedCourseRanking(userId, { courseId: courseId ?? null, courseName });
+
   return mapRow(data);
 }
 

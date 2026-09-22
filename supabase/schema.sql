@@ -535,6 +535,11 @@ create table if not exists public.course_rankings (
   created_at timestamptz not null default now()
 );
 
+-- Rating is nullable so a course played (see my_courses) can be auto-added
+-- here unranked, then surfaced at the bottom of the Course Rankings tab
+-- with a prompt to rate it, rather than forcing a guessed rating up front.
+alter table public.course_rankings alter column rating drop not null;
+
 create index if not exists course_rankings_user_id_idx on public.course_rankings (user_id);
 
 alter table public.course_rankings enable row level security;

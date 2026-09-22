@@ -40,6 +40,12 @@ import { hasValidCoordinates } from '../utils/mapCoords';
 const TABS = ['Uploads', 'Courses Played', 'Course Rankings'];
 
 function RankingsList({ rankings, loading, onUpdate, onAdd, onPressCourse }) {
+  // Courses auto-added from Courses Played (see myCourses.js's addMyCourse)
+  // land here with rating: null — kept out of the numbered list and shown
+  // as a "Rate" prompt below it instead (Fix 4).
+  const ranked = rankings.filter((item) => item.rating != null);
+  const unranked = rankings.filter((item) => item.rating == null);
+
   return (
     <View>
       <TouchableOpacity style={styles.addRankingButton} onPress={onAdd} activeOpacity={0.8}>
@@ -52,25 +58,45 @@ function RankingsList({ rankings, loading, onUpdate, onAdd, onPressCourse }) {
       ) : rankings.length === 0 ? (
         <Text style={styles.emptyText}>You haven't ranked any courses yet.</Text>
       ) : (
-        rankings.map((item, index) => (
-          <TouchableOpacity
-            key={item.id}
-            style={styles.listRow}
-            onPress={() => onPressCourse(item)}
-            activeOpacity={0.8}
-          >
-            <View style={styles.rankBadge}>
-              <Text style={styles.rankBadgeText}>{index + 1}</Text>
-            </View>
-            <Text style={styles.listRowTitle} numberOfLines={1}>
-              {item.courseName}
-            </Text>
-            <Text style={styles.listRowRating}>{item.rating.toFixed(1)}</Text>
-            <TouchableOpacity style={styles.updateButton} onPress={() => onUpdate(item)} hitSlop={8}>
-              <Text style={styles.updateButtonText}>Update</Text>
+        <>
+          {ranked.map((item, index) => (
+            <TouchableOpacity
+              key={item.id}
+              style={styles.listRow}
+              onPress={() => onPressCourse(item)}
+              activeOpacity={0.8}
+            >
+              <View style={styles.rankBadge}>
+                <Text style={styles.rankBadgeText}>{index + 1}</Text>
+              </View>
+              <Text style={styles.listRowTitle} numberOfLines={1}>
+                {item.courseName}
+              </Text>
+              <Text style={styles.listRowRating}>{item.rating.toFixed(1)}</Text>
+              <TouchableOpacity style={styles.updateButton} onPress={() => onUpdate(item)} hitSlop={8}>
+                <Text style={styles.updateButtonText}>Update</Text>
+              </TouchableOpacity>
             </TouchableOpacity>
-          </TouchableOpacity>
-        ))
+          ))}
+          {unranked.map((item) => (
+            <TouchableOpacity
+              key={item.id}
+              style={styles.listRow}
+              onPress={() => onPressCourse(item)}
+              activeOpacity={0.8}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.listRowTitle} numberOfLines={1}>
+                  {item.courseName}
+                </Text>
+                <Text style={styles.listRowSubtitle}>Tap to add a rating</Text>
+              </View>
+              <TouchableOpacity style={styles.rateButton} onPress={() => onUpdate(item)} hitSlop={8}>
+                <Text style={styles.rateButtonText}>Rate</Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ))}
+        </>
       )}
     </View>
   );
@@ -713,14 +739,15 @@ export default function ProfileScreen({ navigation }) {
 
   async function handleSaveRanking({ courseId, courseName, rating }) {
     if (!user?.id) return;
+    // Unranked rows have a null rating (Fix 4) — sort them last rather than
+    // letting `null - null` / `number - null` produce NaN and scramble order.
+    const byRatingDesc = (a, b) => (b.rating ?? -1) - (a.rating ?? -1);
     if (editingRanking) {
       const updated = await updateCourseRanking(editingRanking.id, { courseName, rating });
-      setRankings((prev) =>
-        prev.map((r) => (r.id === updated.id ? updated : r)).sort((a, b) => b.rating - a.rating)
-      );
+      setRankings((prev) => prev.map((r) => (r.id === updated.id ? updated : r)).sort(byRatingDesc));
     } else {
       const created = await addCourseRanking(user.id, { courseId, courseName, rating });
-      setRankings((prev) => [...prev, created].sort((a, b) => b.rating - a.rating));
+      setRankings((prev) => [...prev, created].sort(byRatingDesc));
     }
     setRankingModalVisible(false);
   }
@@ -1425,6 +1452,19 @@ const styles = StyleSheet.create({
   },
   updateButtonText: {
     color: colors.offWhite,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  rateButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: colors.navy,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+  },
+  rateButtonText: {
+    color: colors.brightGreen,
     fontSize: 11,
     fontWeight: '700',
   },
