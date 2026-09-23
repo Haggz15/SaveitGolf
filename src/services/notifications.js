@@ -15,6 +15,7 @@ const ACTION_TEXT = {
   like: 'liked your post',
   comment: 'commented on your post',
   share: 'shared your post',
+  save: 'saved your post',
   mention: 'mentioned you in a comment',
   tag: 'tagged you in a post',
   follow: 'started following you',

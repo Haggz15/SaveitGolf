@@ -574,7 +574,7 @@ create policy "Users can delete their own course rankings"
 -- rest — kept in the same constraint rather than a separate migration.
 alter table public.notifications drop constraint if exists notifications_type_check;
 alter table public.notifications add constraint notifications_type_check
-  check (type in ('like', 'comment', 'share', 'mention', 'new_post', 'new_scorecard', 'tag', 'follow'));
+  check (type in ('like', 'comment', 'share', 'mention', 'new_post', 'new_scorecard', 'tag', 'follow', 'save'));
 
 alter table public.notifications add column if not exists scorecard_id uuid references public.scorecards (id) on delete cascade;
 alter table public.notifications add column if not exists course_name text;
@@ -643,15 +643,14 @@ create policy "Shot of the week is viewable by everyone"
 -- pg_cron job — never directly by client requests.
 
 -- Finds the post with the highest combined likes+comments+shares created
--- in the most recently completed Friday-6pm -> Friday-6pm window and pins
--- it as that week's Shot of the Week. week_start is keyed to the UTC
--- Friday the window opened -- 22:00 UTC is used as a stand-in for 6pm US
--- Eastern below, since Postgres cron schedules don't shift with daylight
--- saving.
+-- in the most recently completed week (Friday 04:00 UTC -> Friday 04:00
+-- UTC, i.e. Thursday 11pm EST / midnight EDT) and pins it as that week's
+-- Shot of the Week, ready for the all-day-Friday reveal in the app.
+-- week_start is keyed to the UTC Friday the window opened.
 create or replace function public.calculate_shot_of_week()
 returns void as $$
 declare
-  window_end timestamptz := date_trunc('week', now()) + interval '4 days 22 hours';
+  window_end timestamptz := date_trunc('week', now()) + interval '4 days 4 hours';
   window_start timestamptz;
   winner_post_id uuid;
   winner_week_start date;
@@ -685,13 +684,19 @@ $$ language plpgsql security definer;
 do $$
 begin
   if exists (select 1 from pg_extension where extname = 'pg_cron') then
-    if not exists (select 1 from cron.job where jobname = 'shot-of-week-weekly') then
-      perform cron.schedule(
-        'shot-of-week-weekly',
-        '0 22 * * 5',
-        $cron$select public.calculate_shot_of_week();$cron$
-      );
+    -- Replaces the old Friday-22:00-UTC job, which ran after the Friday
+    -- reveal had already started.
+    if exists (select 1 from cron.job where jobname = 'shot-of-week-weekly') then
+      perform cron.unschedule('shot-of-week-weekly');
     end if;
+    if exists (select 1 from cron.job where jobname = 'shot-of-week') then
+      perform cron.unschedule('shot-of-week');
+    end if;
+    perform cron.schedule(
+      'shot-of-week',
+      '0 4 * * 5',
+      $cron$select public.calculate_shot_of_week();$cron$
+    );
   else
     raise notice 'pg_cron extension not installed -- enable it (Database > Extensions) then re-run this file to schedule the weekly Shot of the Week job.';
   end if;

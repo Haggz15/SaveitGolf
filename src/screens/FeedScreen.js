@@ -132,6 +132,11 @@ function PostSlide({
     try {
       if (next) {
         await savePost(currentUserId, post.id);
+        // Best-effort — a failed notification shouldn't roll back the save
+        // itself (createNotification skips saving your own post).
+        createNotification({ userId: post.userId, actorId: currentUserId, type: 'save', postId: post.id }).catch(
+          (notifyErr) => console.error('Failed to send save notification:', notifyErr)
+        );
         if (post.mediaUrl) {
           setSavingMedia(true);
           try {
@@ -303,13 +308,9 @@ const COURSE_FEED_PAGE_SIZE = 10;
 
 // Shot of the Week's winning post is computed and stored server-side all
 // week (see calculate_shot_of_week() in supabase/schema.sql) — this just
-// gates when the pinned banner is actually shown: Friday, 12am-12pm local
-// time, matching the weekly reveal window.
+// gates when the pinned banner is actually shown: all day Friday, local time.
 function isShotOfWeekTime() {
-  const now = new Date();
-  const day = now.getDay();
-  const hour = now.getHours();
-  return day === 5 && hour >= 0 && hour < 12;
+  return new Date().getDay() === 5;
 }
 
 export default function FeedScreen({ navigation, route }) {
@@ -1402,25 +1403,25 @@ const styles = StyleSheet.create({
   },
   holeWrap: {
     marginTop: 6,
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    backgroundColor: colors.red,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
   },
   holeLabel: {
-    color: colors.offWhite,
-    fontSize: 9,
+    color: colors.white,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1,
     textTransform: 'uppercase',
-    textShadowColor: 'rgba(0, 0, 0, 0.7)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
   },
   holeNumberLarge: {
     color: colors.white,
-    fontSize: 30,
-    fontWeight: '900',
-    lineHeight: 32,
-    textShadowColor: 'rgba(0, 0, 0, 0.7)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    fontSize: 28,
+    fontWeight: '700',
+    lineHeight: 30,
   },
   actionRail: {
     position: 'absolute',

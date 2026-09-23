@@ -126,7 +126,14 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
                   onPress={() => handlePressNotification(item)}
                   activeOpacity={0.75}
                 >
-                  <NotificationAvatar avatarUrl={item.actorAvatarUrl} name={item.actorFullName || item.actorUsername} />
+                  <View>
+                    <NotificationAvatar avatarUrl={item.actorAvatarUrl} name={item.actorFullName || item.actorUsername} />
+                    {item.type === 'save' && (
+                      <View style={styles.typeBadge}>
+                        <Ionicons name="bookmark" size={10} color={colors.white} />
+                      </View>
+                    )}
+                  </View>
                   <View style={styles.rowBody}>
                     <Text style={styles.rowText} numberOfLines={3}>
                       <Text style={styles.rowUsername}>{item.actorUsername}</Text>
@@ -228,6 +235,17 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 16,
     fontWeight: '700',
+  },
+  typeBadge: {
+    position: 'absolute',
+    right: 8,
+    bottom: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.red,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   rowBody: {
     flex: 1,

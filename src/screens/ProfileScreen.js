@@ -233,6 +233,10 @@ function UploadsGrid({ posts, loading, onPressPost, onLongPressPost }) {
               <Ionicons name="play" size={10} color={colors.white} />
             </View>
           )}
+          <View style={styles.uploadLikesBadge}>
+            <Ionicons name="heart" size={10} color={colors.white} />
+            <Text style={styles.uploadLikesText}>{item.likes || 0}</Text>
+          </View>
         </TouchableOpacity>
       )}
     />
@@ -1570,6 +1574,23 @@ const styles = StyleSheet.create({
   uploadTileImage: {
     width: '100%',
     height: '100%',
+  },
+  uploadLikesBadge: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  uploadLikesText: {
+    color: colors.white,
+    fontSize: 10,
+    fontWeight: '700',
   },
   uploadPlayBadge: {
     position: 'absolute',
