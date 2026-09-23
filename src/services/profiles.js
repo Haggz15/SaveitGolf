@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { uploadToR2 } from './r2Storage';
 
 const EXT_TO_CONTENT_TYPE = {
   jpg: 'image/jpeg',
@@ -8,7 +9,7 @@ const EXT_TO_CONTENT_TYPE = {
 };
 
 // Uploads a local file uri (from expo-image-picker) into the public
-// `avatars` storage bucket at a fixed per-user path, overwriting any
+// `avatars` R2 bucket at a fixed per-user path, overwriting any
 // previous photo, then returns its public URL.
 export async function uploadAvatar(userId, uri) {
   const ext = uri.split('.').pop()?.split('?')[0]?.toLowerCase() || 'jpg';
@@ -18,15 +19,10 @@ export async function uploadAvatar(userId, uri) {
   const response = await fetch(uri);
   const arrayBuffer = await response.arrayBuffer();
 
-  const { error: uploadError } = await supabase.storage
-    .from('avatars')
-    .upload(path, arrayBuffer, { contentType, upsert: true });
-  if (uploadError) throw uploadError;
-
-  const { data } = supabase.storage.from('avatars').getPublicUrl(path);
+  const publicUrl = await uploadToR2('avatars', path, arrayBuffer, contentType);
   // Cache-bust so re-uploading a photo at the same path shows immediately
   // instead of the previous image cached under the same URL.
-  return `${data.publicUrl}?t=${Date.now()}`;
+  return `${publicUrl}?t=${Date.now()}`;
 }
 
 export async function getProfile(userId) {

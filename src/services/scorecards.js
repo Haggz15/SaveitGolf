@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { uploadToR2 } from './r2Storage';
 
 function formatDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -138,7 +139,7 @@ export async function updateScorecardPhotoLayout(scorecardId, photoLayout) {
 }
 
 // Uploads a local photo uri (blob: on web, file:// from expo-image-picker on
-// native) to the `scorecards` storage bucket at a fixed per-scorecard path,
+// native) to the `scorecards` R2 bucket at a fixed per-scorecard path,
 // overwriting any photo already attached to that scorecard, then stores the
 // public URL on the row. Returns the public URL so the caller can update the
 // card immediately without refetching.
@@ -148,13 +149,7 @@ export async function saveScorecardPhoto(userId, scorecardId, uri) {
   const response = await fetch(uri);
   const arrayBuffer = await response.arrayBuffer();
 
-  const { error: uploadError } = await supabase.storage
-    .from('scorecards')
-    .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
-  if (uploadError) throw uploadError;
-
-  const { data: publicUrlData } = supabase.storage.from('scorecards').getPublicUrl(path);
-  const photoUrl = publicUrlData.publicUrl;
+  const photoUrl = await uploadToR2('scorecards', path, arrayBuffer, 'image/jpeg');
 
   const { error: updateError } = await supabase
     .from('scorecards')

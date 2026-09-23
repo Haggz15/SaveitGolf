@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { resolveMentionedUserIds } from './mentions';
 import { createNotification } from './notifications';
+import { uploadToR2 } from './r2Storage';
 
 const EXT_TO_CONTENT_TYPE = {
   jpg: 'image/jpeg',
@@ -33,7 +34,7 @@ const MAX_UPLOAD_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 2000;
 
 function uploadWithTimeout(path, body, contentType) {
-  const uploadPromise = supabase.storage.from('posts').upload(path, body, { contentType, upsert: false });
+  const uploadPromise = uploadToR2('posts', path, body, contentType);
   const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => reject(new Error('Upload timed out. Please check your connection and try again.')), UPLOAD_TIMEOUT_MS)
   );
@@ -41,7 +42,7 @@ function uploadWithTimeout(path, body, contentType) {
 }
 
 // Uploads a local file uri (from expo-image-picker) into the public `posts`
-// storage bucket under the owning user's folder, then returns its public URL.
+// R2 bucket under the owning user's folder, then returns its public URL.
 // Large/video files occasionally fail on flaky connections, so the actual
 // storage upload (not the initial fetch-to-bytes step) is retried a couple
 // times with a short backoff; `onRetry(attempt)` — if given — lets the
@@ -62,11 +63,7 @@ async function uploadMedia(userId, uri, mediaType, onRetry) {
   let lastError;
   for (let attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; attempt++) {
     try {
-      const { error: uploadError } = await uploadWithTimeout(path, arrayBuffer, contentType);
-      if (uploadError) throw new Error(uploadError.message);
-
-      const { data } = supabase.storage.from('posts').getPublicUrl(path);
-      return data.publicUrl;
+      return await uploadWithTimeout(path, arrayBuffer, contentType);
     } catch (err) {
       lastError = err;
       console.error(`Media upload attempt ${attempt} failed:`, err.message);
