@@ -14,12 +14,12 @@ export default function ShotOfWeekBanner() {
 }
 
 const styles = StyleSheet.create({
+  // Rendered in normal flow as the first child of the post's username/caption
+  // block, so it always sits directly above the username however long the
+  // caption is.
   wrap: {
-    position: 'absolute',
-    left: 0,
-    right: 60,
-    bottom: 86,
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    marginBottom: 10,
   },
   banner: {
     backgroundColor: GOLD,
@@ -33,9 +33,10 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   text: {
-    fontFamily: 'Cinzel_700Bold',
+    fontFamily: 'AbrilFatface_400Regular',
     color: NAVY,
-    fontSize: 13,
-    letterSpacing: 0.3,
+    fontSize: 15,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
 });

@@ -9,6 +9,7 @@ import { BarlowCondensed_700Bold, BarlowCondensed_800ExtraBold } from '@expo-goo
 import { Courgette_400Regular } from '@expo-google-fonts/courgette';
 import { Cinzel_700Bold } from '@expo-google-fonts/cinzel';
 import { Oswald_600SemiBold, Oswald_700Bold } from '@expo-google-fonts/oswald';
+import { AbrilFatface_400Regular } from '@expo-google-fonts/abril-fatface';
 
 import RootNavigator from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
@@ -57,6 +58,7 @@ export default function App() {
     Cinzel_700Bold,
     Oswald_600SemiBold,
     Oswald_700Bold,
+    AbrilFatface_400Regular,
   });
 
   const onLayoutRootView = useCallback(async () => {

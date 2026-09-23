@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
+    "@expo-google-fonts/abril-fatface": "^0.4.1",
     "@expo-google-fonts/barlow-condensed": "^0.4.1",
     "@expo-google-fonts/cinzel": "^0.4.2",
     "@expo-google-fonts/courgette": "^0.4.1",

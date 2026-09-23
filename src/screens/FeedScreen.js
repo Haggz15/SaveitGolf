@@ -22,6 +22,7 @@ import UserSearchModal from '../components/social/UserSearchModal';
 import CommentSheet from '../components/feed/CommentSheet';
 import NotificationPanel from '../components/feed/NotificationPanel';
 import PostActionsSheet from '../components/feed/PostActionsSheet';
+import ShotOfWeekBanner from '../components/feed/ShotOfWeekBanner';
 import MentionText from '../components/social/MentionText';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
@@ -190,15 +191,7 @@ function PostSlide({
         pointerEvents="none"
       />
 
-      {isShotOfWeek && (
-        <View style={styles.shotOfWeekBanner} pointerEvents="none">
-          <Text style={styles.shotOfWeekEmoji}>🏆</Text>
-          <Text style={styles.shotOfWeekText}>SHOT OF THE WEEK</Text>
-          <Text style={styles.shotOfWeekEmoji}>🏆</Text>
-        </View>
-      )}
-
-      <View style={[styles.topLeftStack, isShotOfWeek && styles.topLeftStackShifted]} pointerEvents="box-none">
+      <View style={styles.topLeftStack} pointerEvents="box-none">
         <TouchableOpacity
           onPress={() => onCoursePress(post)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -273,6 +266,7 @@ function PostSlide({
       </View>
 
       <View style={styles.leftInfo}>
+        {isShotOfWeek && <ShotOfWeekBanner />}
         <View style={styles.avatarRow}>
           {post.avatarUrl ? (
             <Image source={{ uri: post.avatarUrl }} style={styles.avatar} />
@@ -1350,38 +1344,11 @@ const styles = StyleSheet.create({
     bottom: 0,
     height: '55%',
   },
-  shotOfWeekBanner: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    backgroundColor: 'rgba(13, 31, 60, 0.85)',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  shotOfWeekEmoji: {
-    fontSize: 16,
-  },
-  shotOfWeekText: {
-    color: colors.gold,
-    fontFamily: 'Cinzel_700Bold',
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
   topLeftStack: {
     position: 'absolute',
     top: 12,
     left: 14,
     maxWidth: 175,
-  },
-  topLeftStackShifted: {
-    top: 48,
   },
   topLeftCourseName: {
     fontFamily: 'Cinzel_700Bold',
