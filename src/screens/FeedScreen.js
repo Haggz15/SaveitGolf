@@ -9,7 +9,6 @@ import {
   Image,
   ActivityIndicator,
   useWindowDimensions,
-  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
@@ -23,7 +22,6 @@ import UserSearchModal from '../components/social/UserSearchModal';
 import CommentSheet from '../components/feed/CommentSheet';
 import NotificationPanel from '../components/feed/NotificationPanel';
 import PostActionsSheet from '../components/feed/PostActionsSheet';
-import MediaWatermarker from '../components/feed/MediaWatermarker';
 import MentionText from '../components/social/MentionText';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
@@ -40,7 +38,7 @@ import { createNotification } from '../services/notifications';
 import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
 import { getCurrentShotOfWeek } from '../services/shotOfWeek';
-import { saveMediaToDevice, saveImageWithWatermarkWeb, saveLocalUriToLibrary } from '../utils/saveMedia';
+import { saveMediaToDevice } from '../utils/saveMedia';
 
 function PostSlide({
   post,
@@ -59,16 +57,15 @@ function PostSlide({
   onMorePress,
   onMentionPress,
   onToast,
-  onSaveMedia,
 }) {
   const [liked, setLiked] = useState(initiallyLiked);
   const [likeCount, setLikeCount] = useState(post.likes);
   const [saved, setSaved] = useState(initiallySaved);
   const [savingMedia, setSavingMedia] = useState(false);
   const isVideo = post.isVideo ?? Boolean(post.video);
-  // Fix 3: only images get the SaveitGolf watermark baked in — there's no
-  // video-processing story here, so videos keep the plain save.
-  const saveMediaForPost = (mediaUrl) => (isVideo ? saveMediaToDevice(mediaUrl) : onSaveMedia(mediaUrl));
+  // Always saves the original uploaded file (photo or video) straight from
+  // media_url — never a screen capture of the rendered slide.
+  const saveMediaForPost = (mediaUrl) => saveMediaToDevice(mediaUrl);
 
   useEffect(() => {
     if (isVideo) {
@@ -384,22 +381,6 @@ export default function FeedScreen({ navigation, route }) {
   // refresh and the logo tap always bypass this via forceRefresh.
   const lastFetchRef = useRef(null);
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-  // Off-screen capture rig for the watermarked save (Fix 3) — mounted once
-  // here rather than per-slide so pagingthrough posts doesn't spin up a new
-  // ViewShot for every card.
-  const watermarkerRef = useRef(null);
-
-  // Adds the SaveitGolf watermark before saving an image post to the device
-  // — web composites it with <canvas> directly; native renders it off-screen
-  // via `watermarkerRef` first, then saves the resulting local file.
-  async function saveImageWithWatermark(mediaUrl) {
-    if (Platform.OS === 'web') {
-      return saveImageWithWatermarkWeb(mediaUrl);
-    }
-    const uri = await watermarkerRef.current.capture(mediaUrl);
-    return saveLocalUriToLibrary(uri);
-  }
-
   const loadFollowingFeed = useCallback(async () => {
     setLoadingFeed(true);
     setFollowingHasMore(true);
@@ -936,13 +917,21 @@ export default function FeedScreen({ navigation, route }) {
         {loadingFeed ? (
           <ActivityIndicator color={colors.red} size="large" style={{ marginTop: 40 }} />
         ) : posts.length === 0 && !filter && !profileFeedPosts ? (
-          // Every new user auto-follows the founder on signup, so the following
-          // feed's userIds list is never empty — this only renders if that
-          // follow somehow failed, or the founder simply has no posts yet.
+          // New users start out following nobody, so this is the first thing
+          // they see — point them at golfers to follow and courses to explore.
           <View style={styles.noPostsState}>
+            <Text style={styles.noPostsLogo}>Save it Golf</Text>
             <Text style={styles.noPostsEmoji}>⛳</Text>
-            <Text style={styles.noPostsTitle}>No posts yet</Text>
-            <Text style={styles.noPostsSubtitle}>Follow more golfers or be the first to post a shot</Text>
+            <Text style={styles.noPostsTitle}>Welcome to SaveitGolf!</Text>
+            <Text style={styles.noPostsSubtitle}>
+              Follow other golfers to see their shots here, or explore courses to find posts near you.
+            </Text>
+            <TouchableOpacity style={styles.noPostsPrimaryButton} onPress={() => setUserSearchVisible(true)}>
+              <Text style={styles.noPostsPrimaryButtonText}>🔍 Find Golfers to Follow</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.noPostsSecondaryButton} onPress={() => navigateToMap()}>
+              <Text style={styles.noPostsSecondaryButtonText}>🗺️ Explore Courses</Text>
+            </TouchableOpacity>
           </View>
         ) : posts.length === 0 ? (
           <View style={styles.emptyState}>
@@ -975,7 +964,6 @@ export default function FeedScreen({ navigation, route }) {
                   onMorePress={setActionsSheetPost}
                   onMentionPress={handleMentionPress}
                   onToast={showToast}
-                  onSaveMedia={saveImageWithWatermark}
                 />
               )}
               pagingEnabled
@@ -1073,8 +1061,6 @@ export default function FeedScreen({ navigation, route }) {
         }}
       />
 
-      <MediaWatermarker ref={watermarkerRef} />
-
       {showWelcome && (
         <TouchableOpacity
           onPress={() => setShowWelcome(false)}
@@ -1087,7 +1073,7 @@ export default function FeedScreen({ navigation, route }) {
             Discover courses, share your shots hole by hole and connect with golfers near you
           </Text>
           <Text style={styles.welcomeFounderNote}>
-            You are following @haggz21 to get you started — follow more golfers to build your feed
+            Follow other golfers to build your feed
           </Text>
           <View style={styles.welcomeCta}>
             <Text style={styles.welcomeCtaText}>Let's Play</Text>
@@ -1228,22 +1214,58 @@ const styles = StyleSheet.create({
     backgroundColor: colors.navy,
     padding: 32,
   },
+  noPostsLogo: {
+    fontFamily: 'DancingScript_700Bold',
+    fontSize: 36,
+    color: colors.white,
+    marginBottom: 8,
+  },
   noPostsEmoji: {
-    fontSize: 40,
-    marginBottom: 12,
+    fontSize: 48,
+    marginBottom: 24,
   },
   noPostsTitle: {
     fontFamily: 'Cinzel_700Bold',
-    fontSize: 18,
+    fontSize: 20,
     color: colors.white,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   noPostsSubtitle: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.4)',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.6)',
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
+    marginBottom: 32,
+  },
+  noPostsPrimaryButton: {
+    backgroundColor: colors.brightGreen,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    marginBottom: 12,
+    width: '100%',
+    alignItems: 'center',
+  },
+  noPostsPrimaryButtonText: {
+    color: colors.brightGreenText,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  noPostsSecondaryButton: {
+    backgroundColor: '#1a2e4a',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    width: '100%',
+    alignItems: 'center',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  noPostsSecondaryButtonText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '600',
   },
   welcomeOverlay: {
     position: 'absolute',
