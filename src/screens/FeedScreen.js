@@ -921,7 +921,11 @@ export default function FeedScreen({ navigation, route }) {
           // they see — point them at golfers to follow and courses to explore.
           <View style={styles.noPostsState}>
             <Text style={styles.noPostsLogo}>Save it Golf</Text>
-            <Text style={styles.noPostsEmoji}>⛳</Text>
+            <Image
+              source={require('../../assets/icon.png')}
+              style={styles.noPostsLogoImage}
+              resizeMode="contain"
+            />
             <Text style={styles.noPostsTitle}>Welcome to SaveitGolf!</Text>
             <Text style={styles.noPostsSubtitle}>
               Follow other golfers to see their shots here, or explore courses to find posts near you.
@@ -1067,7 +1071,11 @@ export default function FeedScreen({ navigation, route }) {
           activeOpacity={1}
           style={styles.welcomeOverlay}
         >
-          <Text style={styles.welcomeEmoji}>⛳</Text>
+          <Image
+            source={require('../../assets/icon.png')}
+            style={styles.welcomeIcon}
+            resizeMode="contain"
+          />
           <Text style={styles.welcomeTitle}>Welcome to SaveitGolf</Text>
           <Text style={styles.welcomeSubtitle}>
             Discover courses, share your shots hole by hole and connect with golfers near you
@@ -1220,9 +1228,11 @@ const styles = StyleSheet.create({
     color: colors.white,
     marginBottom: 8,
   },
-  noPostsEmoji: {
-    fontSize: 48,
-    marginBottom: 24,
+  noPostsLogoImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 24,
+    marginVertical: 16,
   },
   noPostsTitle: {
     fontFamily: 'Cinzel_700Bold',
@@ -1279,9 +1289,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 32,
   },
-  welcomeEmoji: {
-    fontSize: 52,
-    marginBottom: 16,
+  welcomeIcon: {
+    width: 120,
+    height: 120,
+    borderRadius: 24,
+    marginVertical: 16,
   },
   welcomeTitle: {
     fontFamily: 'Cinzel_700Bold',
