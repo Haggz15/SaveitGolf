@@ -965,3 +965,25 @@ grant execute on function public.delete_own_account() to authenticated;
 -- a sub-course is a whole separate course sharing the parent club_name.
 alter table public.posts add column if not exists manual_entry boolean not null default false;
 alter table public.posts add column if not exists sub_course_name text;
+
+-- App versions: the latest store build per platform, checked on launch by
+-- services/appVersion.js. When the installed native version is older than
+-- latest_version the app prompts the user to update and opens store_url.
+-- Bump latest_version here (via the dashboard) after each App Store / Play
+-- Store release goes live. JS-only fixes ship as OTA updates via
+-- expo-updates instead and don't need a row change.
+create table if not exists public.app_versions (
+  platform text primary key check (platform in ('ios', 'android')),
+  latest_version text not null,
+  store_url text not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.app_versions enable row level security;
+
+drop policy if exists "App versions are viewable by everyone" on public.app_versions;
+create policy "App versions are viewable by everyone"
+  on public.app_versions for select
+  using (true);
+
+-- No insert/update/delete policy: edited only from the Supabase dashboard.
