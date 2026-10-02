@@ -18,6 +18,7 @@ import AvatarPicker from '../../components/auth/AvatarPicker';
 import AuthTextField from '../../components/auth/AuthTextField';
 import StateSelect from '../../components/auth/StateSelect';
 import HandicapInputModal from '../../components/profile/HandicapInputModal';
+import { formatHandicap } from '../../utils/handicap';
 import { useAuth } from '../../context/AuthContext';
 import { friendlyAuthError } from '../../services/authErrors';
 import { uploadAvatar } from '../../services/profiles';
@@ -166,7 +167,7 @@ export default function ProfileSetupScreen() {
             activeOpacity={0.8}
           >
             <Text style={handicap ? styles.handicapFieldValue : styles.handicapFieldPlaceholder}>
-              {handicap ? `Handicap index: ${handicap}` : 'Add your handicap'}
+              {handicap ? `Handicap index: ${formatHandicap(handicap)}` : 'Add your handicap'}
             </Text>
             <Ionicons name="pencil-outline" size={16} color={colors.muted} />
           </TouchableOpacity>

@@ -2,9 +2,9 @@ import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 
-export default function ZoomControls({ onZoomIn, onZoomOut }) {
+export default function ZoomControls({ onZoomIn, onZoomOut, style }) {
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, style]}>
       <TouchableOpacity style={styles.button} onPress={onZoomIn}>
         <Ionicons name="add" size={20} color={colors.white} />
       </TouchableOpacity>

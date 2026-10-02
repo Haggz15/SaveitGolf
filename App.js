@@ -60,7 +60,7 @@ export default function App() {
         const update = await Updates.checkForUpdateAsync();
         if (update.isAvailable) {
           Alert.alert(
-            'Update Available',
+            '🏌️ Update Available',
             'A new version of SaveitGolf is available with bug fixes and improvements.',
             [
               { text: 'Later', style: 'cancel' },

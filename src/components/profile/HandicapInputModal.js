@@ -1,9 +1,14 @@
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, StyleSheet, SafeAreaView, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, StyleSheet, SafeAreaView, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 import AuthTextField from '../auth/AuthTextField';
-import { estimateHandicapFromAverageScore } from '../../utils/handicap';
+import {
+  estimateHandicapFromAverageScore,
+  parseHandicapInput,
+  sanitizeHandicapInput,
+  formatHandicap,
+} from '../../utils/handicap';
 
 const MODES = {
   KNOW: 'know',
@@ -35,9 +40,9 @@ export default function HandicapInputModal({ visible, onClose, onSubmit }) {
   const handleSave = async () => {
     let value;
     if (mode === MODES.KNOW) {
-      const parsed = Number(handicapText.trim());
-      if (handicapText.trim() === '' || Number.isNaN(parsed)) {
-        setError('Enter a valid handicap index.');
+      const parsed = parseHandicapInput(handicapText);
+      if (parsed === null) {
+        setError('Enter a valid handicap index (use + for plus handicaps, e.g. +2.1).');
         return;
       }
       value = parsed;
@@ -99,10 +104,11 @@ export default function HandicapInputModal({ visible, onClose, onSubmit }) {
 
             {mode === MODES.KNOW ? (
               <AuthTextField
-                placeholder="Handicap index (e.g. 12.4)"
+                placeholder="Handicap index (e.g. 12.4 or +2.1)"
                 value={handicapText}
-                onChangeText={setHandicapText}
-                keyboardType="decimal-pad"
+                onChangeText={(text) => setHandicapText(sanitizeHandicapInput(text))}
+                // decimal-pad has no "+" key, which plus handicappers need.
+                keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'default'}
               />
             ) : (
               <>
@@ -116,7 +122,7 @@ export default function HandicapInputModal({ visible, onClose, onSubmit }) {
                   We will estimate your handicap based on your average score.
                 </Text>
                 {estimatedHandicap != null && (
-                  <Text style={styles.estimateText}>Estimated handicap index: {estimatedHandicap}</Text>
+                  <Text style={styles.estimateText}>Estimated handicap index: {formatHandicap(estimatedHandicap)}</Text>
                 )}
               </>
             )}

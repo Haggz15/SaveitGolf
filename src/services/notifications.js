@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { sendActivityPush } from './pushNotifications';
 
 function timeAgo(isoDate) {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(isoDate).getTime()) / 1000));
@@ -127,6 +128,8 @@ export async function createNotification({ userId, actorId, type, postId, scorec
   });
 
   if (error) throw error;
+  // Fire-and-forget — sendActivityPush never throws.
+  sendActivityPush({ userId, actorId, type, postId });
 }
 
 // Fans a `new_post` / `new_scorecard` notification out to every follower of

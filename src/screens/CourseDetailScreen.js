@@ -556,6 +556,8 @@ const styles = StyleSheet.create({
     fontFamily: 'DancingScript_700Bold',
     fontSize: 24,
     color: colors.white,
+    // Room for the script "f" swash — see Header's logo style.
+    paddingRight: 8,
   },
   headerRight: {},
   scrollContent: {

@@ -1222,6 +1222,8 @@ const styles = StyleSheet.create({
     fontSize: 36,
     color: colors.white,
     marginBottom: 8,
+    // Room for the script "f" swash — see Header's logo style.
+    paddingRight: 8,
   },
   noPostsLogoImage: {
     width: 120,

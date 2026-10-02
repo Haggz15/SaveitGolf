@@ -21,6 +21,7 @@ import colors from '../theme/colors';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import HandicapInputModal from '../components/profile/HandicapInputModal';
+import UploadTileMedia from '../components/profile/UploadTileMedia';
 import CourseRankingModal from '../components/profile/CourseRankingModal';
 import CourseSearchModal from '../components/profile/CourseSearchModal';
 import FollowListModal from '../components/profile/FollowListModal';
@@ -36,6 +37,7 @@ import { getFollowerCount, getFollowingCount } from '../services/social';
 import { deleteAccount } from '../services/auth';
 import { friendlyAuthError } from '../services/authErrors';
 import { hasValidCoordinates } from '../utils/mapCoords';
+import { formatHandicap } from '../utils/handicap';
 
 const TABS = ['Uploads', 'Courses Played', 'Course Rankings'];
 
@@ -213,21 +215,7 @@ function UploadsGrid({ posts, loading, onPressPost, onLongPressPost }) {
           delayLongPress={400}
           activeOpacity={0.85}
         >
-          {item.isVideo && Platform.OS === 'web' ? (
-            // <Image> can't decode video files, which left these tiles blank —
-            // a muted <video> seeked to 0.5s (via the #t= media fragment)
-            // renders that frame as a thumbnail without needing a
-            // server-generated poster image.
-            <video
-              src={`${item.mediaUrl}#t=0.5`}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              preload="metadata"
-              muted
-              playsInline
-            />
-          ) : (
-            <Image source={{ uri: item.mediaUrl }} style={styles.uploadTileImage} resizeMode="cover" />
-          )}
+          <UploadTileMedia post={item} />
           {item.isVideo && (
             <View style={styles.uploadPlayBadge}>
               <Ionicons name="play" size={10} color={colors.white} />
@@ -902,7 +890,7 @@ export default function ProfileScreen({ navigation }) {
                 <Ionicons name="golf-outline" size={20} color={colors.red} />
                 <View style={{ marginLeft: 10, flex: 1 }}>
                   <Text style={styles.handicapValue}>
-                    {profileData?.handicap_index != null ? profileData.handicap_index : 'Not set'}
+                    {profileData?.handicap_index != null ? formatHandicap(profileData.handicap_index) : 'Not set'}
                   </Text>
                   <Text style={styles.handicapLabel}>Handicap Index</Text>
                 </View>
@@ -1323,7 +1311,8 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
+    gap: 32,
     width: '100%',
     marginTop: 12,
     marginBottom: 18,
@@ -1333,12 +1322,12 @@ const styles = StyleSheet.create({
   },
   statValue: {
     color: colors.white,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
   },
   statLabel: {
     color: colors.muted,
-    fontSize: 11,
+    fontSize: 12,
     marginTop: 2,
   },
   handicapBox: {
@@ -1570,10 +1559,6 @@ const styles = StyleSheet.create({
     borderColor: colors.navyBorder,
     borderRadius: 10,
     overflow: 'hidden',
-  },
-  uploadTileImage: {
-    width: '100%',
-    height: '100%',
   },
   uploadLikesBadge: {
     position: 'absolute',

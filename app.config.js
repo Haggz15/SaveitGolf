@@ -95,6 +95,15 @@ module.exports = {
         },
       ],
       'expo-video',
+      [
+        'expo-notifications',
+        {
+          // Android tints this white — it must be a monochrome silhouette.
+          icon: './assets/android-icon-monochrome.png',
+          color: '#0d1f3c',
+          sounds: [],
+        },
+      ],
     ],
     extra: {
       golfCourseApiKey: 'YFLVNLXAT3GXCYCBS64LDXZXOY',

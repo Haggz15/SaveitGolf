@@ -38,6 +38,9 @@ const styles = StyleSheet.create({
     fontFamily: 'DancingScript_700Bold',
     fontSize: 32,
     color: colors.white,
+    // The script "f" swashes past the glyph's advance width, so without
+    // extra room on the right the Text box clips its tail.
+    paddingRight: 8,
   },
   right: {
     flexDirection: 'row',

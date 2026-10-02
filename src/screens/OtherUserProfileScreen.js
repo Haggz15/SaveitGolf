@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ScrollView, TouchableOpacity, Image, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
@@ -19,6 +19,8 @@ import CourseActionSheet from '../components/profile/CourseActionSheet';
 import FollowListModal from '../components/profile/FollowListModal';
 import { navigateToCourseOnMap, navigateToCourseDetail } from '../utils/courseNavigation';
 import { hasValidCoordinates } from '../utils/mapCoords';
+import { formatHandicap } from '../utils/handicap';
+import UploadTileMedia from '../components/profile/UploadTileMedia';
 
 const TABS = ['Uploads', 'Courses Played', 'Course Rankings'];
 
@@ -34,7 +36,7 @@ function getInitials(fullName) {
     .toUpperCase();
 }
 
-function RankingsList({ rankings, loading, onPressCourse, isSelf }) {
+function RankingsList({ rankings, loading, onPressCourse }) {
   if (loading) {
     return <ActivityIndicator color={colors.red} style={{ marginTop: 24 }} />;
   }
@@ -56,11 +58,13 @@ function RankingsList({ rankings, loading, onPressCourse, isSelf }) {
           <Text style={styles.listRowTitle} numberOfLines={1}>
             {item.courseName}
           </Text>
-          {/* Rating numbers are personal — only the profile owner sees the score. */}
-          {isSelf ? (
+          {/* The owner's score is visible to everyone viewing the profile.
+              Unranked rows (rating null — see addUnrankedCourseRanking)
+              have no score to show. */}
+          {item.rating != null ? (
             <Text style={styles.listRowRating}>{item.rating.toFixed(1)}</Text>
           ) : (
-            <Text style={styles.listRowRatingFlag}>🚩</Text>
+            <Text style={styles.listRowSubtitle}>Unranked</Text>
           )}
         </TouchableOpacity>
       ))}
@@ -128,22 +132,16 @@ function UploadsGrid({ posts, loading, onPressPost }) {
           onPress={() => onPressPost(item, index)}
           activeOpacity={0.85}
         >
-          {item.isVideo && Platform.OS === 'web' ? (
-            <video
-              src={`${item.mediaUrl}#t=0.5`}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              preload="metadata"
-              muted
-              playsInline
-            />
-          ) : (
-            <Image source={{ uri: item.mediaUrl }} style={styles.uploadTileImage} resizeMode="cover" />
-          )}
+          <UploadTileMedia post={item} />
           {item.isVideo && (
             <View style={styles.uploadPlayBadge}>
               <Ionicons name="play" size={10} color={colors.white} />
             </View>
           )}
+          <View style={styles.uploadLikesBadge}>
+            <Ionicons name="heart" size={10} color={colors.white} />
+            <Text style={styles.uploadLikesText}>{item.likes || 0}</Text>
+          </View>
         </TouchableOpacity>
       )}
     />
@@ -374,6 +372,10 @@ export default function OtherUserProfileScreen({ route, navigation }) {
             )}
 
             <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{stats.posts}</Text>
+                <Text style={styles.statLabel}>Posts</Text>
+              </View>
               <TouchableOpacity
                 style={styles.statItem}
                 onPress={() => openFollowList('followers')}
@@ -390,10 +392,6 @@ export default function OtherUserProfileScreen({ route, navigation }) {
                 <Text style={styles.statValue}>{stats.following}</Text>
                 <Text style={styles.statLabel}>Following</Text>
               </TouchableOpacity>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{stats.posts}</Text>
-                <Text style={styles.statLabel}>Posts</Text>
-              </View>
             </View>
 
             <TouchableOpacity style={styles.viewOnMapButton} onPress={handleViewOnMapButton} activeOpacity={0.85}>
@@ -433,7 +431,7 @@ export default function OtherUserProfileScreen({ route, navigation }) {
               <View style={styles.handicapBox}>
                 <Ionicons name="golf-outline" size={20} color={colors.red} />
                 <View style={{ marginLeft: 10, flex: 1 }}>
-                  <Text style={styles.handicapValue}>{profile.handicap_index}</Text>
+                  <Text style={styles.handicapValue}>{formatHandicap(profile.handicap_index)}</Text>
                   <Text style={styles.handicapLabel}>Handicap Index</Text>
                 </View>
               </View>
@@ -457,7 +455,6 @@ export default function OtherUserProfileScreen({ route, navigation }) {
               rankings={rankings}
               loading={rankingsLoading}
               onPressCourse={handlePressRanking}
-              isSelf={isSelf}
             />
           )}
           {activeTab === 'Courses Played' && (
@@ -581,7 +578,8 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
+    gap: 32,
     width: '100%',
     marginTop: 18,
     marginBottom: 18,
@@ -591,12 +589,12 @@ const styles = StyleSheet.create({
   },
   statValue: {
     color: colors.white,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
   },
   statLabel: {
     color: colors.muted,
-    fontSize: 11,
+    fontSize: 12,
     marginTop: 2,
   },
   viewOnMapButton: {
@@ -748,9 +746,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 14,
   },
-  listRowRatingFlag: {
-    fontSize: 16,
-  },
   uploadRow: {
     marginBottom: 8,
   },
@@ -768,9 +763,22 @@ const styles = StyleSheet.create({
     marginTop: 16,
     overflow: 'hidden',
   },
-  uploadTileImage: {
-    width: '100%',
-    height: '100%',
+  uploadLikesBadge: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  uploadLikesText: {
+    color: colors.white,
+    fontSize: 10,
+    fontWeight: '700',
   },
   uploadPlayBadge: {
     position: 'absolute',

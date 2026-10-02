@@ -35,6 +35,7 @@ import { notifyFollowersOfPost } from '../services/notifications';
 import { geocodeCourseCoordinates } from '../services/geocoding';
 import { courseHasValidCoordinates } from '../utils/mapCoords';
 import { compressImage } from '../utils/imageCompression';
+import { confirmVideoUploadOnNetwork } from '../utils/networkCheck';
 
 // Nominal content height of the upload progress banner — the actual
 // rendered height also adds the device's safe-area top inset, same as
@@ -595,6 +596,9 @@ export default function PostScreen({ navigation }) {
       Alert.alert('Add a course', 'Enter or search for the course you played.');
       return;
     }
+
+    const canUpload = await confirmVideoUploadOnNetwork(media.type);
+    if (!canUpload) return;
 
     if (processingTimerRef.current) clearTimeout(processingTimerRef.current);
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);

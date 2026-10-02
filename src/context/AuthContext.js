@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import { supabase } from '../services/supabase';
 import { getProfile, insertProfile, updateProfile as updateProfileRequest } from '../services/profiles';
+import { registerForPushNotifications } from '../services/pushNotifications';
 
 const AuthContext = createContext(null);
 
@@ -54,6 +55,15 @@ export function AuthProvider({ children }) {
       subscription.subscription.unsubscribe();
     };
   }, [loadProfile]);
+
+  // Register this device for push once there's a signed-in user with a
+  // profile row to store the token on (a brand-new account gets one after
+  // onboarding, which re-runs this).
+  const userId = session?.user?.id;
+  const hasProfile = Boolean(profile);
+  useEffect(() => {
+    if (userId && hasProfile) registerForPushNotifications(userId);
+  }, [userId, hasProfile]);
 
   const refreshProfile = useCallback(async () => {
     await loadProfile(session?.user?.id);

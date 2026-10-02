@@ -10,6 +10,7 @@ import CourseSearchBar from '../components/map/CourseSearchBar';
 import FriendSearchBar from '../components/map/FriendSearchBar';
 import FilterPills from '../components/map/FilterPills';
 import ZoomControls from '../components/map/ZoomControls';
+import CoursesPlayedBadge, { COURSES_PLAYED_BADGE_OFFSET } from '../components/map/CoursesPlayedBadge';
 import CoursePopupCard from '../components/map/CoursePopupCard';
 import FeedCoursePopupCard from '../components/map/FeedCoursePopupCard';
 import MapErrorBoundary from '../components/map/MapErrorBoundary';
@@ -458,7 +459,12 @@ export default function MapScreen({ navigation, route }) {
           </MapContainer>
         </MapErrorBoundary>
 
-        <ZoomControls onZoomIn={guard(handleZoomIn)} onZoomOut={guard(handleZoomOut)} />
+        <CoursesPlayedBadge count={myCoursesList.length} />
+        <ZoomControls
+          onZoomIn={guard(handleZoomIn)}
+          onZoomOut={guard(handleZoomOut)}
+          style={myCoursesList.length > 0 ? { top: 12 + COURSES_PLAYED_BADGE_OFFSET } : null}
+        />
 
         {selectedCourse && (
           <CoursePopupCard

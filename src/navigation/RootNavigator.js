@@ -153,11 +153,11 @@ export default function RootNavigator() {
       ) : (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Tabs" component={Tabs} />
-          <Stack.Screen
-            name="CourseDetail"
-            component={CourseDetailScreen}
-            options={{ presentation: 'modal' }}
-          />
+          {/* A regular pushed card, not presentation: 'modal' — on iOS a
+              modal here made every screen pushed from it (CourseFeed,
+              UserProfile) stack as another page sheet, which read as the
+              app opening new "tabs" rather than navigating. */}
+          <Stack.Screen name="CourseDetail" component={CourseDetailScreen} />
           {/* Reuses FeedScreen itself (see its `route.params.filter` handling)
               for the course/hole full-screen swipe feeds pushed from
               CourseDetailScreen — a real stack screen rather than a tab so it

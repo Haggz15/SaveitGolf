@@ -987,3 +987,8 @@ create policy "App versions are viewable by everyone"
   using (true);
 
 -- No insert/update/delete policy: edited only from the Supabase dashboard.
+
+-- Expo push token for this user's most recent device (see
+-- src/services/pushNotifications.js). Set on launch once permission is
+-- granted; read when someone likes/comments/follows/saves/tags them.
+alter table public.profiles add column if not exists push_token text;
