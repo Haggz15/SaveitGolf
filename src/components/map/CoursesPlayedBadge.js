@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, Image, StyleSheet } from 'react-native';
 
 // Top-right "Played X courses" pill on the map. Count comes from the same
 // my_courses list useCourseMapData already loads (and refetches on focus),
@@ -7,8 +7,9 @@ export default function CoursesPlayedBadge({ count }) {
   if (!count) return null;
   return (
     <View style={styles.badge} pointerEvents="none">
+      <Image source={require('../../../assets/icon.png')} style={styles.logo} />
       <Text style={styles.text}>
-        ⛳ Played {count} {count === 1 ? 'course' : 'courses'}
+        Played {count} {count === 1 ? 'course' : 'courses'}
       </Text>
     </View>
   );
@@ -16,7 +17,7 @@ export default function CoursesPlayedBadge({ count }) {
 
 // Height of the pill plus a gap — ZoomControls shifts down by this much
 // while the badge is showing so the two don't overlap.
-export const COURSES_PLAYED_BADGE_OFFSET = 40;
+export const COURSES_PLAYED_BADGE_OFFSET = 44;
 
 const styles = StyleSheet.create({
   badge: {
@@ -24,12 +25,21 @@ const styles = StyleSheet.create({
     top: 12,
     right: 16,
     zIndex: 1000,
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(13,31,60,0.85)',
     borderRadius: 20,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingLeft: 6,
+    paddingVertical: 4,
     borderWidth: 0.5,
     borderColor: 'rgba(255,255,255,0.2)',
+  },
+  logo: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginRight: 6,
   },
   text: {
     color: '#fff',

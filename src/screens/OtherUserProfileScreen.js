@@ -579,12 +579,12 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 32,
     width: '100%',
     marginTop: 18,
     marginBottom: 18,
   },
   statItem: {
+    flex: 1,
     alignItems: 'center',
   },
   statValue: {
