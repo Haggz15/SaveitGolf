@@ -322,7 +322,7 @@ export function useCourseMapData({
       .then((posts) => {
         if (requestId !== courseDetailRequestIdRef.current) return;
         const nines = [...new Set(posts.map((p) => p.compositeName).filter(Boolean))];
-        setSelectedDetail((prev) => ({ ...prev, nines }));
+        setSelectedDetail((prev) => ({ ...prev, nines, postCount: posts.length }));
       })
       .catch((err) => {
         console.error('Failed to load posts for course map popup:', err);

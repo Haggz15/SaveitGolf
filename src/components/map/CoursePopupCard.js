@@ -1,10 +1,7 @@
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
-import { courseDetail as mockCourseDetail } from '../../data/mockData';
 
-// golfcourseapi.com has no post-count field, so this comes from the shared
-// mock fixture until real per-course SaveitGolf activity data exists.
 function buildMetaLine(course, detail) {
   const location = [course.city, course.state].filter(Boolean).join(', ');
   const segments = [];
@@ -32,9 +29,15 @@ export default function CoursePopupCard({ course, detail, onClose, onViewHoles }
         )}
       </View>
 
-      <View style={styles.ratingRow}>
-        <Text style={styles.ratingPosts}>{mockCourseDetail.postsCount} posts</Text>
-      </View>
+      {/* postCount arrives from useCourseMapData's getPostsForCourse fetch;
+          hidden until then so the card never flashes a wrong number. */}
+      {detail?.postCount != null && (
+        <View style={styles.ratingRow}>
+          <Text style={styles.ratingPosts}>
+            {detail.postCount} {detail.postCount === 1 ? 'post' : 'posts'}
+          </Text>
+        </View>
+      )}
 
       {detail?.nines?.length > 0 && (
         <View style={styles.ninesRow}>
