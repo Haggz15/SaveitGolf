@@ -3,23 +3,25 @@ import { View, Text, TouchableOpacity, Modal, StyleSheet, SafeAreaView, Activity
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 import AuthTextField from '../auth/AuthTextField';
-import {
-  estimateHandicapFromAverageScore,
-  parseHandicapInput,
-  sanitizeHandicapInput,
-  formatHandicap,
-} from '../../utils/handicap';
+import { estimateHandicapFromAverageScore, parseHandicapInput, formatHandicap } from '../../utils/handicap';
 
 const MODES = {
   KNOW: 'know',
   AVERAGE: 'average',
 };
 
+// Rendered in-modal so the system keyboard never opens. The "+" key marks a
+// plus handicap (stored negative, see parseHandicapInput).
+const PAD_KEYS = [
+  ['1', '2', '3'],
+  ['4', '5', '6'],
+  ['7', '8', '9'],
+  ['+', '0', '.'],
+];
+
 export default function HandicapInputModal({ visible, onClose, onSubmit }) {
   const [mode, setMode] = useState(MODES.KNOW);
   const [handicapText, setHandicapText] = useState('');
-  // decimal-pad has no "+" key, so plus handicaps are flagged with a toggle.
-  const [isPlus, setIsPlus] = useState(false);
   const [averageScoreText, setAverageScoreText] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -27,7 +29,6 @@ export default function HandicapInputModal({ visible, onClose, onSubmit }) {
   const resetAndClose = () => {
     setMode(MODES.KNOW);
     setHandicapText('');
-    setIsPlus(false);
     setAverageScoreText('');
     setError('');
     setSaving(false);
@@ -43,8 +44,7 @@ export default function HandicapInputModal({ visible, onClose, onSubmit }) {
   const handleSave = async () => {
     let value;
     if (mode === MODES.KNOW) {
-      const digits = handicapText.trim().replace(/^\+/, '');
-      const parsed = parseHandicapInput(isPlus ? `+${digits}` : handicapText);
+      const parsed = parseHandicapInput(handicapText);
       if (parsed === null) {
         setError('Enter a valid handicap index (e.g. 12.4).');
         return;
@@ -67,6 +67,20 @@ export default function HandicapInputModal({ visible, onClose, onSubmit }) {
       setError(err.message || 'Failed to save handicap.');
       setSaving(false);
     }
+  };
+
+  const handlePadKey = (key) => {
+    setError('');
+    setHandicapText((prev) => {
+      if (key === '+') return prev.startsWith('+') ? prev : `+${prev}`;
+      if (key === '.' && prev.includes('.')) return prev;
+      return prev + key;
+    });
+  };
+
+  const handleBackspace = () => {
+    setError('');
+    setHandicapText((prev) => prev.slice(0, -1));
   };
 
   return (
@@ -108,26 +122,42 @@ export default function HandicapInputModal({ visible, onClose, onSubmit }) {
 
             {mode === MODES.KNOW ? (
               <>
-                <TouchableOpacity
-                  style={[styles.plusToggle, isPlus && styles.plusToggleActive]}
-                  onPress={() => setIsPlus((prev) => !prev)}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name={isPlus ? 'checkmark-circle' : 'ellipse-outline'}
-                    size={18}
-                    color={isPlus ? colors.white : colors.muted}
-                  />
-                  <Text style={[styles.plusToggleText, isPlus && styles.plusToggleTextActive]}>
-                    I have a plus handicap
+                <View style={styles.padDisplay}>
+                  <Text
+                    style={[styles.padDisplayText, !handicapText && styles.padDisplayPlaceholder]}
+                    numberOfLines={1}
+                  >
+                    {handicapText || 'e.g. 12.4'}
                   </Text>
-                </TouchableOpacity>
-                <AuthTextField
-                  placeholder={isPlus ? 'Plus handicap index (e.g. 2.1)' : 'Handicap index (e.g. 12.4)'}
-                  value={handicapText}
-                  onChangeText={(text) => setHandicapText(sanitizeHandicapInput(text))}
-                  keyboardType="decimal-pad"
-                />
+                  <TouchableOpacity
+                    onPress={handleBackspace}
+                    disabled={!handicapText}
+                    hitSlop={10}
+                    accessibilityLabel="Delete last character"
+                  >
+                    <Ionicons
+                      name="backspace-outline"
+                      size={24}
+                      color={handicapText ? colors.white : colors.muted}
+                    />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.pad}>
+                  {PAD_KEYS.map((row) => (
+                    <View key={row.join('')} style={styles.padRow}>
+                      {row.map((key) => (
+                        <TouchableOpacity
+                          key={key}
+                          style={styles.padKey}
+                          onPress={() => handlePadKey(key)}
+                          activeOpacity={0.6}
+                        >
+                          <Text style={styles.padKeyText}>{key}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ))}
+                </View>
               </>
             ) : (
               <>
@@ -221,30 +251,49 @@ const styles = StyleSheet.create({
   modeButtonTextActive: {
     color: colors.white,
   },
-  plusToggle: {
+  padDisplay: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    alignSelf: 'flex-start',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    justifyContent: 'space-between',
+    height: 56,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.navyBorder,
     backgroundColor: colors.navyCard,
     marginBottom: 12,
   },
-  plusToggleActive: {
-    borderColor: colors.green,
-    backgroundColor: colors.green,
-  },
-  plusToggleText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  plusToggleTextActive: {
+  padDisplayText: {
+    flex: 1,
     color: colors.white,
+    fontSize: 26,
+    fontWeight: '700',
+  },
+  padDisplayPlaceholder: {
+    color: colors.muted,
+    fontSize: 18,
+    fontWeight: '500',
+  },
+  pad: {
+    gap: 8,
+    marginBottom: 14,
+  },
+  padRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  padKey: {
+    flex: 1,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: colors.navyLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  padKeyText: {
+    color: colors.white,
+    fontSize: 22,
+    fontWeight: '600',
   },
   helperText: {
     color: colors.muted,

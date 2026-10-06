@@ -96,8 +96,11 @@ export default function VideoPost({ source, isActive, muted, setMuted, userPause
 const styles = StyleSheet.create({
   tapFeedback: {
     ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 5,
   },
   tapFeedbackCircle: {
     width: 72,
