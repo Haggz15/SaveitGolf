@@ -3,20 +3,12 @@ import { View, Text, Image, StyleSheet, TouchableOpacity, Pressable, ScrollView 
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 
-// my_courses has no "date played" column — created_at (when the course was
-// added to Courses Played) is the closest thing, so it's labeled "Added".
-function formatAddedDate(value) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
 // Top-right "Played X courses" pill on the map. Courses come from the same
 // my_courses list useCourseMapData already loads (and refetches on focus),
 // so it never drifts from the Courses Played pins. Tapping the pill toggles
-// a dropdown listing those courses; tapping anywhere else on the map closes it.
-export default function CoursesPlayedBadge({ courses }) {
+// a dropdown listing those courses by name; tapping one closes the dropdown
+// and focuses that course on the map. Tapping anywhere else closes it.
+export default function CoursesPlayedBadge({ courses, onSelectCourse }) {
   const [open, setOpen] = useState(false);
   const count = courses?.length ?? 0;
   if (!count) return null;
@@ -34,22 +26,21 @@ export default function CoursesPlayedBadge({ courses }) {
       {open && (
         <View style={styles.dropdown}>
           <ScrollView>
-            {courses.map((course, index) => {
-              const added = formatAddedDate(course.addedAt);
-              const location = [course.city, course.state].filter(Boolean).join(', ');
-              return (
-                <View key={`${course.id}-${index}`} style={[styles.row, index > 0 && styles.rowDivider]}>
-                  <Text style={styles.rowName} numberOfLines={1}>
-                    {course.name}
-                  </Text>
-                  {(location || added) && (
-                    <Text style={styles.rowMeta} numberOfLines={1}>
-                      {[location, added && `Added ${added}`].filter(Boolean).join(' · ')}
-                    </Text>
-                  )}
-                </View>
-              );
-            })}
+            {courses.map((course, index) => (
+              <TouchableOpacity
+                key={`${course.id}-${index}`}
+                style={[styles.row, index > 0 && styles.rowDivider]}
+                onPress={() => {
+                  setOpen(false);
+                  onSelectCourse?.(course);
+                }}
+                activeOpacity={0.6}
+              >
+                <Text style={styles.rowName} numberOfLines={1}>
+                  {course.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </ScrollView>
         </View>
       )}
@@ -124,10 +115,5 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 13,
     fontWeight: '600',
-  },
-  rowMeta: {
-    color: colors.muted,
-    fontSize: 11,
-    marginTop: 2,
   },
 });

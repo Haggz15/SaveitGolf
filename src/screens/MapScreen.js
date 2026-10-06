@@ -56,11 +56,7 @@ function withCoords(courses, context) {
   return filterCoursesWithValidCoordinates(courses, context);
 }
 
-// `green` marks pins from the user's own Courses Played list, or a friend's
-// when a friend filter is active (the map's mapMarkers already tags both
-// `isMine`/`isFriend`), so they read distinctly from the red flag used for
-// search results and course-detail "View on Map" focus.
-function CourseMarker({ course, highlighted, green, onPress }) {
+function CourseMarker({ course, highlighted, onPress }) {
   return (
     <Marker
       coordinate={{ latitude: course.lat, longitude: course.lng }}
@@ -68,7 +64,7 @@ function CourseMarker({ course, highlighted, green, onPress }) {
       tracksViewChanges={highlighted}
       zIndex={highlighted ? 10 : 1}
     >
-      <CoursePushPin color={green ? colors.green : colors.red} size={highlighted ? 40 : 28} />
+      <CoursePushPin color="#c0001a" size={highlighted ? 40 : 28} />
     </Marker>
   );
 }
@@ -164,6 +160,7 @@ export default function MapScreen({ navigation, route }) {
     handleSearchQueryChange,
     clearSearch,
     handleSelectSearchResult,
+    handleSelectPlayedCourse,
   } = useCourseMapData({
     navigation,
     routeFocusCourse: route?.params?.focusCourse,
@@ -360,7 +357,6 @@ export default function MapScreen({ navigation, route }) {
                 <CourseMarker
                   course={course}
                   highlighted={selectedCourse?.id === course.id}
-                  green={course.isMine || course.isFriend}
                   onPress={guard(handleSelectCourse)}
                 />
               </SilentMarkerBoundary>
@@ -374,7 +370,7 @@ export default function MapScreen({ navigation, route }) {
           </MapView>
         </MapErrorBoundary>
 
-        <CoursesPlayedBadge courses={myCoursesList} />
+        <CoursesPlayedBadge courses={myCoursesList} onSelectCourse={guard(handleSelectPlayedCourse)} />
         <ZoomControls
           onZoomIn={guard(handleZoomIn)}
           onZoomOut={guard(handleZoomOut)}

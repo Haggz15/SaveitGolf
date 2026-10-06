@@ -6,7 +6,7 @@ import colors from '../../theme/colors';
 // center (markers anchor at { x: 0.5, y: 1 }).
 // The shine gradient is white-only so one shared id works for every pin
 // color, even when many pins render into the same DOM on web.
-export default function CoursePushPin({ color = colors.red, size = 28 }) {
+export default function CoursePushPin({ color = '#c0001a', size = 28 }) {
   const height = (size * 88) / 60;
   return (
     <Svg width={size} height={height} viewBox="0 0 60 88">

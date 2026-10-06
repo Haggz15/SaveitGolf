@@ -696,6 +696,13 @@ export function useCourseMapData({
     [clearSearch, focusCourseWithCoordinates]
   );
 
+  // Tapping a course in the "Played X courses" dropdown zooms the map to it
+  // and opens its popup, same as picking a search result.
+  const handleSelectPlayedCourse = useCallback(
+    (course) => focusCourseWithCoordinates(course, `played-${course.id}-${Date.now()}`),
+    [focusCourseWithCoordinates]
+  );
+
   const goToCourseDetail = useCallback(() => {
     if (!selectedCourse || !navigation) return;
     const course = selectedCourse;
@@ -751,5 +758,6 @@ export function useCourseMapData({
     handleSearchQueryChange,
     clearSearch,
     handleSelectSearchResult,
+    handleSelectPlayedCourse,
   };
 }
