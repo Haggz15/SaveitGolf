@@ -1319,6 +1319,7 @@ const styles = StyleSheet.create({
   },
   statItem: {
     alignItems: 'center',
+    minWidth: 72,
   },
   statValue: {
     color: colors.white,

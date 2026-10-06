@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, StyleSheet, SafeAreaView, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, StyleSheet, SafeAreaView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 import AuthTextField from '../auth/AuthTextField';
@@ -18,6 +18,8 @@ const MODES = {
 export default function HandicapInputModal({ visible, onClose, onSubmit }) {
   const [mode, setMode] = useState(MODES.KNOW);
   const [handicapText, setHandicapText] = useState('');
+  // decimal-pad has no "+" key, so plus handicaps are flagged with a toggle.
+  const [isPlus, setIsPlus] = useState(false);
   const [averageScoreText, setAverageScoreText] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -25,6 +27,7 @@ export default function HandicapInputModal({ visible, onClose, onSubmit }) {
   const resetAndClose = () => {
     setMode(MODES.KNOW);
     setHandicapText('');
+    setIsPlus(false);
     setAverageScoreText('');
     setError('');
     setSaving(false);
@@ -40,9 +43,10 @@ export default function HandicapInputModal({ visible, onClose, onSubmit }) {
   const handleSave = async () => {
     let value;
     if (mode === MODES.KNOW) {
-      const parsed = parseHandicapInput(handicapText);
+      const digits = handicapText.trim().replace(/^\+/, '');
+      const parsed = parseHandicapInput(isPlus ? `+${digits}` : handicapText);
       if (parsed === null) {
-        setError('Enter a valid handicap index (use + for plus handicaps, e.g. +2.1).');
+        setError('Enter a valid handicap index (e.g. 12.4).');
         return;
       }
       value = parsed;
@@ -103,13 +107,28 @@ export default function HandicapInputModal({ visible, onClose, onSubmit }) {
             </View>
 
             {mode === MODES.KNOW ? (
-              <AuthTextField
-                placeholder="Handicap index (e.g. 12.4 or +2.1)"
-                value={handicapText}
-                onChangeText={(text) => setHandicapText(sanitizeHandicapInput(text))}
-                // decimal-pad has no "+" key, which plus handicappers need.
-                keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'default'}
-              />
+              <>
+                <TouchableOpacity
+                  style={[styles.plusToggle, isPlus && styles.plusToggleActive]}
+                  onPress={() => setIsPlus((prev) => !prev)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name={isPlus ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={18}
+                    color={isPlus ? colors.white : colors.muted}
+                  />
+                  <Text style={[styles.plusToggleText, isPlus && styles.plusToggleTextActive]}>
+                    I have a plus handicap
+                  </Text>
+                </TouchableOpacity>
+                <AuthTextField
+                  placeholder={isPlus ? 'Plus handicap index (e.g. 2.1)' : 'Handicap index (e.g. 12.4)'}
+                  value={handicapText}
+                  onChangeText={(text) => setHandicapText(sanitizeHandicapInput(text))}
+                  keyboardType="decimal-pad"
+                />
+              </>
             ) : (
               <>
                 <AuthTextField
@@ -200,6 +219,31 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   modeButtonTextActive: {
+    color: colors.white,
+  },
+  plusToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    backgroundColor: colors.navyCard,
+    marginBottom: 12,
+  },
+  plusToggleActive: {
+    borderColor: colors.green,
+    backgroundColor: colors.green,
+  },
+  plusToggleText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  plusToggleTextActive: {
     color: colors.white,
   },
   helperText: {

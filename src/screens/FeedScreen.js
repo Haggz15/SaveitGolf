@@ -6,6 +6,7 @@ import {
   FlatList,
   RefreshControl,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Image,
   ActivityIndicator,
   useWindowDimensions,
@@ -63,7 +64,23 @@ function PostSlide({
   const [likeCount, setLikeCount] = useState(post.likes);
   const [saved, setSaved] = useState(initiallySaved);
   const [savingMedia, setSavingMedia] = useState(false);
+  // Tap-to-pause lives here rather than in VideoPost because expo-video's
+  // native VideoView swallows touches, so handlers inside it never fire.
+  // VideoPost assigns its pause/play icon animation to videoTapFeedback.
+  const [userPaused, setUserPaused] = useState(false);
+  const videoTapFeedback = useRef(null);
   const isVideo = post.isVideo ?? Boolean(post.video);
+
+  // Scrolling away clears a manual pause so the video autoplays on return.
+  useEffect(() => {
+    if (!isActive) setUserPaused(false);
+  }, [isActive]);
+
+  function handleSlideTap() {
+    setUserPaused((prev) => !prev);
+    if (videoTapFeedback.current) videoTapFeedback.current();
+  }
+
   // Always saves the original uploaded file (photo or video) straight from
   // media_url — never a screen capture of the rendered slide.
   const saveMediaForPost = (mediaUrl) => saveMediaToDevice(mediaUrl);
@@ -165,136 +182,140 @@ function PostSlide({
   }
 
   return (
-    <View style={[styles.slide, { height }]}>
-      {isVideo ? (
-        <VideoPost
-          source={post.mediaUrl || post.video}
-          mobileSource={post.videoMobile}
-          isActive={isActive}
-          muted={isMuted}
-          setMuted={setIsMuted}
-        />
-      ) : (
-        <Image
-          source={post.mediaUrl ? { uri: post.mediaUrl } : post.image}
-          style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]}
-          resizeMode="cover"
-        />
-      )}
-
-      <View style={styles.dimOverlay} pointerEvents="none" />
-
-      <LinearGradient
-        colors={['transparent', 'rgba(6, 14, 26, 0.94)']}
-        locations={[0, 1]}
-        style={styles.bottomGradient}
-        pointerEvents="none"
-      />
-
-      <View style={styles.topLeftStack} pointerEvents="box-none">
-        <TouchableOpacity
-          onPress={() => onCoursePress(post)}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={styles.topLeftCourseName}>{post.course}</Text>
-        </TouchableOpacity>
-        {post.subCourseName ? (
-          <Text style={styles.topLeftCompositeName} numberOfLines={1}>
-            {post.subCourseName}
-          </Text>
-        ) : post.compositeName ? (
-          <Text style={styles.topLeftCompositeName} numberOfLines={1}>
-            {post.compositeName}
-          </Text>
-        ) : null}
-        {post.hole != null && (
-          <View style={styles.holeWrap}>
-            <Text style={styles.holeLabel}>Hole</Text>
-            <Text style={styles.holeNumberLarge}>{post.hole}</Text>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.actionRail}>
-        <TouchableOpacity
-          style={styles.railButton}
-          onPress={toggleLike}
-          hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
-        >
-          <Ionicons
-            name={liked ? 'heart' : 'heart-outline'}
-            size={28}
-            color={liked ? colors.red : 'rgba(255,255,255,0.95)'}
-            style={styles.railIconShadow}
+    <TouchableWithoutFeedback onPress={handleSlideTap}>
+      <View style={[styles.slide, { height }]}>
+        {isVideo ? (
+          <VideoPost
+            source={post.mediaUrl || post.video}
+            mobileSource={post.videoMobile}
+            isActive={isActive}
+            muted={isMuted}
+            setMuted={setIsMuted}
+            userPaused={userPaused}
+            onTap={videoTapFeedback}
           />
-          <Text style={styles.railCountText}>{likeCount}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.railButton}
-          onPress={() => onCommentPress(post)}
-          hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
-        >
-          <Ionicons name="chatbubble-outline" size={28} color={colors.white} style={styles.railIconShadow} />
-          <Text style={styles.railCountText}>{post.comments}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.railButton}
-          onPress={handleToggleSave}
-          disabled={savingMedia}
-          hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
-        >
-          {savingMedia ? (
-            <ActivityIndicator size="small" color={colors.white} />
-          ) : (
-            <Text style={[styles.saveButtonText, saved && styles.saveButtonTextSaved]}>
-              <Text style={styles.saveButtonS}>S</Text>
-              <Text style={styles.saveButtonAve}>ave</Text>
-            </Text>
-          )}
-        </TouchableOpacity>
-        {/* Demo/mock posts have no real userId — nothing in the database to
-            report or block, so the option doesn't render for them. */}
-        {post.userId && (
+        ) : (
+          <Image
+            source={post.mediaUrl ? { uri: post.mediaUrl } : post.image}
+            style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]}
+            resizeMode="cover"
+          />
+        )}
+
+        <View style={styles.dimOverlay} pointerEvents="none" />
+
+        <LinearGradient
+          colors={['transparent', 'rgba(6, 14, 26, 0.94)']}
+          locations={[0, 1]}
+          style={styles.bottomGradient}
+          pointerEvents="none"
+        />
+
+        <View style={styles.topLeftStack} pointerEvents="box-none">
           <TouchableOpacity
-            style={styles.moreButton}
-            onPress={() => onMorePress(post)}
+            onPress={() => onCoursePress(post)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.topLeftCourseName}>{post.course}</Text>
+          </TouchableOpacity>
+          {post.subCourseName ? (
+            <Text style={styles.topLeftCompositeName} numberOfLines={1}>
+              {post.subCourseName}
+            </Text>
+          ) : post.compositeName ? (
+            <Text style={styles.topLeftCompositeName} numberOfLines={1}>
+              {post.compositeName}
+            </Text>
+          ) : null}
+          {post.hole != null && (
+            <View style={styles.holeWrap}>
+              <Text style={styles.holeLabel}>Hole</Text>
+              <Text style={styles.holeNumberLarge}>{post.hole}</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.actionRail}>
+          <TouchableOpacity
+            style={styles.railButton}
+            onPress={toggleLike}
             hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
           >
-            <Ionicons name="ellipsis-horizontal" size={24} color="rgba(255,255,255,0.85)" style={styles.railIconShadow} />
+            <Ionicons
+              name={liked ? 'heart' : 'heart-outline'}
+              size={28}
+              color={liked ? colors.red : 'rgba(255,255,255,0.95)'}
+              style={styles.railIconShadow}
+            />
+            <Text style={styles.railCountText}>{likeCount}</Text>
           </TouchableOpacity>
-        )}
-      </View>
-
-      <View style={styles.leftInfo}>
-        {isShotOfWeek && <ShotOfWeekBanner />}
-        <View style={styles.avatarRow}>
-          {post.avatarUrl ? (
-            <Image source={{ uri: post.avatarUrl }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatar} />
+          <TouchableOpacity
+            style={styles.railButton}
+            onPress={() => onCommentPress(post)}
+            hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
+          >
+            <Ionicons name="chatbubble-outline" size={28} color={colors.white} style={styles.railIconShadow} />
+            <Text style={styles.railCountText}>{post.comments}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.railButton}
+            onPress={handleToggleSave}
+            disabled={savingMedia}
+            hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
+          >
+            {savingMedia ? (
+              <ActivityIndicator size="small" color={colors.white} />
+            ) : (
+              <Text style={[styles.saveButtonText, saved && styles.saveButtonTextSaved]}>
+                <Text style={styles.saveButtonS}>S</Text>
+                <Text style={styles.saveButtonAve}>ave</Text>
+              </Text>
+            )}
+          </TouchableOpacity>
+          {/* Demo/mock posts have no real userId — nothing in the database to
+              report or block, so the option doesn't render for them. */}
+          {post.userId && (
+            <TouchableOpacity
+              style={styles.moreButton}
+              onPress={() => onMorePress(post)}
+              hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
+            >
+              <Ionicons name="ellipsis-horizontal" size={24} color="rgba(255,255,255,0.85)" style={styles.railIconShadow} />
+            </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={() => onUserPress(post)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
-            <Text style={styles.username}>{post.user}</Text>
-          </TouchableOpacity>
-          <Text style={styles.timeAgo}>{post.timeAgo}</Text>
         </View>
-        <MentionText
-          text={post.caption}
-          style={styles.caption}
-          numberOfLines={2}
-          ellipsizeMode="tail"
-          onMentionPress={onMentionPress}
-        />
-      </View>
 
-      <TouchableOpacity
-        style={styles.stateBadge}
-        onPress={() => onStatePress(post)}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.stateBadgeText}>{post.state}</Text>
-      </TouchableOpacity>
-    </View>
+        <View style={styles.leftInfo}>
+          {isShotOfWeek && <ShotOfWeekBanner />}
+          <View style={styles.avatarRow}>
+            {post.avatarUrl ? (
+              <Image source={{ uri: post.avatarUrl }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatar} />
+            )}
+            <TouchableOpacity onPress={() => onUserPress(post)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+              <Text style={styles.username}>{post.user}</Text>
+            </TouchableOpacity>
+            <Text style={styles.timeAgo}>{post.timeAgo}</Text>
+          </View>
+          <MentionText
+            text={post.caption}
+            style={styles.caption}
+            numberOfLines={2}
+            ellipsizeMode="tail"
+            onMentionPress={onMentionPress}
+          />
+        </View>
+
+        <TouchableOpacity
+          style={styles.stateBadge}
+          onPress={() => onStatePress(post)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.stateBadgeText}>{post.state}</Text>
+        </TouchableOpacity>
+      </View>
+    </TouchableWithoutFeedback>
   );
 }
 
