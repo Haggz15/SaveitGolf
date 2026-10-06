@@ -187,7 +187,15 @@ export function useCourseMapData({
             }
           }
           if (lat != null && lng != null) {
-            withCoords.push({ id: r.courseId || r.id, name: r.courseName, city: r.city, state: r.state, lat, lng });
+            withCoords.push({
+              id: r.courseId || r.id,
+              name: r.courseName,
+              city: r.city,
+              state: r.state,
+              lat,
+              lng,
+              addedAt: r.createdAt,
+            });
           }
         }
         console.log('[useCourseMapData] my_courses ready to render:', withCoords.length, 'of', rows.length, 'rows');

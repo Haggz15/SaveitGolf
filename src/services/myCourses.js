@@ -11,6 +11,7 @@ function mapRow(row) {
     latitude: row.latitude,
     longitude: row.longitude,
     sortOrder: row.sort_order ?? 0,
+    createdAt: row.created_at,
   };
 }
 

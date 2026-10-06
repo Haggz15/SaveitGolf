@@ -374,7 +374,7 @@ export default function MapScreen({ navigation, route }) {
           </MapView>
         </MapErrorBoundary>
 
-        <CoursesPlayedBadge count={myCoursesList.length} />
+        <CoursesPlayedBadge courses={myCoursesList} />
         <ZoomControls
           onZoomIn={guard(handleZoomIn)}
           onZoomOut={guard(handleZoomOut)}
