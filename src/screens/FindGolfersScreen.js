@@ -27,8 +27,15 @@ import {
 import { reverseGeocodeCityState } from '../services/geocoding';
 
 const SEARCH_DEBOUNCE_MS = 300;
-const NEAR_YOU_LIMIT = 8;
-const POPULAR_LIMIT = 10;
+// Near You always shows NEAR_YOU_COUNT golfers when that many exist, topped
+// up from the whole app if the user's states don't have enough. Popular
+// shows POPULAR_MIN-POPULAR_MAX, preferring golfers with followers. Both
+// include golfers the user already follows (ranked last, showing Unfollow)
+// so neither section goes empty once they follow everyone suggested.
+const NEAR_YOU_COUNT = 3;
+const POPULAR_MIN = 5;
+const POPULAR_MAX = 10;
+const POOL_LIMIT = NEAR_YOU_COUNT + POPULAR_MAX + 7;
 
 function getInitials(name) {
   if (!name) return '?';
@@ -125,28 +132,42 @@ export default function FindGolfersScreen({ navigation }) {
     }, [userId])
   );
 
-  // Suggestions load once per visit; already-followed users are excluded
-  // server-side, so following someone here keeps them listed (now showing
-  // Unfollow) until the screen is reopened.
+  // Suggestions load once per visit; already-followed golfers are ranked
+  // last server-side, so following someone here keeps them listed (now
+  // showing Unfollow).
   useEffect(() => {
     if (!userId) return undefined;
     let cancelled = false;
     (async () => {
       setSuggestionsLoading(true);
-      const [nearby, top] = await Promise.all([
+      const [nearby, pool] = await Promise.all([
         resolveNearbyStates(userId, profile?.home_state)
-          .then((states) => (states.length ? getSuggestedGolfers({ states, limit: NEAR_YOU_LIMIT }) : []))
+          .then((states) =>
+            states.length
+              ? getSuggestedGolfers({ states, limit: NEAR_YOU_COUNT, includeFollowed: true })
+              : []
+          )
           .catch((err) => {
             console.error('Failed to load golfers near you:', err);
             return [];
           }),
-        getSuggestedGolfers({ limit: POPULAR_LIMIT, minFollowers: 1 }).catch((err) => {
+        getSuggestedGolfers({ limit: POOL_LIMIT, includeFollowed: true }).catch((err) => {
           console.error('Failed to load popular golfers:', err);
           return [];
         }),
       ]);
       if (cancelled) return;
-      setNearYou(nearby);
+      const nearIds = new Set(nearby.map((g) => g.userId));
+      const rest = pool.filter((g) => !nearIds.has(g.userId));
+      const near = [...nearby, ...rest.slice(0, Math.max(0, NEAR_YOU_COUNT - nearby.length))];
+      near.forEach((g) => nearIds.add(g.userId));
+      const remaining = rest.filter((g) => !nearIds.has(g.userId));
+      const withFollowers = remaining.filter((g) => g.followerCount > 0).slice(0, POPULAR_MAX);
+      const top =
+        withFollowers.length >= POPULAR_MIN
+          ? withFollowers
+          : [...withFollowers, ...remaining.filter((g) => g.followerCount === 0)].slice(0, POPULAR_MIN);
+      setNearYou(near);
       setPopular(top);
       setSuggestionsLoading(false);
     })();
@@ -300,7 +321,7 @@ export default function FindGolfersScreen({ navigation }) {
           {popular.length ? (
             popular.map(renderRow)
           ) : (
-            <Text style={styles.sectionEmpty}>You're already following everyone popular.</Text>
+            <Text style={styles.sectionEmpty}>No other golfers on SaveitGolf yet.</Text>
           )}
         </ScrollView>
       )}

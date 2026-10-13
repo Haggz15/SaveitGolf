@@ -214,14 +214,21 @@ export async function searchGolfers(query, currentUserId) {
 }
 
 // Most-followed golfers the signed-in user doesn't follow yet (never
-// themselves) — scoped to golfers with a My Courses entry in `states` when
-// given, and to those with at least `minFollowers` followers. See the
-// suggested_golfers function in schema.sql.
-export async function getSuggestedGolfers({ states = null, limit = 10, minFollowers = 0 } = {}) {
+// themselves) — scoped to golfers with a My Courses entry or home state in
+// `states` when given, and to those with at least `minFollowers` followers.
+// `includeFollowed` also returns already-followed golfers, ranked after the
+// rest. See the suggested_golfers function in schema.sql.
+export async function getSuggestedGolfers({
+  states = null,
+  limit = 10,
+  minFollowers = 0,
+  includeFollowed = false,
+} = {}) {
   const { data, error } = await supabase.rpc('suggested_golfers', {
     p_states: states,
     p_limit: limit,
     p_min_followers: minFollowers,
+    p_include_followed: includeFollowed,
   });
   if (error) throw error;
   return (data ?? []).map(mapGolfer);

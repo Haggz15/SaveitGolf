@@ -428,21 +428,30 @@ export default function CourseDetailScreen({ route, navigation }) {
   // one nine's holes 1-9. Posts tag a nine as either a composite nine or a
   // sub-course, so both count. A nine posts name that the API doesn't know
   // still gets an option so its posts stay reachable, with user-entered pars.
+  //
+  // A course the API doesn't list nines for (usually a 27+ hole club it only
+  // knows as one 18) gets the same selector once a post tags a nine via
+  // "This course has multiple nines" — only compositeName counts there, since
+  // a sub-course is a whole course, not a nine. With no tagged nines, an
+  // ordinary 18 keeps the classic layout below.
+  const ninesFromApi = clubNines.length > 0;
+  const nineTag = (p) => (ninesFromApi ? p.compositeName || p.subCourseName || '' : p.compositeName || '').toLowerCase();
+
   const layoutOptions = useMemo(() => {
-    if (clubNines.length === 0) return [];
     const options = clubNines.map((nine) => ({ name: nine.name, apiHoles: nine.holes }));
     const known = new Set(options.map((o) => o.name.toLowerCase()));
+    const tagged = [];
     coursePosts.forEach((p) => {
-      const tag = p.compositeName || p.subCourseName;
+      const tag = ninesFromApi ? p.compositeName || p.subCourseName : p.compositeName;
       if (tag && !known.has(tag.toLowerCase())) {
         known.add(tag.toLowerCase());
-        options.push({ name: tag, apiHoles: null });
+        tagged.push({ name: tag, apiHoles: null });
       }
     });
-    return options;
-  }, [clubNines, coursePosts]);
+    if (!ninesFromApi) tagged.sort((a, b) => a.name.localeCompare(b.name));
+    return [...options, ...tagged];
+  }, [clubNines, coursePosts, ninesFromApi]);
 
-  const nineTag = (p) => (p.compositeName || p.subCourseName || '').toLowerCase();
   const selectedNine = layoutOptions.find((o) => o.name === layout) ?? null;
 
   const layoutGrid = useMemo(() => {
@@ -462,13 +471,19 @@ export default function CourseDetailScreen({ route, navigation }) {
       };
     });
     return { posts, holeShells: shells };
-  }, [layoutOptions, selectedNine, coursePosts, holeShells]);
+  }, [layoutOptions, selectedNine, coursePosts, holeShells, ninesFromApi]);
 
   function handleSelectLayoutHole(number) {
     if (selectedNine) {
       navigateToCourseFeed({ hole: number, nineName: selectedNine.name });
     } else {
-      navigateToCourseFeed({ hole: number, compositeName: UNGROUPED_NINE, subCourseName: UNGROUPED_SUB_COURSE });
+      // Tag-derived nines leave sub-course posts in the 18-hole view, so the
+      // feed mustn't filter them out either.
+      navigateToCourseFeed({
+        hole: number,
+        compositeName: UNGROUPED_NINE,
+        subCourseName: ninesFromApi ? UNGROUPED_SUB_COURSE : null,
+      });
     }
   }
 

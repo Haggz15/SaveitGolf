@@ -1091,21 +1091,26 @@ from public.profiles p;
 
 grant select on public.golfer_profiles to anon, authenticated;
 
--- Suggested golfers for the signed-in user, most-followed first, excluding
--- themselves and anyone they already follow. With p_states, only golfers
--- who have a My Courses entry in one of those states ("Golfers Near You");
--- without, everyone ("Popular on SaveitGolf"). p_min_followers drops
--- golfers below that many followers — Popular passes 1 so nobody with zero
--- followers shows up as "popular". follower_count is counted live from
--- followers in golfer_profiles, so there's no stored count to drift.
+-- Suggested golfers for the signed-in user, most-followed first, never
+-- themselves. With p_states, only golfers who have a My Courses entry or
+-- home state in one of those states ("Golfers Near You"); without,
+-- everyone ("Popular on SaveitGolf"). p_min_followers drops golfers below
+-- that many followers. Anyone the user already follows is excluded unless
+-- p_include_followed, in which case they're still returned but ranked after
+-- everyone not yet followed — so Find Golfers never comes up empty just
+-- because the user follows every nearby or popular golfer. follower_count
+-- is counted live from followers in golfer_profiles, so there's no stored
+-- count to drift.
 --
--- Dropped first: adding p_min_followers would otherwise leave the old
--- two-argument version behind as an overload, making RPC calls ambiguous.
+-- Dropped first: changing the argument list would otherwise leave older
+-- versions behind as overloads, making RPC calls ambiguous.
 drop function if exists public.suggested_golfers(text[], int);
+drop function if exists public.suggested_golfers(text[], int, int);
 create or replace function public.suggested_golfers(
   p_states text[] default null,
   p_limit int default 10,
-  p_min_followers int default 0
+  p_min_followers int default 0,
+  p_include_followed boolean default false
 )
 returns setof public.golfer_profiles
 language sql
@@ -1115,21 +1120,28 @@ set search_path = public
 as $$
   select g.*
   from public.golfer_profiles g
-  where g.user_id <> auth.uid()
-    and not exists (
+  cross join lateral (
+    select exists (
       select 1 from public.followers f
       where f.follower_id = auth.uid() and f.following_id = g.user_id
-    )
+    ) as followed
+  ) fl
+  where g.user_id <> auth.uid()
+    and (coalesce(p_include_followed, false) or not fl.followed)
     and (
       p_states is null
       or exists (
         select 1 from public.my_courses m
         where m.user_id = g.user_id and m.state = any (p_states)
       )
+      or exists (
+        select 1 from public.profiles p
+        where p.user_id = g.user_id and p.home_state = any (p_states)
+      )
     )
     and g.follower_count >= coalesce(p_min_followers, 0)
-  order by g.follower_count desc, g.username
+  order by fl.followed, g.follower_count desc, g.username
   limit least(greatest(coalesce(p_limit, 10), 1), 50);
 $$;
 
-grant execute on function public.suggested_golfers(text[], int, int) to authenticated;
+grant execute on function public.suggested_golfers(text[], int, int, boolean) to authenticated;
