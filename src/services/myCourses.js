@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 import { addUnrankedCourseRanking } from './courseRankings';
+import { escapeIlike } from '../utils/ilike';
+import { getCourseLocation } from './courseLocations';
 
 function mapRow(row) {
   return {
@@ -40,19 +42,28 @@ export async function updateMyCoursesOrder(courses) {
   );
 }
 
-// Mirrors addCourseRanking's shape exactly (see courseRankings.js): a plain
-// insert, no pre-check, no upsert. The one structural difference is the
-// extra city/state/latitude/longitude columns this table has and
-// course_rankings doesn't.
+// The user's existing my_courses row for this course, if any. A real
+// golfcourseapi.com course is identified by course_id alone (names can
+// differ between a search result and an older row for the same course); a
+// hand-typed course has no id, so it's matched by name, ignoring case, among
+// the user's other id-less rows — "Torrey Pines" and "torrey pines" are the
+// same course, but a typed name never collapses into an API course.
+async function findExistingMyCourse(userId, { courseId, courseName }) {
+  let query = supabase.from('my_courses').select('*').eq('user_id', userId);
+  query = courseId
+    ? query.eq('course_id', courseId)
+    : query.is('course_id', null).ilike('course_name', escapeIlike(courseName.trim()));
+  const { data, error } = await query.limit(1).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+// Inserts a Courses Played row, or returns the user's existing row for the
+// same course unchanged (see findExistingMyCourse) — callers can treat the
+// result the same either way.
 export async function addMyCourse(userId, { courseId, courseName, city, state, latitude, longitude }) {
-  console.log('[myCourses] addMyCourse called with userId:', userId, {
-    courseId,
-    courseName,
-    city,
-    state,
-    latitude,
-    longitude,
-  });
+  const existing = await findExistingMyCourse(userId, { courseId, courseName });
+  if (existing) return mapRow(existing);
 
   const { data, error } = await supabase
     .from('my_courses')
@@ -68,14 +79,10 @@ export async function addMyCourse(userId, { courseId, courseName, city, state, l
     .select()
     .single();
 
-  console.log('[myCourses] addMyCourse response:', { data, error });
-
   if (error) {
     console.error('[myCourses] addMyCourse insert failed:', error);
     throw error;
   }
-
-  console.log('[myCourses] addMyCourse succeeded, row id:', data.id);
 
   // Fire-and-forget: addUnrankedCourseRanking swallows its own errors (a
   // ranking row is a convenience, not something that should ever fail or
@@ -88,9 +95,15 @@ export async function addMyCourse(userId, { courseId, courseName, city, state, l
 // The my_courses select policy is world-readable (see schema.sql), so any
 // user who already geocoded a given course leaves usable coordinates behind
 // for the next person to add it — checking here before hitting Nominatim
-// saves a request against its shared 1 req/sec budget.
-export async function getSavedCourseCoordinates(courseId) {
-  if (!courseId) return null;
+// saves a request against its shared 1 req/sec budget. A hand-typed course
+// (no courseId) has nothing to share by id, so it uses the pin someone
+// dropped for it by name instead (see courseLocations.js), if any — never a
+// Nominatim name lookup's guess.
+export async function getSavedCourseCoordinates(courseId, courseName = null) {
+  if (!courseId) {
+    const pinned = await getCourseLocation(courseName);
+    return pinned ? { lat: pinned.lat, lng: pinned.lng } : null;
+  }
   const { data, error } = await supabase
     .from('my_courses')
     .select('latitude, longitude')
@@ -106,27 +119,11 @@ export async function getSavedCourseCoordinates(courseId) {
 
 // Auto-adds a course to My Courses the first time a user posts to it, so
 // Courses Played reflects everywhere they've actually played without an
-// extra manual "Add course" step. Looked up by course_name rather than
-// course_id since a manually-typed post (no golfcourseapi.com match) has no
-// id to key off of, and the my_courses_user_course_idx unique index only
-// dedupes on (user_id, course_id) — this covers the null-course_id case that
-// index intentionally leaves alone.
+// extra manual "Add course" step. addMyCourse skips the insert when the
+// course is already there (by course_id, or by case-insensitive name for a
+// hand-typed course with no id).
 export async function addCourseFromPost(userId, course) {
   if (!userId || !course?.name) return;
-  const { data: existing, error: lookupError } = await supabase
-    .from('my_courses')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('course_name', course.name)
-    .limit(1)
-    .maybeSingle();
-
-  if (lookupError) {
-    console.error('[myCourses] addCourseFromPost lookup failed:', lookupError);
-    return;
-  }
-  if (existing) return;
-
   await addMyCourse(userId, {
     courseId: course.id ?? null,
     courseName: course.name,

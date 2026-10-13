@@ -992,3 +992,42 @@ create policy "App versions are viewable by everyone"
 -- src/services/pushNotifications.js). Set on launch once permission is
 -- granted; read when someone likes/comments/follows/saves/tags them.
 alter table public.profiles add column if not exists push_token text;
+
+-- Course locations: a shared, map-dropped pin for a hand-typed course — one
+-- with no golfcourseapi.com match, so no API coordinates and no course_id to
+-- key off of (see posts.manual_entry). One row per course name, compared
+-- case-insensitively, set from the Course Detail screen's "Drop pin on map"
+-- flow. Readable by everyone; any signed-in user can place the first pin,
+-- and only whoever placed it can move it afterwards.
+create table if not exists public.course_locations (
+  id uuid primary key default gen_random_uuid(),
+  course_name text not null,
+  latitude double precision not null,
+  longitude double precision not null,
+  city text,
+  state text,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists course_locations_name_idx
+  on public.course_locations (lower(course_name));
+
+alter table public.course_locations enable row level security;
+
+drop policy if exists "Course locations are viewable by everyone" on public.course_locations;
+create policy "Course locations are viewable by everyone"
+  on public.course_locations for select
+  using (true);
+
+drop policy if exists "Signed-in users can pin a course" on public.course_locations;
+create policy "Signed-in users can pin a course"
+  on public.course_locations for insert
+  with check (auth.uid() = created_by);
+
+drop policy if exists "Users can move pins they placed" on public.course_locations;
+create policy "Users can move pins they placed"
+  on public.course_locations for update
+  using (auth.uid() = created_by)
+  with check (auth.uid() = created_by);

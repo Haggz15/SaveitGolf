@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { uploadToR2 } from './r2Storage';
+import { escapeIlike } from '../utils/ilike';
 
 function formatDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -167,7 +168,12 @@ export async function saveScorecardPhoto(userId, scorecardId, uri) {
 // fetched in a second query and merged in client-side).
 export async function getScorecardsForCourse({ courseId, courseName }) {
   let request = supabase.from('scorecards').select('*');
-  request = courseId ? request.eq('course_id', courseId) : request.ilike('course_name', courseName ?? '');
+  // Same identity rule as posts.js's fetchCourseRows: by course_id when
+  // known, otherwise only id-less (hand-typed) scorecards with the exact
+  // name, ignoring case — never another course's scorecards by name.
+  request = courseId
+    ? request.eq('course_id', courseId)
+    : request.is('course_id', null).ilike('course_name', escapeIlike((courseName ?? '').trim()));
   request = request.order('total_score', { ascending: true });
 
   const { data, error } = await request;

@@ -16,6 +16,7 @@ import FeedCoursePopupCard from '../components/map/FeedCoursePopupCard';
 import MapErrorBoundary from '../components/map/MapErrorBoundary';
 import SilentMarkerBoundary from '../components/map/SilentMarkerBoundary';
 import { MapWarningBanner } from '../components/map/MapMessageBanner';
+import PinDropBanner from '../components/map/PinDropBanner';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { useCourseMapData, US_INITIAL_REGION, MAP_FILTERS, ZOOM_LEVEL } from '../hooks/useCourseMapData';
@@ -140,12 +141,13 @@ function boundsToRegion(map) {
 // Bridges Leaflet's imperative map instance to the platform-agnostic hook:
 // reports viewport changes up, reacts to focus requests (initial user
 // location fix, or a state jumped to from the feed) coming down, and — same
-// as MapScreen.js's MapView onPress — reports a background (non-marker) tap
-// so the feed course-tap popup can be dismissed by tapping elsewhere.
+// as MapScreen.js's MapView onPress — reports a background (non-marker) tap,
+// with its { lat, lng }, so the feed course-tap popup can be dismissed by
+// tapping elsewhere (or a pin placed, in "Drop pin on map" mode).
 function MapSync({ mapInstanceRef, onRegionChange, focusRegion, onMapClick }) {
   const map = useMapEvents({
     moveend: () => onRegionChange(boundsToRegion(map)),
-    click: () => onMapClick?.(),
+    click: (e) => onMapClick?.({ lat: e.latlng.lat, lng: e.latlng.lng }),
   });
 
   useEffect(() => {
@@ -197,6 +199,9 @@ export default function MapScreen({ navigation, route }) {
     goToCourseDetailFromFeedPopup,
     filter,
     setFilter,
+    selectNearMe,
+    nearMeCount,
+    nearMeLoading,
     myCoursesList,
     myCoursesLoading,
     myCoursesLoaded,
@@ -208,6 +213,10 @@ export default function MapScreen({ navigation, route }) {
     handleSearchQueryChange,
     clearSearch,
     handleSelectSearchResult,
+    pinDrop,
+    handlePinDropMapPress,
+    cancelPinDrop,
+    confirmPinDrop,
   } = useCourseMapData({
     navigation,
     routeFocusCourse: route?.params?.focusCourse,
@@ -218,8 +227,18 @@ export default function MapScreen({ navigation, route }) {
     routeViewFriendUsername: route?.params?.viewFriendUsername,
     routeViewFriendName: route?.params?.viewFriendName,
     routeViewFriendTimestamp: route?.params?.viewFriendAt,
+    routeDropPinCourseName: route?.params?.dropPinForCourse,
+    routeDropPinTimestamp: route?.params?.dropPinAt,
     userId: user?.id,
   });
+
+  // The "Played X courses" pill follows whoever's pins the map is showing —
+  // a friend's courses while friendFilter is active (e.g. arriving from
+  // OtherUserProfileScreen's "View on Map"), otherwise the user's own. Hidden
+  // entirely while the course search is focused or has a query, so it never
+  // sits on top of the search results.
+  const playedBadgeCourses = friendFilter ? (friendFilter.loading ? [] : friendFilter.courses) : myCoursesList;
+  const showPlayedBadge = playedBadgeCourses.length > 0 && !courseSearchFocused && !searchQuery.trim();
 
   // The Map tab stays mounted across tab switches, so a course added on the
   // Profile tab wouldn't otherwise show up here until the app reloads.
@@ -324,7 +343,12 @@ export default function MapScreen({ navigation, route }) {
           </Text>
         </TouchableOpacity>
       )}
-      <FilterPills value={filter} onChange={setFilter} />
+      <FilterPills
+        value={filter}
+        onChange={(next) => (next === MAP_FILTERS.NEAR ? selectNearMe() : setFilter(next))}
+        nearMeCount={nearMeCount}
+        nearMeLoading={nearMeLoading}
+      />
 
       {friendFilter && (
         <View style={styles.friendBanner}>
@@ -350,6 +374,8 @@ export default function MapScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
       )}
+
+      {pinDrop && <PinDropBanner pinDrop={pinDrop} onCancel={cancelPinDrop} onConfirm={confirmPinDrop} />}
 
       {locationDenied && (
         <MapWarningBanner icon="location-outline">
@@ -402,7 +428,13 @@ export default function MapScreen({ navigation, route }) {
               mapInstanceRef={mapInstanceRef}
               onRegionChange={guard(setRegion)}
               focusRegion={focusRegion}
-              onMapClick={guard(() => feedCoursePopup && dismissFeedCoursePopup())}
+              onMapClick={guard((coord) => {
+                if (pinDrop) {
+                  handlePinDropMapPress(coord);
+                } else if (feedCoursePopup) {
+                  dismissFeedCoursePopup();
+                }
+              })}
             />
 
             {!friendFilter &&
@@ -442,6 +474,16 @@ export default function MapScreen({ navigation, route }) {
               </SilentMarkerBoundary>
             )}
 
+            {pinDrop?.candidate && (
+              <SilentMarkerBoundary>
+                <Marker position={[pinDrop.candidate.lat, pinDrop.candidate.lng]} icon={feedFocusIcon} zIndexOffset={1600}>
+                  <Tooltip permanent direction="top" offset={[0, -FEED_FOCUS_PIN_SIZE + 4]} className="saveitgolf-feed-focus-tooltip">
+                    {pinDrop.courseName}
+                  </Tooltip>
+                </Marker>
+              </SilentMarkerBoundary>
+            )}
+
             {userLocation && hasValidCoordinates(userLocation.latitude, userLocation.longitude) && (
               <>
                 <CircleMarker
@@ -459,11 +501,13 @@ export default function MapScreen({ navigation, route }) {
           </MapContainer>
         </MapErrorBoundary>
 
-        <CoursesPlayedBadge courses={myCoursesList} />
+        {showPlayedBadge && (
+          <CoursesPlayedBadge courses={playedBadgeCourses} />
+        )}
         <ZoomControls
           onZoomIn={guard(handleZoomIn)}
           onZoomOut={guard(handleZoomOut)}
-          style={myCoursesList.length > 0 ? { top: 12 + COURSES_PLAYED_BADGE_OFFSET } : null}
+          style={showPlayedBadge ? { top: 12 + COURSES_PLAYED_BADGE_OFFSET } : null}
         />
 
         {selectedCourse && (

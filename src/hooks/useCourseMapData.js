@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard } from 'react-native';
+import { Alert, Keyboard, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { stateCenters, allStateAbbreviations } from '../data/courses';
 import { getCourseById, searchCourses, RateLimitError, ApiKeyError } from '../services/golfCourseApi';
 import { getPostsForCourse, updatePostCoordinates } from '../services/posts';
-import { geocodeCourseCoordinates } from '../services/geocoding';
+import { geocodeCourseCoordinates, reverseGeocode } from '../services/geocoding';
+import { saveCourseLocation, CourseAlreadyPinnedError } from '../services/courseLocations';
 import { getMyCourses, updateMyCourseCoordinates, getSavedCourseCoordinates } from '../services/myCourses';
 import { getFriendMyCourses } from '../services/friendMap';
 import { getAllCoursesInState } from '../services/stateCourses';
 import { courseHasValidCoordinates } from '../utils/mapCoords';
+import { haversineMiles } from '../utils/distance';
 import { getStateZoomCenter, zoomLevelToDelta, STATE_ZOOM_LEVEL } from '../utils/stateZoomCenters';
 
 // Zoomed-out default view — the whole contiguous US, so the map opens on the
@@ -36,7 +38,15 @@ const SEARCH_DEBOUNCE_MS = 400;
 // before showing the "View Holes and Shots" popup card.
 const FEED_POPUP_DELAY_MS = 1000;
 
-export const MAP_FILTERS = { ALL: 'all', PLAYED: 'played' };
+export const MAP_FILTERS = { NEAR: 'near', PLAYED: 'played' };
+
+// "Courses Near Me" radius, and how many of the closest state centroids to
+// pull courses from — the app has no state-boundary polygons, so loading a
+// few neighbors covers a user near a border whose 30-mile circle spills over.
+export const NEAR_ME_RADIUS_MILES = 30;
+const NEAR_ME_STATE_COUNT = 3;
+// Roughly a 30-mile radius on screen (1° latitude ≈ 69 miles), with margin.
+const NEAR_ME_FOCUS_DELTA = 1;
 
 // Two zoom tiers: COUNTRY (full US view — 50 one-per-state pins, no course
 // data) and everything more zoomed-in, where the search bar takes over.
@@ -47,6 +57,15 @@ export const MAP_FILTERS = { ALL: 'all', PLAYED: 'played' };
 export const ZOOM_LEVEL = { COUNTRY: 'country', STATE: 'state', REGION: 'region' };
 const COUNTRY_ZOOM_DELTA = 15;
 const STATE_ZOOM_DELTA = 1.2;
+
+// RN's Alert.alert is a no-op on web, so web gets window.alert instead.
+function showAlert(title, message) {
+  if (Platform.OS === 'web') {
+    window.alert(`${title}\n\n${message}`);
+  } else {
+    Alert.alert(title, message);
+  }
+}
 
 function getZoomLevel(region) {
   if (region.latitudeDelta >= COUNTRY_ZOOM_DELTA) return ZOOM_LEVEL.COUNTRY;
@@ -71,6 +90,18 @@ function nearestState(region) {
   return best;
 }
 
+// The `count` state centroids closest to `point`, nearest first.
+function nearestStates(point, count) {
+  return allStateAbbreviations
+    .map((abbr) => ({
+      abbr,
+      d: Math.hypot(stateCenters[abbr].lat - point.latitude, stateCenters[abbr].lng - point.longitude),
+    }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, count)
+    .map((s) => s.abbr);
+}
+
 // Platform-agnostic course map state/logic (zoom-based state loading, course
 // selection, search, and the played-courses filter). Both MapScreen.js
 // (react-native-maps) and MapScreen.web.js (react-leaflet) drive this same
@@ -85,6 +116,8 @@ export function useCourseMapData({
   routeViewFriendUsername,
   routeViewFriendName,
   routeViewFriendTimestamp,
+  routeDropPinCourseName,
+  routeDropPinTimestamp,
   userId,
 } = {}) {
   const [region, setRegionState] = useState(US_INITIAL_REGION);
@@ -168,7 +201,7 @@ export function useCourseMapData({
             // The my_courses table is world-readable (see schema.sql), so
             // another user may have already geocoded this same course_id —
             // check there before spending a Nominatim request on it.
-            const saved = r.courseId ? await getSavedCourseCoordinates(r.courseId).catch(() => null) : null;
+            const saved = await getSavedCourseCoordinates(r.courseId, r.courseName).catch(() => null);
             const coords = saved ?? (await geocodeCourseCoordinates({
               id: r.courseId || r.id,
               name: r.courseName,
@@ -216,36 +249,42 @@ export function useCourseMapData({
     };
   }, [userId, myCoursesRefreshKey]);
 
-  // "All Courses" (zoomed into a state) — every course this app knows about
-  // in that state, aggregated from all users' my_courses/posts/scorecards
-  // (see getAllCoursesInState). Refetches whenever the nearest-state guess
-  // changes while panning.
-  const [allStateCoursesList, setAllStateCoursesList] = useState([]);
-
   const zoomLevel = useMemo(() => getZoomLevel(region), [region]);
   const currentStateAbbr = useMemo(
     () => (zoomLevel === ZOOM_LEVEL.COUNTRY ? null : nearestState(region)),
     [zoomLevel, region]
   );
 
+  // "Courses Near Me" layer — every course this app knows about (all users'
+  // my_courses/posts/scorecards, via getAllCoursesInState) in the few states
+  // closest to `nearMeOrigin`, the location captured when the pill was
+  // tapped. Narrowed to NEAR_ME_RADIUS_MILES in visibleCourses below.
+  const [nearMeOrigin, setNearMeOrigin] = useState(null);
+  const [nearbyCoursesList, setNearbyCoursesList] = useState([]);
+  const [nearMeLoading, setNearMeLoading] = useState(false);
+
   useEffect(() => {
-    if (filter !== MAP_FILTERS.ALL || !currentStateAbbr) {
-      setAllStateCoursesList([]);
+    if (filter !== MAP_FILTERS.NEAR || !nearMeOrigin) {
+      setNearbyCoursesList([]);
       return;
     }
     let cancelled = false;
-    getAllCoursesInState(currentStateAbbr)
-      .then((courses) => {
-        if (!cancelled) setAllStateCoursesList(courses);
+    setNearMeLoading(true);
+    Promise.all(nearestStates(nearMeOrigin, NEAR_ME_STATE_COUNT).map((abbr) => getAllCoursesInState(abbr)))
+      .then((perState) => {
+        if (!cancelled) setNearbyCoursesList(perState.flat());
       })
       .catch((err) => {
-        console.error('[useCourseMapData] failed to load state courses:', err.message);
-        if (!cancelled) setAllStateCoursesList([]);
+        console.error('[useCourseMapData] failed to load nearby courses:', err.message);
+        if (!cancelled) setNearbyCoursesList([]);
+      })
+      .finally(() => {
+        if (!cancelled) setNearMeLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [filter, currentStateAbbr]);
+  }, [filter, nearMeOrigin]);
 
   const stateMarkers = useMemo(
     () =>
@@ -286,6 +325,38 @@ export function useCourseMapData({
         console.warn('Could not get current location:', err.message);
       }
     })();
+  }, []);
+
+  // "Courses Near Me" pill — always takes a fresh fix rather than reusing
+  // userLocation from mount, since the user may have moved since. On a
+  // denied permission (or no fix) the filter is left unchanged.
+  const selectNearMe = useCallback(async () => {
+    const alertNoLocation = (message) => showAlert('Location unavailable', message);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLocationDenied(true);
+        alertNoLocation('Allow location access in Settings to see courses near you.');
+        return;
+      }
+      setLocationDenied(false);
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = position.coords;
+      const nextRegion = {
+        latitude,
+        longitude,
+        latitudeDelta: NEAR_ME_FOCUS_DELTA,
+        longitudeDelta: NEAR_ME_FOCUS_DELTA,
+      };
+      setUserLocation({ latitude, longitude });
+      setNearMeOrigin({ latitude, longitude });
+      setFilter(MAP_FILTERS.NEAR);
+      setRegionState(nextRegion);
+      setFocusRegion({ ...nextRegion, key: `near-me-${Date.now()}` });
+    } catch (err) {
+      console.warn('[useCourseMapData] Courses Near Me could not get location:', err.message);
+      alertNoLocation('Could not get your current location. Please try again.');
+    }
   }, []);
 
   const handleSelectCourse = useCallback((course) => {
@@ -503,21 +574,32 @@ export function useCourseMapData({
     });
   }, [navigation, feedCoursePopup]);
 
-  // My Courses pins are always part of the visible set — a permanent layer,
-  // independent of the ALL/PLAYED filter and zoom level. The filter only
-  // controls whether the "All Courses" layer (every course this app knows
-  // about in the zoomed-into state, via getAllCoursesInState) is layered in
-  // on top of it. Each course is tagged `isMine` so callers can color My
+  // Under PLAYED, the visible set is just My Courses. Under NEAR, it's My
+  // Courses plus every known course in the surrounding states (see
+  // nearbyCoursesList), all narrowed to those within NEAR_ME_RADIUS_MILES of
+  // nearMeOrigin. Each course is tagged `isMine` so callers can color My
   // Courses pins (green) distinctly from the rest without re-deriving it
-  // from the filter themselves.
-  const visibleCourses = useMemo(() => {
-    const stateLayer = filter === MAP_FILTERS.ALL && zoomLevel !== ZOOM_LEVEL.COUNTRY ? allStateCoursesList : [];
+  // from the filter themselves. `nearMeCount` excludes the selected-course
+  // pin added below, which can sit outside the radius.
+  const { visibleCourses, nearMeCount } = useMemo(() => {
+    const isNear = filter === MAP_FILTERS.NEAR && nearMeOrigin;
     const myIds = new Set(myCoursesList.map((c) => c.id));
 
-    const merged = myCoursesList.map((c) => ({ ...c, isMine: true }));
-    for (const c of stateLayer) {
-      if (!myIds.has(c.id)) merged.push({ ...c, isMine: false });
+    let merged = myCoursesList.map((c) => ({ ...c, isMine: true }));
+    if (isNear) {
+      const seen = new Set(myIds);
+      for (const c of nearbyCoursesList) {
+        if (seen.has(c.id)) continue;
+        seen.add(c.id);
+        merged.push({ ...c, isMine: false });
+      }
+      merged = merged.filter(
+        (c) =>
+          courseHasValidCoordinates(c) &&
+          haversineMiles(nearMeOrigin.latitude, nearMeOrigin.longitude, c.lat, c.lng) <= NEAR_ME_RADIUS_MILES
+      );
     }
+    const count = merged.length;
 
     // Always keep the selected/focused course pinned and visible on top of
     // whatever's already shown — a search result or a course opened from
@@ -532,8 +614,8 @@ export function useCourseMapData({
     ) {
       merged.push({ ...selectedCourse, isMine: myIds.has(selectedCourse.id) });
     }
-    return merged;
-  }, [filter, myCoursesList, allStateCoursesList, zoomLevel, selectedCourse]);
+    return { visibleCourses: merged, nearMeCount: count };
+  }, [filter, nearMeOrigin, myCoursesList, nearbyCoursesList, selectedCourse]);
 
   // Tapping a state pin zooms in and resets the search bar to empty/ready
   // for a course-name search — no course data is fetched.
@@ -632,11 +714,6 @@ export function useCourseMapData({
     return [...own, ...friends];
   }, [friendFilter, showOwnCourses, visibleCourses]);
 
-  const clearPlayedFilter = useCallback(() => {
-    setFilter(MAP_FILTERS.ALL);
-    setMyCoursesLoaded(false);
-  }, []);
-
   // Searches by course name only — the text the user typed is sent straight
   // through as golfcourseapi.com's search_query, unscoped to any state.
   const handleSearchQueryChange = useCallback((text) => {
@@ -715,6 +792,61 @@ export function useCourseMapData({
     });
   }, [selectedCourse, navigation, clearSelectedCourse]);
 
+  // "Drop pin on map" mode, entered from a hand-typed course's Course Detail
+  // page (no API coordinates — see CourseDetailScreen.handleDropPin). Each map
+  // tap moves the candidate pin; confirming saves it as the course's shared
+  // location (course_locations), then returns to that course's page.
+  const [pinDrop, setPinDrop] = useState(null); // { courseName, candidate: { lat, lng } | null, saving }
+
+  useEffect(() => {
+    if (!routeDropPinCourseName) return;
+    clearSelectedCourse();
+    setPinDrop({ courseName: routeDropPinCourseName, candidate: null, saving: false });
+    // Keyed on the timestamp so tapping "Drop pin on map" again re-enters the mode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeDropPinCourseName, routeDropPinTimestamp]);
+
+  const handlePinDropMapPress = useCallback((coord) => {
+    setPinDrop((prev) => (prev && !prev.saving ? { ...prev, candidate: coord } : prev));
+  }, []);
+
+  const cancelPinDrop = useCallback(() => setPinDrop(null), []);
+
+  const confirmPinDrop = useCallback(async () => {
+    if (!pinDrop?.candidate || pinDrop.saving || !userId) return;
+    const { courseName, candidate } = pinDrop;
+    setPinDrop((prev) => prev && { ...prev, saving: true });
+    // City/state are a nice-to-have for the course page's header — a
+    // reverse-geocoding failure never blocks saving the pin itself.
+    const place = await reverseGeocode(candidate.lat, candidate.lng).catch(() => null);
+    try {
+      const saved = await saveCourseLocation(userId, {
+        courseName,
+        lat: candidate.lat,
+        lng: candidate.lng,
+        city: place?.city,
+        state: place?.state,
+      });
+      setPinDrop(null);
+      refreshMyCourses();
+      navigation?.navigate('CourseDetail', {
+        courseId: null,
+        courseName,
+        city: saved.city,
+        state: saved.state,
+        lat: saved.lat,
+        lng: saved.lng,
+      });
+    } catch (err) {
+      console.error('[useCourseMapData] failed to save course pin:', err.message);
+      setPinDrop((prev) => prev && { ...prev, saving: false });
+      showAlert(
+        'Could not save pin',
+        err instanceof CourseAlreadyPinnedError ? err.message : 'Please check your connection and try again.'
+      );
+    }
+  }, [pinDrop, userId, navigation, refreshMyCourses]);
+
   return {
     region,
     setRegion,
@@ -746,7 +878,9 @@ export function useCourseMapData({
     goToCourseDetailFromFeedPopup,
     filter,
     setFilter,
-    clearPlayedFilter,
+    selectNearMe,
+    nearMeCount,
+    nearMeLoading,
     myCoursesList,
     myCoursesLoading,
     myCoursesLoaded,
@@ -759,5 +893,9 @@ export function useCourseMapData({
     clearSearch,
     handleSelectSearchResult,
     handleSelectPlayedCourse,
+    pinDrop,
+    handlePinDropMapPress,
+    cancelPinDrop,
+    confirmPinDrop,
   };
 }

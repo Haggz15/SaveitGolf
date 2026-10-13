@@ -600,7 +600,7 @@ export default function ProfileScreen({ navigation }) {
     });
     console.log('[ProfileScreen] handleAddMyCourse: addMyCourse succeeded:', created);
 
-    setMyCourses((prev) => [created, ...prev]);
+    setMyCourses((prev) => (prev.some((c) => c.id === created.id) ? prev : [created, ...prev]));
   }
 
   // A course search came up empty in golfcourseapi.com, so the user typed
@@ -646,7 +646,7 @@ export default function ProfileScreen({ navigation }) {
     });
     console.log('[ProfileScreen] handleAddManualCourse: addMyCourse succeeded:', created);
 
-    setMyCourses((prev) => [created, ...prev]);
+    setMyCourses((prev) => (prev.some((c) => c.id === created.id) ? prev : [created, ...prev]));
   }
 
   function moveCourse(index, direction) {

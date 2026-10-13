@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { resolveMentionedUserIds } from './mentions';
 import { createNotification } from './notifications';
 import { uploadToR2 } from './r2Storage';
+import { escapeIlike } from '../utils/ilike';
 
 const EXT_TO_CONTENT_TYPE = {
   jpg: 'image/jpeg',
@@ -247,20 +248,30 @@ export async function incrementShareCount(postId) {
 // golfcourseapi.com id (logged after picking a search result) or none at all
 // (logged by typing the course name directly — the only option while course
 // search is down, see golfCourseApi's ApiKeyError) — real data has courses
-// with posts of both kinds. Matching by course_id alone whenever one happens
-// to be known silently drops the free-typed posts (and vice versa for a
-// name-only match missing the id-tagged ones), which is why a course's hole
-// grid can undercount, or a specific hole's tap can come back empty, even
-// though posts for it exist. Queries by id and by name (whichever are
-// known) and merges the results, deduped by post id, so every caller sees
-// the full set regardless of which identity it was handed.
+// with posts of both kinds. So this queries by id and by name (whichever are
+// known) and merges the results, deduped by post id.
+//
+// A post that carries a course_id belongs to that course and no other: the
+// name query only ever looks at id-less (hand-typed) posts, and only for the
+// exact name, ignoring case. A partial/first-word name fallback used to run
+// here when nothing matched exactly, and pulled unrelated courses in — e.g.
+// "Mount Airy Golf Club" matching "Mountain View CC" via "%Mount%".
 async function fetchCourseRows(select, { courseId, courseName }, refine = (q) => q) {
   const queries = [];
   if (courseId) {
     queries.push(refine(supabase.from('posts').select(select).eq('hidden', false).eq('course_id', courseId)));
   }
-  if (courseName) {
-    queries.push(refine(supabase.from('posts').select(select).eq('hidden', false).ilike('course_name', courseName)));
+  if (courseName?.trim()) {
+    queries.push(
+      refine(
+        supabase
+          .from('posts')
+          .select(select)
+          .eq('hidden', false)
+          .is('course_id', null)
+          .ilike('course_name', escapeIlike(courseName.trim()))
+      )
+    );
   }
   if (queries.length === 0) return [];
 
@@ -271,23 +282,6 @@ async function fetchCourseRows(select, { courseId, courseName }, refine = (q) =>
   const merged = new Map();
   for (const { data } of results) {
     for (const row of data ?? []) merged.set(row.id, row);
-  }
-
-  // Someone landing on this course page having typed a short/partial name
-  // ("Elmhurst" instead of "Elmhurst Country Club") won't exact-match any
-  // post's stored course_name above — fall back to a partial match on the
-  // name's first significant word so those posts still show up. Only tried
-  // when the exact match came back empty, so a course that already has
-  // exact-matching posts never pulls in unrelated ones by accident.
-  if (merged.size === 0 && courseName) {
-    const firstWord = courseName.trim().split(/\s+/)[0];
-    if (firstWord && firstWord.length >= 3) {
-      const { data, error } = await refine(
-        supabase.from('posts').select(select).eq('hidden', false).ilike('course_name', `%${firstWord}%`)
-      );
-      if (error) throw error;
-      for (const row of data ?? []) merged.set(row.id, row);
-    }
   }
 
   return [...merged.values()];
@@ -303,15 +297,16 @@ export async function getPostsForCourse({ courseId, courseName }) {
   return rows.map(mapRow).sort((a, b) => b.likes - a.likes);
 }
 
-// Lightweight per-post `{ hole, compositeName }` pairs for the Course Detail
+// Lightweight per-post `{ hole, par, compositeName }` rows for the Course Detail
 // screen's stats bar and Hole by Hole grid — those only ever count/group by
 // hole and nine, never render the posts themselves (that's CourseFeed's
 // job), so this skips the profile join and full row (media, caption, likes)
 // that getPostsForCourse fetches.
 export async function getCourseHoleStats({ courseId, courseName }) {
-  const rows = await fetchCourseRows('id, hole, composite_name, sub_course_name', { courseId, courseName });
+  const rows = await fetchCourseRows('id, hole, par, composite_name, sub_course_name', { courseId, courseName });
   return rows.map((row) => ({
     hole: row.hole,
+    par: row.par ?? null,
     compositeName: row.composite_name ?? null,
     subCourseName: row.sub_course_name ?? null,
   }));

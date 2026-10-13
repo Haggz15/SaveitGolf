@@ -211,6 +211,16 @@ const SEARCH_DEBOUNCE_MS = 400;
 const MAX_VIDEO_DURATION_SECONDS = 30;
 const LARGE_VIDEO_WARNING_BYTES = 50 * 1024 * 1024;
 
+function getImageSize(uri) {
+  return new Promise((resolve) => {
+    Image.getSize(uri, (width, height) => resolve({ width, height }), () => resolve(null));
+  });
+}
+
+function hasValidSize(size) {
+  return !!size && size.width > 0 && size.height > 0;
+}
+
 function isVideoTooLong(durationSeconds) {
   return typeof durationSeconds === 'number' && durationSeconds > MAX_VIDEO_DURATION_SECONDS;
 }
@@ -238,13 +248,14 @@ function confirmLargeVideo(fileSize) {
   });
 }
 
-// Web has no equivalent of expo-image-picker's asset.duration, so read it
-// off a throwaway <video> element instead.
-function getVideoDurationSecondsWeb(uri) {
+// Web has no equivalent of expo-image-picker's asset.duration/width/height,
+// so read them off a throwaway <video> element instead.
+function getVideoMetadataWeb(uri) {
   return new Promise((resolve, reject) => {
     const videoEl = document.createElement('video');
     videoEl.preload = 'metadata';
-    videoEl.onloadedmetadata = () => resolve(videoEl.duration);
+    videoEl.onloadedmetadata = () =>
+      resolve({ duration: videoEl.duration, width: videoEl.videoWidth, height: videoEl.videoHeight });
     videoEl.onerror = () => reject(new Error('Could not read video metadata'));
     videoEl.src = uri;
   });
@@ -263,7 +274,7 @@ export default function PostScreen({ navigation }) {
   const [hole, setHole] = useState('');
   const [par, setPar] = useState('');
   const [caption, setCaption] = useState('');
-  const [media, setMedia] = useState(null); // { uri, type: 'photo' | 'video' }
+  const [media, setMedia] = useState(null); // { uri, type: 'photo' | 'video', width, height }
   const [posting, setPosting] = useState(false);
   // null | 'uploading' | 'processing' | 'success' | 'error' — drives the
   // UploadBanner below; null means it's hidden.
@@ -295,14 +306,19 @@ export default function PostScreen({ navigation }) {
     getUserPosts(user.id)
       .then((userPosts) => {
         if (cancelled) return;
+        // Grouped by course_id when the post has one, else by name ignoring
+        // case — so a hand-typed course and an API course that share a name
+        // stay separate shortcuts, and selecting either one reposts with
+        // exactly the identity it was originally posted under.
         const byCourse = new Map();
         userPosts.forEach((p) => {
           if (!p.course) return;
-          const existing = byCourse.get(p.course);
+          const key = p.courseId ? `id:${p.courseId}` : `name:${p.course.trim().toLowerCase()}`;
+          const existing = byCourse.get(key);
           if (existing) {
             existing.count += 1;
           } else {
-            byCourse.set(p.course, { id: p.courseId ?? null, name: p.course, city: p.city, state: p.state, count: 1 });
+            byCourse.set(key, { key, id: p.courseId ?? null, name: p.course, city: p.city, state: p.state, count: 1 });
           }
         });
         const sorted = [...byCourse.values()].sort((a, b) => b.count - a.count).slice(0, 5);
@@ -437,15 +453,22 @@ export default function PostScreen({ navigation }) {
   // 2 handles those via the picker's own quality/bitrate setting instead).
   // Briefly flips the upload banner to 'optimizing' for the duration, same
   // as the 'uploading'/'processing' phases handleSharePost drives later.
-  async function setMediaFromPick(uri, type) {
+  //
+  // `size` is the picker's reported { width, height } (null if unknown) and
+  // sizes the preview to the media's real aspect ratio. Photos are measured
+  // again after compression, since that output (with EXIF rotation baked in)
+  // is exactly what gets uploaded.
+  async function setMediaFromPick(uri, type, size = null) {
     if (type !== 'photo') {
-      setMedia({ uri, type });
+      setMedia({ uri, type, width: size?.width ?? null, height: size?.height ?? null });
       return;
     }
     setUploadPhase('optimizing');
     try {
       const compressedUri = await compressImage(uri);
-      setMedia({ uri: compressedUri, type });
+      const measured = await getImageSize(compressedUri);
+      const finalSize = hasValidSize(measured) ? measured : size;
+      setMedia({ uri: compressedUri, type, width: finalSize?.width ?? null, height: finalSize?.height ?? null });
     } finally {
       setUploadPhase(null);
     }
@@ -464,16 +487,18 @@ export default function PostScreen({ navigation }) {
       const uri = URL.createObjectURL(file);
       const type = file.type.startsWith('video') ? 'video' : 'photo';
 
+      let size = null;
       if (type === 'video') {
         try {
-          const duration = await getVideoDurationSecondsWeb(uri);
+          const { duration, width, height } = await getVideoMetadataWeb(uri);
           if (isVideoTooLong(duration)) {
             URL.revokeObjectURL(uri);
             alertVideoTooLong();
             return;
           }
+          size = { width, height };
         } catch (err) {
-          console.error('Could not read video duration:', err);
+          console.error('Could not read video metadata:', err);
         }
         if (!(await confirmLargeVideo(file.size))) {
           URL.revokeObjectURL(uri);
@@ -481,7 +506,7 @@ export default function PostScreen({ navigation }) {
         }
       }
 
-      await setMediaFromPick(uri, type);
+      await setMediaFromPick(uri, type, size);
     };
     input.click();
   }
@@ -512,7 +537,7 @@ export default function PostScreen({ navigation }) {
         if (type === 'video' && !(await confirmLargeVideo(asset.fileSize))) {
           return;
         }
-        await setMediaFromPick(asset.uri, type);
+        await setMediaFromPick(asset.uri, type, { width: asset.width, height: asset.height });
       }
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not open your camera. Please try again.');
@@ -545,7 +570,7 @@ export default function PostScreen({ navigation }) {
         if (type === 'video' && !(await confirmLargeVideo(asset.fileSize))) {
           return;
         }
-        await setMediaFromPick(asset.uri, type);
+        await setMediaFromPick(asset.uri, type, { width: asset.width, height: asset.height });
       }
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not open your photo library. Please try again.');
@@ -727,6 +752,22 @@ export default function PostScreen({ navigation }) {
     ? 300
     : 340;
 
+  // Once media is picked, the preview box takes the media's own aspect ratio
+  // instead of the fixed-height dashed box above — so a portrait video isn't
+  // shown pillarboxed inside a wide black frame that looks like a crop. It
+  // fills the content column's width (never wider than the screen), unless
+  // that would make it taller than the height cap, in which case it narrows
+  // to keep the ratio. Unknown dimensions fall back to the fixed box.
+  const contentPaddingX = isTablet ? Math.max(20, (screenWidth - 600) / 2) : 20;
+  const maxPreviewWidth = screenWidth - contentPaddingX * 2;
+  const maxPreviewHeight = isTablet ? previewHeight : Math.round(screenHeight * 0.55);
+  let mediaBoxStyle = { height: previewHeight };
+  if (media && hasValidSize(media)) {
+    const aspect = media.width / media.height;
+    const width = Math.min(maxPreviewWidth, maxPreviewHeight * aspect);
+    mediaBoxStyle = { width, height: width / aspect, alignSelf: 'center' };
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.screen}
@@ -745,13 +786,13 @@ export default function PostScreen({ navigation }) {
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          isTablet && { paddingHorizontal: Math.max(20, (screenWidth - 600) / 2) },
+          isTablet && { paddingHorizontal: contentPaddingX },
         ]}
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.title}>New Hole Post</Text>
 
-        <View style={[styles.photoUpload, { height: previewHeight }]}>
+        <View style={[styles.photoUpload, mediaBoxStyle, media && styles.photoUploadFilled]}>
           {media ? (
             media.type === 'video' ? (
               <VideoPreviewPlayer uri={media.uri} onChangeMedia={handlePickMedia} />
@@ -798,7 +839,7 @@ export default function PostScreen({ navigation }) {
             <Text style={styles.frequentCoursesLabel}>Your Courses</Text>
             {frequentCourses.map((course) => (
               <TouchableOpacity
-                key={course.name}
+                key={course.key}
                 style={styles.resultRow}
                 onPress={() => handleSelectFrequentCourse(course)}
               >
@@ -1120,6 +1161,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  // Sized to the media itself (see mediaBoxStyle), so there's no empty area
+  // for the dashed placeholder border to outline.
+  photoUploadFilled: {
+    borderWidth: 0,
+    backgroundColor: 'transparent',
   },
   emptyMediaTouchable: {
     width: '100%',

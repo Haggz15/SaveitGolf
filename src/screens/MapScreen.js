@@ -16,6 +16,7 @@ import FeedCoursePopupCard from '../components/map/FeedCoursePopupCard';
 import MapErrorBoundary from '../components/map/MapErrorBoundary';
 import SilentMarkerBoundary from '../components/map/SilentMarkerBoundary';
 import { MapWarningBanner } from '../components/map/MapMessageBanner';
+import PinDropBanner from '../components/map/PinDropBanner';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { darkSlateMapStyle } from '../theme/mapStyle';
@@ -150,6 +151,9 @@ export default function MapScreen({ navigation, route }) {
     goToCourseDetailFromFeedPopup,
     filter,
     setFilter,
+    selectNearMe,
+    nearMeCount,
+    nearMeLoading,
     myCoursesList,
     myCoursesLoading,
     myCoursesLoaded,
@@ -161,6 +165,10 @@ export default function MapScreen({ navigation, route }) {
     clearSearch,
     handleSelectSearchResult,
     handleSelectPlayedCourse,
+    pinDrop,
+    handlePinDropMapPress,
+    cancelPinDrop,
+    confirmPinDrop,
   } = useCourseMapData({
     navigation,
     routeFocusCourse: route?.params?.focusCourse,
@@ -171,8 +179,18 @@ export default function MapScreen({ navigation, route }) {
     routeViewFriendUsername: route?.params?.viewFriendUsername,
     routeViewFriendName: route?.params?.viewFriendName,
     routeViewFriendTimestamp: route?.params?.viewFriendAt,
+    routeDropPinCourseName: route?.params?.dropPinForCourse,
+    routeDropPinTimestamp: route?.params?.dropPinAt,
     userId: user?.id,
   });
+
+  // The "Played X courses" pill follows whoever's pins the map is showing —
+  // a friend's courses while friendFilter is active (e.g. arriving from
+  // OtherUserProfileScreen's "View on Map"), otherwise the user's own. Hidden
+  // entirely while the course search is focused or has a query, so it never
+  // sits on top of the search results.
+  const playedBadgeCourses = friendFilter ? (friendFilter.loading ? [] : friendFilter.courses) : myCoursesList;
+  const showPlayedBadge = playedBadgeCourses.length > 0 && !courseSearchFocused && !searchQuery.trim();
 
   // The Map tab stays mounted across tab switches (bottom tab navigators
   // don't unmount screens), so a course added on the Profile tab wouldn't
@@ -288,7 +306,12 @@ export default function MapScreen({ navigation, route }) {
           </Text>
         </TouchableOpacity>
       )}
-      <FilterPills value={filter} onChange={setFilter} />
+      <FilterPills
+        value={filter}
+        onChange={(next) => (next === MAP_FILTERS.NEAR ? selectNearMe() : setFilter(next))}
+        nearMeCount={nearMeCount}
+        nearMeLoading={nearMeLoading}
+      />
 
       {friendFilter && (
         <View style={styles.friendBanner}>
@@ -314,6 +337,8 @@ export default function MapScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
       )}
+
+      {pinDrop && <PinDropBanner pinDrop={pinDrop} onCancel={cancelPinDrop} onConfirm={confirmPinDrop} />}
 
       {locationDenied && (
         <MapWarningBanner icon="location-outline">
@@ -342,7 +367,14 @@ export default function MapScreen({ navigation, route }) {
             initialRegion={US_INITIAL_REGION}
             showsUserLocation={!locationDenied}
             onRegionChangeComplete={guard(setRegion)}
-            onPress={guard(() => feedCoursePopup && dismissFeedCoursePopup())}
+            onPress={guard((e) => {
+              if (pinDrop) {
+                const { latitude, longitude } = e.nativeEvent.coordinate;
+                handlePinDropMapPress({ lat: latitude, lng: longitude });
+              } else if (feedCoursePopup) {
+                dismissFeedCoursePopup();
+              }
+            })}
           >
             {!friendFilter &&
               filter !== MAP_FILTERS.PLAYED &&
@@ -367,14 +399,27 @@ export default function MapScreen({ navigation, route }) {
                 <FeedFocusMarker pin={feedFocusPin} />
               </SilentMarkerBoundary>
             )}
+
+            {pinDrop?.candidate && (
+              <SilentMarkerBoundary>
+                {/* Keyed on position: tracksViewChanges is off, so a moved
+                    pin has to remount to redraw. */}
+                <FeedFocusMarker
+                  key={`${pinDrop.candidate.lat},${pinDrop.candidate.lng}`}
+                  pin={{ ...pinDrop.candidate, name: pinDrop.courseName }}
+                />
+              </SilentMarkerBoundary>
+            )}
           </MapView>
         </MapErrorBoundary>
 
-        <CoursesPlayedBadge courses={myCoursesList} onSelectCourse={guard(handleSelectPlayedCourse)} />
+        {showPlayedBadge && (
+          <CoursesPlayedBadge courses={playedBadgeCourses} onSelectCourse={guard(handleSelectPlayedCourse)} />
+        )}
         <ZoomControls
           onZoomIn={guard(handleZoomIn)}
           onZoomOut={guard(handleZoomOut)}
-          style={myCoursesList.length > 0 ? { top: 12 + COURSES_PLAYED_BADGE_OFFSET } : null}
+          style={showPlayedBadge ? { top: 12 + COURSES_PLAYED_BADGE_OFFSET } : null}
         />
 
         {selectedCourse && (

@@ -20,7 +20,7 @@ export async function getFriendMyCourses(userId) {
     let lat = r.latitude;
     let lng = r.longitude;
     if (lat == null || lng == null) {
-      const saved = r.courseId ? await getSavedCourseCoordinates(r.courseId).catch(() => null) : null;
+      const saved = await getSavedCourseCoordinates(r.courseId, r.courseName).catch(() => null);
       const coords =
         saved ??
         (await geocodeCourseCoordinates({

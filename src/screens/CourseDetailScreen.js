@@ -7,12 +7,31 @@ import colors from '../theme/colors';
 import { getCourseById } from '../services/golfCourseApi';
 import { getCourseHoleStats, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
 import { getScorecardsForCourse } from '../services/scorecards';
+import { getCourseLocation } from '../services/courseLocations';
 
 const TABS = ['All Posts', 'Hole by Hole', 'Scorecards'];
 
-// Typical 18-hole par distribution, used whenever live tee data hasn't
-// loaded (or isn't available) so the Hole by Hole grid always has content.
-const DEFAULT_HOLE_PATTERN = [4, 4, 3, 5, 4, 4, 3, 5, 4, 4, 4, 3, 5, 4, 4, 4, 3, 5];
+const DEFAULT_HOLES_COUNT = 18;
+
+// A hole's par as entered by users on their posts (PostScreen's Par field) —
+// the most common value wins, so one typo doesn't override everyone else.
+// Null until someone has entered one; used only when golfcourseapi.com has
+// no tee data for the course (e.g. a hand-typed course with no API match).
+function userEnteredPar(posts, holeNumber) {
+  const counts = new Map();
+  for (const p of posts) {
+    if (p.hole === holeNumber && p.par > 0) counts.set(p.par, (counts.get(p.par) ?? 0) + 1);
+  }
+  let best = null;
+  let bestCount = 0;
+  for (const [par, count] of counts) {
+    if (count > bestCount) {
+      best = par;
+      bestCount = count;
+    }
+  }
+  return best;
+}
 
 function scoreDiffLabel(score, par) {
   const diff = score - par;
@@ -20,7 +39,8 @@ function scoreDiffLabel(score, par) {
   return diff > 0 ? `+${diff}` : `${diff}`;
 }
 
-// Hole number, par/yardage, and post count only — no image previews. Every
+// Hole number, par/yardage, and post count only — no image previews. A hole
+// with no known par (no API tee data and no user-entered par) shows none. Every
 // card renders identically sized (see styles.holeCard's fixed width +
 // aspectRatio) regardless of whether golfcourseapi.com happened to return
 // tee data for this hole; only the red border (isMostPopular) varies.
@@ -32,9 +52,11 @@ function HoleCard({ number, par, yardage, postCount, isMostPopular, onPress }) {
       activeOpacity={0.8}
     >
       <Text style={styles.holeCardNumber}>{number}</Text>
-      <Text style={styles.holeCardMeta}>
-        Par {par}{yardage ? ` · ${yardage} yds` : ''}
-      </Text>
+      {(par != null || yardage) && (
+        <Text style={styles.holeCardMeta}>
+          {[par != null ? `Par ${par}` : null, yardage ? `${yardage} yds` : null].filter(Boolean).join(' · ')}
+        </Text>
+      )}
       <View style={styles.holeCardPostsRow}>
         <Ionicons name="image-outline" size={12} color={colors.red} />
         <Text style={styles.holeCardPosts}>{postCount}</Text>
@@ -227,6 +249,32 @@ export default function CourseDetailScreen({ route, navigation }) {
   const [postsLoading, setPostsLoading] = useState(true);
   const [scorecards, setScorecards] = useState([]);
   const [courseCoords, setCourseCoords] = useState({ lat: lat ?? null, lng: lng ?? null });
+  // City/state from a hand-typed course's dropped pin (see
+  // courseLocations.js), when the route didn't carry any.
+  const [pinnedPlace, setPinnedPlace] = useState({ city: null, state: null });
+
+  // Coordinates arriving via new route params (e.g. back from saving a
+  // dropped pin) win over whatever this screen already resolved.
+  useEffect(() => {
+    if (lat != null && lng != null) setCourseCoords({ lat, lng });
+  }, [lat, lng]);
+
+  // A hand-typed course has no golfcourseapi.com record to take a location
+  // from — use the pin someone dropped for it, if any.
+  useEffect(() => {
+    if (courseId || !courseName) return undefined;
+    let cancelled = false;
+    getCourseLocation(courseName)
+      .then((pin) => {
+        if (cancelled || !pin) return;
+        setCourseCoords((prev) => (prev.lat != null && prev.lng != null ? prev : { lat: pin.lat, lng: pin.lng }));
+        setPinnedPlace({ city: pin.city, state: pin.state });
+      })
+      .catch((err) => console.error('Failed to load dropped course pin:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId, courseName]);
 
   // Arriving here from the feed's course-name-tap-on-map flow (see
   // useCourseMapData's courseAutoNavigate) — default straight into the All
@@ -286,22 +334,34 @@ export default function CourseDetailScreen({ route, navigation }) {
   }, [courseId, courseName]);
 
   const primaryTee = tees?.male?.[0] ?? tees?.female?.[0] ?? null;
-  const holesCount = primaryTee?.holes?.length ?? 18;
-  const parTotal = primaryTee?.par_total ?? 72;
+  const holesCount = primaryTee?.holes?.length ?? DEFAULT_HOLES_COUNT;
 
-  // Hole number/par/yardage shells, independent of any posts — HoleByHoleGrid
-  // layers postCount onto these per whichever subset of coursePosts it's
-  // given (see subCourseNames below).
+  // Hole number/par/yardage shells — HoleByHoleGrid layers postCount onto
+  // these per whichever subset of coursePosts it's given (see subCourseNames
+  // below). Par comes from golfcourseapi.com tee data when there is any,
+  // otherwise from what users entered on their posts, otherwise it's left
+  // null rather than guessed.
   const holeShells = useMemo(() => {
     return Array.from({ length: holesCount }, (_, index) => {
       const liveHole = primaryTee?.holes?.[index];
       return {
         number: index + 1,
-        par: liveHole?.par ?? DEFAULT_HOLE_PATTERN[index % DEFAULT_HOLE_PATTERN.length],
+        par: liveHole?.par ?? userEnteredPar(coursePosts, index + 1),
         yardage: liveHole?.yardage ?? null,
       };
     });
-  }, [primaryTee, holesCount]);
+  }, [primaryTee, holesCount, coursePosts]);
+
+  // Only shown once every hole's par is known — a partial sum would read as
+  // a real (and wrong) course par.
+  const parTotal =
+    primaryTee?.par_total ??
+    (holeShells.every((h) => h.par != null) ? holeShells.reduce((sum, h) => sum + h.par, 0) : null);
+
+  const displayCity = city ?? pinnedPlace.city;
+  const displayState = state ?? pinnedPlace.state;
+  const locationLabel = [displayCity, displayState].filter(Boolean).join(', ');
+  const hasPin = courseCoords.lat != null && courseCoords.lng != null;
 
   // Distinct sub-course names among this course's posts, in first-seen
   // order — an outer grouping layer above HoleByHoleGrid's own nine
@@ -353,13 +413,22 @@ export default function CourseDetailScreen({ route, navigation }) {
         focusCourse: {
           id: courseId ?? null,
           name: courseName,
-          city: city ?? null,
-          state: state ?? null,
+          city: displayCity ?? null,
+          state: displayState ?? null,
           lat: courseCoords.lat,
           lng: courseCoords.lng,
         },
         timestamp: Date.now(),
       },
+    });
+  }
+
+  // Opens the map in "Drop pin on map" mode (see useCourseMapData's
+  // pinDrop); saving the pin there navigates back here with its coordinates.
+  function handleDropPin() {
+    navigation.navigate('Tabs', {
+      screen: 'Map',
+      params: { dropPinForCourse: courseName, dropPinAt: Date.now() },
     });
   }
 
@@ -396,12 +465,26 @@ export default function CourseDetailScreen({ route, navigation }) {
           <Text style={styles.courseName} numberOfLines={2}>
             {courseName ?? 'Course'}
           </Text>
-          <TouchableOpacity style={styles.viewOnMapButton} onPress={handleViewOnMap} activeOpacity={0.8}>
-            <Ionicons name="location" size={12} color="#0d1f3c" />
-            <Text style={styles.viewOnMapButtonText}>View on Map</Text>
-          </TouchableOpacity>
+          {hasPin || locationLabel ? (
+            <TouchableOpacity style={styles.viewOnMapButton} onPress={handleViewOnMap} activeOpacity={0.8}>
+              <Ionicons name="location" size={12} color="#0d1f3c" />
+              <Text style={styles.viewOnMapButtonText}>View on Map</Text>
+            </TouchableOpacity>
+          ) : (
+            // No API data and nothing to place it by — a hand-typed course
+            // nobody has located yet.
+            <View style={styles.locationPlaceholder}>
+              <Text style={styles.locationPlaceholderText}>Location not set yet</Text>
+              <TouchableOpacity style={styles.viewOnMapButton} onPress={handleDropPin} activeOpacity={0.8}>
+                <Ionicons name="pin" size={12} color="#0d1f3c" />
+                <Text style={styles.viewOnMapButtonText}>Drop pin on map</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           <Text style={styles.courseMeta}>
-            {city ? `${city}, ${state}` : state} · {holesCount} Holes · Par {parTotal}
+            {[locationLabel || null, `${holesCount} Holes`, parTotal != null ? `Par ${parTotal}` : null]
+              .filter(Boolean)
+              .join(' · ')}
           </Text>
         </LinearGradient>
 
@@ -588,6 +671,14 @@ const styles = StyleSheet.create({
     color: '#0d1f3c',
     fontSize: 11,
     fontWeight: '700',
+  },
+  locationPlaceholder: {
+    marginTop: 8,
+  },
+  locationPlaceholderText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontStyle: 'italic',
   },
   courseMeta: {
     color: colors.offWhite,
