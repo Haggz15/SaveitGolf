@@ -372,12 +372,16 @@ export const UNGROUPED_SUB_COURSE = '__ungrouped_sub_course__';
 // real name or their respective UNGROUPED_* sentinel — omitting them (the
 // classic single-course case) returns every post at that hole regardless of
 // nine or sub-course, same as getPostsForCourse's hole-agnostic behavior.
+// `nineName` picks one of a course's named nines (CourseDetailScreen's
+// layout selector) — posts have tagged those as either a composite nine or
+// a sub-course, so it matches either column, ignoring case.
 export async function getCourseFeedPosts({
   courseId,
   courseName,
   hole,
   compositeName,
   subCourseName,
+  nineName,
   sort = 'likes',
   offset = 0,
   limit = 10,
@@ -396,6 +400,10 @@ export async function getCourseFeedPosts({
         q = q.is('sub_course_name', null);
       } else if (subCourseName) {
         q = q.eq('sub_course_name', subCourseName);
+      }
+      if (nineName) {
+        const nine = quoteOrValue(escapeIlike(nineName));
+        q = q.or(`composite_name.ilike.${nine},sub_course_name.ilike.${nine}`);
       }
       if (sort !== 'recent') q = q.order('likes_count', { ascending: false });
       // created_at, then id, as tiebreakers keep pages stable — equal like

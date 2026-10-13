@@ -220,6 +220,68 @@ export async function getCourseById(id) {
   return course;
 }
 
+// A club built from named nines (Country Club of Scranton: Pines, Willows,
+// Falls) is listed once per 18-hole pairing, with the pairing at the end of
+// course_name: "Old Course - Pines/Willows" -> ['Pines', 'Willows'], front
+// nine first. Null for an ordinary course name.
+export function parseNinePairing(layoutName) {
+  const pairing = layoutName?.split(/\s+[-–—]\s+/).pop();
+  const parts = pairing?.split('/').map((part) => part.trim());
+  return parts?.length === 2 && parts.every(Boolean) ? parts : null;
+}
+
+function eighteenTeeHoles(course) {
+  const tee = course?.tees?.male?.[0] ?? course?.tees?.female?.[0];
+  return Array.isArray(tee?.holes) && tee.holes.length === 18 ? tee.holes : null;
+}
+
+function addCourseNines(byName, course) {
+  const names = parseNinePairing(course?.layoutName);
+  const holes = eighteenTeeHoles(course);
+  if (!names || !holes) return;
+  names.forEach((name, index) => {
+    const key = name.toLowerCase();
+    if (!byName.has(key)) byName.set(key, { name, holes: holes.slice(index * 9, index * 9 + 9) });
+  });
+}
+
+// Clubs whose nines read better in course order than alphabetically —
+// matched by club name containing `match` (lowercase).
+const FIXED_NINE_ORDER = [
+  // Pines is the front nine, Willows the back, Falls the additional nine.
+  { match: 'country club of scranton', order: ['pines', 'willows', 'falls'] },
+];
+
+// Every named nine at a course's club, alphabetically (or in FIXED_NINE_ORDER), each with its own
+// holes 1-9 (par/yardage) — e.g. Falls only appears in the club's other
+// pairings, so those are looked up too, but only until every nine is known.
+// Empty for an ordinary course, without spending any extra requests.
+export async function getClubNines(course) {
+  const byName = new Map();
+  addCourseNines(byName, course);
+  if (byName.size === 0) return [];
+
+  const clubName = course.name?.trim().toLowerCase();
+  const siblings = await searchCourses(course.name).catch(() => []);
+  for (const sibling of siblings) {
+    if (sibling.id === course.id || sibling.name?.trim().toLowerCase() !== clubName) continue;
+    const names = parseNinePairing(sibling.layoutName);
+    if (!names || names.every((name) => byName.has(name.toLowerCase()))) continue;
+    // Search results carry tee counts, not holes — the detail lookup has pars.
+    const detail = await getCourseById(sibling.id).catch(() => null);
+    if (detail) addCourseNines(byName, detail);
+  }
+  const nines = Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const fixedOrder = FIXED_NINE_ORDER.find(({ match }) => clubName?.includes(match))?.order;
+  if (!fixedOrder) return nines;
+  const rank = (nine) => {
+    const index = fixedOrder.indexOf(nine.name.toLowerCase());
+    return index === -1 ? fixedOrder.length : index;
+  };
+  // Stable sort, so any nine missing from the list stays alphabetical at the end.
+  return nines.sort((a, b) => rank(a) - rank(b));
+}
+
 // True for exactly one course object, the first one this session sees, so
 // engineers can check devtools for the exact field names golfcourseapi.com
 // is sending without wading through a full response dump on every request.
@@ -252,6 +314,9 @@ function normalizeCourse(course) {
   return {
     id: String(course?.id),
     name: course?.club_name || course?.course_name,
+    // The API's own course_name — for a club built from named nines it's the
+    // 18-hole pairing, e.g. "Old Course - Pines/Willows" (see getClubNines).
+    layoutName: course?.course_name ?? null,
     address: course?.location?.address ?? null,
     city: course?.location?.city ?? null,
     state: course?.location?.state ?? null,

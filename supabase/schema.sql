@@ -1094,8 +1094,19 @@ grant select on public.golfer_profiles to anon, authenticated;
 -- Suggested golfers for the signed-in user, most-followed first, excluding
 -- themselves and anyone they already follow. With p_states, only golfers
 -- who have a My Courses entry in one of those states ("Golfers Near You");
--- without, everyone ("Popular on SaveitGolf").
-create or replace function public.suggested_golfers(p_states text[] default null, p_limit int default 10)
+-- without, everyone ("Popular on SaveitGolf"). p_min_followers drops
+-- golfers below that many followers — Popular passes 1 so nobody with zero
+-- followers shows up as "popular". follower_count is counted live from
+-- followers in golfer_profiles, so there's no stored count to drift.
+--
+-- Dropped first: adding p_min_followers would otherwise leave the old
+-- two-argument version behind as an overload, making RPC calls ambiguous.
+drop function if exists public.suggested_golfers(text[], int);
+create or replace function public.suggested_golfers(
+  p_states text[] default null,
+  p_limit int default 10,
+  p_min_followers int default 0
+)
 returns setof public.golfer_profiles
 language sql
 stable
@@ -1116,8 +1127,9 @@ as $$
         where m.user_id = g.user_id and m.state = any (p_states)
       )
     )
+    and g.follower_count >= coalesce(p_min_followers, 0)
   order by g.follower_count desc, g.username
   limit least(greatest(coalesce(p_limit, 10), 1), 50);
 $$;
 
-grant execute on function public.suggested_golfers(text[], int) to authenticated;
+grant execute on function public.suggested_golfers(text[], int, int) to authenticated;

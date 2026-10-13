@@ -1,8 +1,11 @@
 import { supabase } from './supabase';
 
+// Keyed by course_id when there is one. Hand-typed (id-less) rows are keyed
+// by name ignoring case, so case variants of one name share a pin.
 function addUnique(byKey, row) {
   if (row.lat == null || row.lng == null) return;
-  const key = row.course_id || row.course_name;
+  const key = row.course_id || row.course_name?.trim().toLowerCase();
+  if (!key) return;
   if (!byKey.has(key)) {
     byKey.set(key, {
       id: row.course_id || `course-${key}`,
@@ -53,5 +56,14 @@ export async function getAllCoursesInState(stateAbbr) {
     addUnique(byKey, row);
   }
 
-  return Array.from(byKey.values());
+  // A hand-typed row named the same as an API course is that course, so it
+  // shouldn't get a second pin of its own wherever its typed name geocoded.
+  const apiNames = new Set(
+    Array.from(byKey.entries())
+      .filter(([key, c]) => key === c.id)
+      .map(([, c]) => c.name?.trim().toLowerCase())
+  );
+  return Array.from(byKey.entries())
+    .filter(([key, c]) => key === c.id || !apiNames.has(key))
+    .map(([, c]) => c);
 }

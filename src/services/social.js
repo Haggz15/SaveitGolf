@@ -215,9 +215,14 @@ export async function searchGolfers(query, currentUserId) {
 
 // Most-followed golfers the signed-in user doesn't follow yet (never
 // themselves) — scoped to golfers with a My Courses entry in `states` when
-// given. See the suggested_golfers function in schema.sql.
-export async function getSuggestedGolfers({ states = null, limit = 10 } = {}) {
-  const { data, error } = await supabase.rpc('suggested_golfers', { p_states: states, p_limit: limit });
+// given, and to those with at least `minFollowers` followers. See the
+// suggested_golfers function in schema.sql.
+export async function getSuggestedGolfers({ states = null, limit = 10, minFollowers = 0 } = {}) {
+  const { data, error } = await supabase.rpc('suggested_golfers', {
+    p_states: states,
+    p_limit: limit,
+    p_min_followers: minFollowers,
+  });
   if (error) throw error;
   return (data ?? []).map(mapGolfer);
 }

@@ -583,6 +583,7 @@ export default function FeedScreen({ navigation, route }) {
           hole: filter.hole,
           compositeName: filter.compositeName,
           subCourseName: filter.subCourseName,
+          nineName: filter.nineName,
           sort: sortMode,
           offset: 0,
           limit: COURSE_FEED_PAGE_SIZE,
@@ -609,7 +610,7 @@ export default function FeedScreen({ navigation, route }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter?.courseId, filter?.courseName, filter?.hole, filter?.compositeName, filter?.subCourseName, sortMode, user?.id]);
+  }, [filter?.courseId, filter?.courseName, filter?.hole, filter?.compositeName, filter?.subCourseName, filter?.nineName, sortMode, user?.id]);
 
   const loadMoreCourseFeedPosts = useCallback(async () => {
     if (!filter || !courseFeedHasMore || loadingMorePosts) return;
@@ -621,6 +622,7 @@ export default function FeedScreen({ navigation, route }) {
         hole: filter.hole,
         compositeName: filter.compositeName,
         subCourseName: filter.subCourseName,
+        nineName: filter.nineName,
         sort: sortMode,
         offset: courseFeedOffset,
         limit: COURSE_FEED_PAGE_SIZE,
@@ -831,7 +833,11 @@ export default function FeedScreen({ navigation, route }) {
   const filteredTitle = filter
     ? filter.hole != null
       ? `Hole ${filter.hole}${
-          filter.compositeName && filter.compositeName !== UNGROUPED_NINE ? ` — ${filter.compositeName}` : ''
+          filter.nineName
+            ? ` — ${filter.nineName}`
+            : filter.compositeName && filter.compositeName !== UNGROUPED_NINE
+              ? ` — ${filter.compositeName}`
+              : ''
         } — ${filteredCourseLabel}`
       : filteredCourseLabel
     : null;
@@ -895,6 +901,13 @@ export default function FeedScreen({ navigation, route }) {
             <View style={styles.headerActions}>
               <TouchableOpacity
                 style={styles.headerIconButton}
+                onPress={() => navigation.navigate('FindGolfers')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="person-add" size={22} color={colors.white} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.headerIconButton}
                 onPress={() => setUserSearchVisible(true)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
@@ -911,13 +924,6 @@ export default function FeedScreen({ navigation, route }) {
                     <Text style={styles.unreadBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
                   </View>
                 )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.headerIconButton}
-                onPress={() => navigation.navigate('FindGolfers')}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="person-add" size={22} color={colors.white} />
               </TouchableOpacity>
             </View>
           }

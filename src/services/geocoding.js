@@ -3,7 +3,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import stateCenters from '../data/stateCenters.json';
 
-const CACHE_KEY = 'saveitgolf.geocodeCache.v1';
+// v2: v1 entries may hold a different course's coordinates from before
+// results were checked against the course name (see resultMatchesCourse).
+const CACHE_KEY = 'saveitgolf.geocodeCache.v2';
 const REVERSE_CACHE_KEY = 'saveitgolf.reverseGeocodeCache.v1';
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org';
 
@@ -44,15 +46,47 @@ async function persistCache(cache) {
   await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cache));
 }
 
-async function nominatimSearch(query) {
-  const url = `${NOMINATIM_BASE}/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+// Words every other course name shares ("Country Club of Scranton" vs "Pine
+// Hills Country Club") — ignored when checking whether a search result is
+// actually the course being looked up.
+const GENERIC_NAME_WORDS = new Set([
+  'the', 'of', 'at', 'and', 'golf', 'club', 'country', 'course', 'courses', 'cc', 'gc', 'links',
+  'resort', 'golfclub', 'inc',
+]);
+const NAME_ABBREVIATIONS = { st: 'saint', mt: 'mount', ft: 'fort' };
+
+function distinctiveNameWords(name) {
+  return (name ?? '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .map((w) => NAME_ABBREVIATIONS[w] ?? w)
+    .filter((w) => w && !GENERIC_NAME_WORDS.has(w));
+}
+
+// Nominatim's free-text search is fuzzy: "Country Club of Scranton" comes
+// back as Pine Hills Country Club, a different course a few miles away,
+// because both names contain "Country Club". Accepting that put one course's
+// pin on top of another. A result only counts when every distinctive word
+// of the course's name appears in the result's own name.
+function resultMatchesCourse(result, courseName) {
+  const wanted = distinctiveNameWords(courseName);
+  if (!wanted.length) return false;
+  const found = new Set(distinctiveNameWords(result.name || result.display_name?.split(',')[0]));
+  return wanted.every((w) => found.has(w));
+}
+
+async function nominatimSearch(query, courseName) {
+  const url = `${NOMINATIM_BASE}/search?q=${encodeURIComponent(query)}&format=json&limit=5`;
   const res = await throttledFetch(url);
   if (!res.ok) {
     throw new Error(`Geocoding request failed: HTTP ${res.status}`);
   }
   const data = await res.json();
-  if (!data.length) return null;
-  return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  const match = data.find((r) => resultMatchesCourse(r, courseName));
+  if (!match) return null;
+  return { lat: parseFloat(match.lat), lng: parseFloat(match.lon) };
 }
 
 // Builds a fallback chain of queries to try, most-specific first. Searching
@@ -70,17 +104,17 @@ async function nominatimSearch(query) {
 // Nominatim's free-text search is closer to an address parser than a
 // keyword search, and the extra words break the match instead of narrowing
 // it. Once those plain attempts are exhausted, small-town courses that
-// aren't in OSM under their exact name get a few looser tries: with a
+// aren't in OSM under their exact name get a few looser tries with a
 // "golf club"/"country club" suffix (some courses are only indexed under
-// that form of the name), and finally just the city itself, which at least
-// lands near the right town instead of missing entirely.
+// that form of the name). There's deliberately no city-only fallback: it
+// returned whichever golf course OSM had in that town, putting this
+// course's pin on a different course. No pin beats the wrong pin.
 function geocodeQueryChain({ name, city, state } = {}) {
   const queries = [];
   if (name && city && state) queries.push(`${name} ${city} ${state}`);
   if (name && state) queries.push(`${name} ${state}`);
   if (name && state) queries.push(`${name} golf club ${state}`);
   if (name && state) queries.push(`${name} country club ${state}`);
-  if (city && state) queries.push(`${city} ${state} golf course`);
   // Courses saved with no state on file — a freely-typed name at post
   // creation when search results weren't picked from (e.g. course search
   // was down, see golfCourseApi's ApiKeyError) — used to fall through this
@@ -91,7 +125,6 @@ function geocodeQueryChain({ name, city, state } = {}) {
   if (name) queries.push(name);
   if (name) queries.push(`${name} golf club`);
   if (name) queries.push(`${name} country club`);
-  if (city) queries.push(`${city} golf course`);
   return [...new Set(queries.filter(Boolean))];
 }
 
@@ -119,7 +152,7 @@ export async function geocodeCourse(courseId, { name, city, state } = {}) {
   for (const query of attempts) {
     let result;
     try {
-      result = await nominatimSearch(query);
+      result = await nominatimSearch(query, name);
     } catch (err) {
       console.warn(`[geocoding] query "${query}" failed:`, err.message);
       continue;

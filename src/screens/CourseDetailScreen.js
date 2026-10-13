@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
-import { getCourseById } from '../services/golfCourseApi';
+import { getCourseById, getClubNines } from '../services/golfCourseApi';
 import { getCourseHoleStats, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
 import { getScorecardsForCourse } from '../services/scorecards';
 import { getCourseLocation, saveCourseLocation, CourseAlreadyPinnedError } from '../services/courseLocations';
@@ -245,6 +245,11 @@ export default function CourseDetailScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const { user, profile } = useAuth();
   const [tees, setTees] = useState(null);
+  // Named nines at this course's club, from golfcourseapi.com (see
+  // getClubNines) — empty for an ordinary course. `layout` is null for the
+  // standard 18, otherwise the selected nine's name.
+  const [clubNines, setClubNines] = useState([]);
+  const [layout, setLayout] = useState(null);
   // 'All Posts' never renders inline — tapping it navigates straight to the
   // full-screen course feed (see handleSelectTab) — so it can't be the
   // resting tab.
@@ -317,6 +322,9 @@ export default function CourseDetailScreen({ route, navigation }) {
         setCourseCoords((prev) =>
           prev.lat != null && prev.lng != null ? prev : { lat: course.lat, lng: course.lng }
         );
+        return getClubNines(course).then((nines) => {
+          if (!cancelled) setClubNines(nines);
+        });
       })
       .catch(() => {});
     return () => {
@@ -415,14 +423,64 @@ export default function CourseDetailScreen({ route, navigation }) {
     return ordered;
   }, [coursePosts]);
 
+  // A course with named nines gets a layout selector instead of grouping its
+  // grid under nine headers: "18 Holes" (posts that never tagged a nine), or
+  // one nine's holes 1-9. Posts tag a nine as either a composite nine or a
+  // sub-course, so both count. A nine posts name that the API doesn't know
+  // still gets an option so its posts stay reachable, with user-entered pars.
+  const layoutOptions = useMemo(() => {
+    if (clubNines.length === 0) return [];
+    const options = clubNines.map((nine) => ({ name: nine.name, apiHoles: nine.holes }));
+    const known = new Set(options.map((o) => o.name.toLowerCase()));
+    coursePosts.forEach((p) => {
+      const tag = p.compositeName || p.subCourseName;
+      if (tag && !known.has(tag.toLowerCase())) {
+        known.add(tag.toLowerCase());
+        options.push({ name: tag, apiHoles: null });
+      }
+    });
+    return options;
+  }, [clubNines, coursePosts]);
+
+  const nineTag = (p) => (p.compositeName || p.subCourseName || '').toLowerCase();
+  const selectedNine = layoutOptions.find((o) => o.name === layout) ?? null;
+
+  const layoutGrid = useMemo(() => {
+    if (layoutOptions.length === 0) return null;
+    if (!selectedNine) {
+      return { posts: coursePosts.filter((p) => !nineTag(p)), holeShells };
+    }
+    const key = selectedNine.name.toLowerCase();
+    // compositeName cleared so HoleByHoleGrid renders one flat grid.
+    const posts = coursePosts.filter((p) => nineTag(p) === key).map((p) => ({ ...p, compositeName: null }));
+    const shells = Array.from({ length: 9 }, (_, index) => {
+      const apiHole = selectedNine.apiHoles?.[index];
+      return {
+        number: index + 1,
+        par: apiHole?.par ?? userEnteredPar(posts, index + 1),
+        yardage: apiHole?.yardage ?? null,
+      };
+    });
+    return { posts, holeShells: shells };
+  }, [layoutOptions, selectedNine, coursePosts, holeShells]);
+
+  function handleSelectLayoutHole(number) {
+    if (selectedNine) {
+      navigateToCourseFeed({ hole: number, nineName: selectedNine.name });
+    } else {
+      navigateToCourseFeed({ hole: number, compositeName: UNGROUPED_NINE, subCourseName: UNGROUPED_SUB_COURSE });
+    }
+  }
+
   // All Posts and Hole by Hole's individual hole cards both open the
   // full-screen swipe feed (reusing FeedScreen — see its `filter` prop and
   // RootNavigator's "CourseFeed" route) rather than rendering inline.
   // `compositeName`/`subCourseName` mirror the states getCourseFeedPosts
   // expects: omitted (no filter), a real name, or their UNGROUPED_* sentinel.
-  function navigateToCourseFeed({ hole = null, compositeName = null, subCourseName = null } = {}) {
+  // `nineName` is one of the layout selector's nines.
+  function navigateToCourseFeed({ hole = null, compositeName = null, subCourseName = null, nineName = null } = {}) {
     navigation.navigate('CourseFeed', {
-      filter: { courseId, courseName, hole, compositeName, subCourseName },
+      filter: { courseId, courseName, hole, compositeName, subCourseName, nineName },
     });
   }
 
@@ -583,8 +641,38 @@ export default function CourseDetailScreen({ route, navigation }) {
 
             {activeTab === 'Hole by Hole' && (
               <View style={styles.tabContent}>
+                {layoutGrid && (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.layoutSelector}
+                  >
+                    {[null, ...layoutOptions.map((o) => o.name)].map((name) => {
+                      const active = (selectedNine?.name ?? null) === name;
+                      return (
+                        <TouchableOpacity
+                          key={name ?? '18'}
+                          style={[styles.layoutPill, active && styles.layoutPillActive]}
+                          onPress={() => setLayout(name)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.layoutPillText, active && styles.layoutPillTextActive]}>
+                            {name ? `${name} (9)` : '18 Holes'}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
                 <Text style={styles.helperText}>Tap any hole to see posts</Text>
-                {subCourseNames.length === 0 ? (
+                {layoutGrid ? (
+                  <HoleByHoleGrid
+                    key={selectedNine?.name ?? '18'}
+                    posts={layoutGrid.posts}
+                    holeShells={layoutGrid.holeShells}
+                    onSelectHole={handleSelectLayoutHole}
+                  />
+                ) : subCourseNames.length === 0 ? (
                   <HoleByHoleGrid
                     posts={coursePosts}
                     holeShells={holeShells}
@@ -857,6 +945,30 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     marginBottom: 14,
+  },
+  layoutSelector: {
+    gap: 8,
+    marginBottom: 14,
+  },
+  layoutPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    backgroundColor: colors.navyCard,
+  },
+  layoutPillActive: {
+    borderColor: colors.red,
+    backgroundColor: colors.red,
+  },
+  layoutPillText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  layoutPillTextActive: {
+    color: colors.white,
   },
   nineSection: {
     marginBottom: 18,

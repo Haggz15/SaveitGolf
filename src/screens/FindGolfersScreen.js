@@ -140,7 +140,7 @@ export default function FindGolfersScreen({ navigation }) {
             console.error('Failed to load golfers near you:', err);
             return [];
           }),
-        getSuggestedGolfers({ limit: POPULAR_LIMIT }).catch((err) => {
+        getSuggestedGolfers({ limit: POPULAR_LIMIT, minFollowers: 1 }).catch((err) => {
           console.error('Failed to load popular golfers:', err);
           return [];
         }),
