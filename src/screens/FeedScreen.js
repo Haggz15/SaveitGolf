@@ -18,7 +18,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Header from '../components/Header';
 import VideoPost from '../components/VideoPost';
-import AddFriendsModal from '../components/social/AddFriendsModal';
 import UserSearchModal from '../components/social/UserSearchModal';
 import CommentSheet from '../components/feed/CommentSheet';
 import NotificationPanel from '../components/feed/NotificationPanel';
@@ -367,7 +366,6 @@ export default function FeedScreen({ navigation, route }) {
   // Shared across every video in the feed (not per-post) so toggling sound
   // on one post carries over as the user scrolls to the next.
   const [isMuted, setIsMuted] = useState(false);
-  const [addFriendsVisible, setAddFriendsVisible] = useState(false);
   const [userSearchVisible, setUserSearchVisible] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [commentPost, setCommentPost] = useState(null);
@@ -916,7 +914,7 @@ export default function FeedScreen({ navigation, route }) {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.headerIconButton}
-                onPress={() => setAddFriendsVisible(true)}
+                onPress={() => navigation.navigate('FindGolfers')}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Ionicons name="person-add" size={22} color={colors.white} />
@@ -1031,13 +1029,6 @@ export default function FeedScreen({ navigation, route }) {
           )
         )}
       </View>
-
-      <AddFriendsModal
-        visible={addFriendsVisible}
-        onClose={() => setAddFriendsVisible(false)}
-        currentUserId={user?.id}
-        navigation={navigation}
-      />
 
       <UserSearchModal
         visible={userSearchVisible}

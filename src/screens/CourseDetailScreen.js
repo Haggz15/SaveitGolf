@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,7 +7,13 @@ import colors from '../theme/colors';
 import { getCourseById } from '../services/golfCourseApi';
 import { getCourseHoleStats, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
 import { getScorecardsForCourse } from '../services/scorecards';
-import { getCourseLocation } from '../services/courseLocations';
+import { getCourseLocation, saveCourseLocation, CourseAlreadyPinnedError } from '../services/courseLocations';
+import { reverseGeocodeCityState } from '../services/geocoding';
+import { stateCenters } from '../data/courses';
+import { US_INITIAL_REGION } from '../hooks/useCourseMapData';
+import { useAuth } from '../context/AuthContext';
+import { PinPreviewMap } from '../components/map/CoursePinMaps';
+import CoursePinPlacementModal from '../components/map/CoursePinPlacementModal';
 
 const TABS = ['All Posts', 'Hole by Hole', 'Scorecards'];
 
@@ -237,6 +243,7 @@ function BottomNavButton({ icon, iconFocused, label, focused, onPress }) {
 export default function CourseDetailScreen({ route, navigation }) {
   const { courseId, courseName, city, state, lat, lng, autoOpenAllPosts } = route.params ?? {};
   const insets = useSafeAreaInsets();
+  const { user, profile } = useAuth();
   const [tees, setTees] = useState(null);
   // 'All Posts' never renders inline — tapping it navigates straight to the
   // full-screen course feed (see handleSelectTab) — so it can't be the
@@ -249,9 +256,13 @@ export default function CourseDetailScreen({ route, navigation }) {
   const [postsLoading, setPostsLoading] = useState(true);
   const [scorecards, setScorecards] = useState([]);
   const [courseCoords, setCourseCoords] = useState({ lat: lat ?? null, lng: lng ?? null });
-  // City/state from a hand-typed course's dropped pin (see
-  // courseLocations.js), when the route didn't carry any.
-  const [pinnedPlace, setPinnedPlace] = useState({ city: null, state: null });
+  // A hand-typed course's shared pin (see courseLocations.js) — null until
+  // someone places one. pinLoaded gates the Place/Move pin button so it
+  // doesn't flash "Place pin" before we know whether a pin exists.
+  const [coursePin, setCoursePin] = useState(null);
+  const [pinLoaded, setPinLoaded] = useState(false);
+  const [placingPin, setPlacingPin] = useState(false);
+  const [savingPin, setSavingPin] = useState(false);
 
   // Coordinates arriving via new route params (e.g. back from saving a
   // dropped pin) win over whatever this screen already resolved.
@@ -264,13 +275,18 @@ export default function CourseDetailScreen({ route, navigation }) {
   useEffect(() => {
     if (courseId || !courseName) return undefined;
     let cancelled = false;
+    setPinLoaded(false);
     getCourseLocation(courseName)
       .then((pin) => {
-        if (cancelled || !pin) return;
-        setCourseCoords((prev) => (prev.lat != null && prev.lng != null ? prev : { lat: pin.lat, lng: pin.lng }));
-        setPinnedPlace({ city: pin.city, state: pin.state });
+        if (cancelled) return;
+        setCoursePin(pin);
+        // The shared pin is the source of truth for a hand-typed course.
+        if (pin) setCourseCoords({ lat: pin.lat, lng: pin.lng });
       })
-      .catch((err) => console.error('Failed to load dropped course pin:', err));
+      .catch((err) => console.error('Failed to load course pin:', err))
+      .finally(() => {
+        if (!cancelled) setPinLoaded(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -358,10 +374,28 @@ export default function CourseDetailScreen({ route, navigation }) {
     primaryTee?.par_total ??
     (holeShells.every((h) => h.par != null) ? holeShells.reduce((sum, h) => sum + h.par, 0) : null);
 
-  const displayCity = city ?? pinnedPlace.city;
-  const displayState = state ?? pinnedPlace.state;
-  const locationLabel = [displayCity, displayState].filter(Boolean).join(', ');
+  const displayCity = city ?? coursePin?.city;
+  const displayState = state ?? coursePin?.state;
+  // A placed pin's reverse-geocoded "City, ST" wins for a hand-typed course —
+  // it's where the course actually is, not whatever the poster typed.
+  const locationLabel = coursePin?.locationDisplay || [displayCity, displayState].filter(Boolean).join(', ');
   const hasPin = courseCoords.lat != null && courseCoords.lng != null;
+
+  // Hand-typed course (no golfcourseapi.com id): its location comes only
+  // from a user-placed pin. The first signed-in user to place one owns it;
+  // after that only they can move it.
+  const isCustomCourse = !courseId;
+  const pinOwner = coursePin?.pinPlacedBy ?? null;
+  const canPlacePin = isCustomCourse && pinLoaded && !!user && (!pinOwner || pinOwner === user.id);
+  const pinCenter = coursePin ? { lat: coursePin.lat, lng: coursePin.lng } : null;
+  // No pin yet: frame the course's state, else the viewer's home state,
+  // else the whole US.
+  const fallbackState = stateCenters[displayState] ?? stateCenters[profile?.home_state];
+  const mapCenter =
+    pinCenter ??
+    (fallbackState
+      ? { lat: fallbackState.lat, lng: fallbackState.lng }
+      : { lat: US_INITIAL_REGION.latitude, lng: US_INITIAL_REGION.longitude });
 
   // Distinct sub-course names among this course's posts, in first-seen
   // order — an outer grouping layer above HoleByHoleGrid's own nine
@@ -423,13 +457,41 @@ export default function CourseDetailScreen({ route, navigation }) {
     });
   }
 
-  // Opens the map in "Drop pin on map" mode (see useCourseMapData's
-  // pinDrop); saving the pin there navigates back here with its coordinates.
-  function handleDropPin() {
-    navigation.navigate('Tabs', {
-      screen: 'Map',
-      params: { dropPinForCourse: courseName, dropPinAt: Date.now() },
-    });
+  async function handleSavePin(center) {
+    if (!center || !user || savingPin) return;
+    setSavingPin(true);
+    // City/state are a nice-to-have for the header — a reverse-geocoding
+    // failure never blocks saving the pin itself.
+    const place = await reverseGeocodeCityState(center.lat, center.lng).catch(() => null);
+    try {
+      const saved = await saveCourseLocation(user.id, {
+        courseName,
+        lat: center.lat,
+        lng: center.lng,
+        city: place?.city,
+        state: place?.state,
+      });
+      setCoursePin(saved);
+      setCourseCoords({ lat: saved.lat, lng: saved.lng });
+      setPlacingPin(false);
+    } catch (err) {
+      if (err instanceof CourseAlreadyPinnedError) {
+        // Someone beat us to it — show their pin instead.
+        setPlacingPin(false);
+        getCourseLocation(courseName)
+          .then((pin) => {
+            setCoursePin(pin);
+            if (pin) setCourseCoords({ lat: pin.lat, lng: pin.lng });
+          })
+          .catch(() => {});
+        Alert.alert('Already pinned', err.message);
+      } else {
+        console.error('Failed to save course pin:', err);
+        Alert.alert("Couldn't save location", 'Please try again.');
+      }
+    } finally {
+      setSavingPin(false);
+    }
   }
 
   return (
@@ -471,14 +533,9 @@ export default function CourseDetailScreen({ route, navigation }) {
               <Text style={styles.viewOnMapButtonText}>View on Map</Text>
             </TouchableOpacity>
           ) : (
-            // No API data and nothing to place it by — a hand-typed course
-            // nobody has located yet.
+            // A hand-typed course nobody has located yet — see the pin map below.
             <View style={styles.locationPlaceholder}>
               <Text style={styles.locationPlaceholderText}>Location not set yet</Text>
-              <TouchableOpacity style={styles.viewOnMapButton} onPress={handleDropPin} activeOpacity={0.8}>
-                <Ionicons name="pin" size={12} color="#0d1f3c" />
-                <Text style={styles.viewOnMapButtonText}>Drop pin on map</Text>
-              </TouchableOpacity>
             </View>
           )}
           <Text style={styles.courseMeta}>
@@ -487,6 +544,20 @@ export default function CourseDetailScreen({ route, navigation }) {
               .join(' · ')}
           </Text>
         </LinearGradient>
+
+        {isCustomCourse && (
+          <View style={styles.pinSection}>
+            <View style={styles.pinMapFrame}>
+              <PinPreviewMap center={mapCenter} pin={pinCenter} />
+            </View>
+            {canPlacePin && (
+              <TouchableOpacity style={styles.pinButton} onPress={() => setPlacingPin(true)} activeOpacity={0.85}>
+                <Ionicons name="pin" size={14} color={colors.white} />
+                <Text style={styles.pinButtonText}>{coursePin ? 'Move pin' : 'Place pin'}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {postsLoading ? (
           <View style={styles.loadingContainer}>
@@ -558,6 +629,18 @@ export default function CourseDetailScreen({ route, navigation }) {
           </>
         )}
       </ScrollView>
+
+      {isCustomCourse && (
+        <CoursePinPlacementModal
+          visible={placingPin}
+          courseName={courseName}
+          initialCenter={mapCenter}
+          zoomedIn={!!pinCenter}
+          saving={savingPin}
+          onCancel={() => setPlacingPin(false)}
+          onSave={handleSavePin}
+        />
+      )}
 
       <View style={[styles.bottomNav, { height: 62 + Math.max(insets.bottom, 12), paddingBottom: Math.max(insets.bottom, 12) }]}>
         <BottomNavButton
@@ -679,6 +762,34 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     fontStyle: 'italic',
+  },
+  pinSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.navyBorder,
+  },
+  pinMapFrame: {
+    height: 180,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+  },
+  pinButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: colors.red,
+  },
+  pinButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '700',
   },
   courseMeta: {
     color: colors.offWhite,

@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { resolveMentionedUserIds } from './mentions';
 import { createNotification } from './notifications';
 import { uploadToR2 } from './r2Storage';
-import { escapeIlike } from '../utils/ilike';
+import { escapeIlike, quoteOrValue } from '../utils/ilike';
 
 const EXT_TO_CONTENT_TYPE = {
   jpg: 'image/jpeg',
@@ -214,10 +214,20 @@ export async function getFeedPosts({ userIds, excludeUserIds, offset = 0, limit 
   return posts;
 }
 
+// Every column mapRow reads that a post card / feed slide actually renders
+// (or PostScreen's course shortcuts use) — skips par, manual_entry and the
+// moderation/share counters, which nothing showing a post needs.
+const POST_CARD_COLUMNS =
+  'id, user_id, course_id, course_name, city, state, lat, lng, hole, caption, media_url, media_type, ' +
+  'likes_count, comments_count, created_at, composite_name, sub_course_name, hidden';
+
+// Not paginated on purpose: the profile uploads grid renders every tile, its
+// Posts stat is this list's length, and PostScreen tallies most-posted
+// courses from it.
 export async function getUserPosts(userId) {
   const { data, error } = await supabase
     .from('posts')
-    .select('*')
+    .select(POST_CARD_COLUMNS)
     .eq('user_id', userId)
     .eq('hidden', false)
     .order('created_at', { ascending: false });
@@ -252,49 +262,49 @@ export async function incrementShareCount(postId) {
 // known) and merges the results, deduped by post id.
 //
 // A post that carries a course_id belongs to that course and no other: the
-// name query only ever looks at id-less (hand-typed) posts, and only for the
+// name match only ever looks at id-less (hand-typed) posts, and only for the
 // exact name, ignoring case. A partial/first-word name fallback used to run
 // here when nothing matched exactly, and pulled unrelated courses in — e.g.
 // "Mount Airy Golf Club" matching "Mountain View CC" via "%Mount%".
-async function fetchCourseRows(select, { courseId, courseName }, refine = (q) => q) {
-  const queries = [];
-  if (courseId) {
-    queries.push(refine(supabase.from('posts').select(select).eq('hidden', false).eq('course_id', courseId)));
-  }
-  if (courseName?.trim()) {
-    queries.push(
-      refine(
-        supabase
-          .from('posts')
-          .select(select)
-          .eq('hidden', false)
-          .is('course_id', null)
-          .ilike('course_name', escapeIlike(courseName.trim()))
-      )
+//
+// Both cases go out as one query (an .or() when id and name are both known)
+// so the database can sort and paginate across them. `refine` layers extra
+// filters/ordering/range on before it's sent; null means no course to match.
+function courseRowsQuery(select, { courseId, courseName }, refine = (q) => q) {
+  const name = courseName?.trim();
+  if (!courseId && !name) return null;
+
+  let query = supabase.from('posts').select(select).eq('hidden', false);
+  if (courseId && name) {
+    query = query.or(
+      `course_id.eq.${quoteOrValue(courseId)},` +
+        `and(course_id.is.null,course_name.ilike.${quoteOrValue(escapeIlike(name))})`
     );
+  } else if (courseId) {
+    query = query.eq('course_id', courseId);
+  } else {
+    query = query.is('course_id', null).ilike('course_name', escapeIlike(name));
   }
-  if (queries.length === 0) return [];
-
-  const results = await Promise.all(queries);
-  for (const { error } of results) {
-    if (error) throw error;
-  }
-  const merged = new Map();
-  for (const { data } of results) {
-    for (const row of data ?? []) merged.set(row.id, row);
-  }
-
-  return [...merged.values()];
+  return refine(query);
 }
 
-// All posts at a given course, sorted most-liked first — used by the Course
-// Detail screen's All Posts tab.
+async function fetchCourseRows(select, match, refine) {
+  const query = courseRowsQuery(select, match, refine);
+  if (!query) return [];
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+
+// All posts at a given course, most-liked first — used by the map's course
+// popup, which only reads each post's nine (compositeName) and the count,
+// so that's all this fetches.
 export async function getPostsForCourse({ courseId, courseName }) {
-  const rows = await fetchCourseRows(
-    '*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)',
-    { courseId, courseName }
+  const rows = await fetchCourseRows('id, composite_name, likes_count', { courseId, courseName }, (q) =>
+    q.order('likes_count', { ascending: false })
   );
-  return rows.map(mapRow).sort((a, b) => b.likes - a.likes);
+  return rows.map(mapRow);
 }
 
 // Lightweight per-post `{ hole, par, compositeName }` rows for the Course Detail
@@ -373,7 +383,7 @@ export async function getCourseFeedPosts({
   limit = 10,
 }) {
   const rows = await fetchCourseRows(
-    '*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)',
+    `${POST_CARD_COLUMNS}, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)`,
     { courseId, courseName },
     (q) => {
       if (hole != null) q = q.eq('hole', hole);
@@ -387,18 +397,15 @@ export async function getCourseFeedPosts({
       } else if (subCourseName) {
         q = q.eq('sub_course_name', subCourseName);
       }
-      return q;
+      if (sort !== 'recent') q = q.order('likes_count', { ascending: false });
+      // created_at, then id, as tiebreakers keep pages stable — equal like
+      // counts would otherwise shuffle between .range() calls.
+      return q
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(offset, offset + limit - 1);
     }
   );
 
-  // Sorted/paginated client-side now that rows can come from two merged
-  // queries (see fetchCourseRows) — scoped down to one hole (and course) at
-  // a time, so this stays a small, cheap set rather than the whole feed.
-  const sorted = rows
-    .map(mapRow)
-    .sort((a, b) =>
-      sort === 'recent' ? new Date(b.createdAt) - new Date(a.createdAt) : b.likes - a.likes
-    );
-
-  return sorted.slice(offset, offset + limit);
+  return rows.map(mapRow);
 }

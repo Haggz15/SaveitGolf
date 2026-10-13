@@ -22,7 +22,7 @@ function getInitials(name) {
   return name.trim().slice(0, 1).toUpperCase();
 }
 
-// A plain "look someone up" search — distinct from AddFriendsModal, which
+// A plain "look someone up" search — distinct from FindGolfersScreen, which
 // is the discovery flow with a Follow button on every row. This one just
 // finds a golfer by name/username and opens their profile.
 export default function UserSearchModal({ visible, onClose, currentUserId, navigation }) {

@@ -10,6 +10,9 @@ function mapRow(row) {
     city: row.city,
     state: row.state,
     createdBy: row.created_by,
+    // Pins dropped before pin_placed_by existed fall back to their creator.
+    pinPlacedBy: row.pin_placed_by ?? row.created_by ?? null,
+    locationDisplay: row.location_display ?? ([row.city, row.state].filter(Boolean).join(', ') || null),
   };
 }
 
@@ -36,19 +39,26 @@ export class CourseAlreadyPinnedError extends Error {
   }
 }
 
-// Places the pin, or moves it if this user placed the existing one. Throws
+// Places the pin, or moves it if this user placed the existing one (or the
+// existing row has no placer left to claim it). Throws
 // CourseAlreadyPinnedError when another user's pin is already there (RLS
-// only lets a pin's creator update it).
+// only lets pin_placed_by update it).
 export async function saveCourseLocation(userId, { courseName, lat, lng, city, state }) {
   const name = courseName.trim();
   const existing = await getCourseLocation(name);
-  const fields = { latitude: lat, longitude: lng, city: city ?? null, state: state ?? null };
+  const fields = {
+    latitude: lat,
+    longitude: lng,
+    city: city ?? null,
+    state: state ?? null,
+    location_display: [city, state].filter(Boolean).join(', ') || null,
+  };
 
   if (existing) {
-    if (existing.createdBy !== userId) throw new CourseAlreadyPinnedError();
+    if (existing.pinPlacedBy && existing.pinPlacedBy !== userId) throw new CourseAlreadyPinnedError();
     const { data, error } = await supabase
       .from('course_locations')
-      .update({ ...fields, updated_at: new Date().toISOString() })
+      .update({ ...fields, pin_placed_by: userId, updated_at: new Date().toISOString() })
       .eq('id', existing.id)
       .select()
       .single();
@@ -58,7 +68,7 @@ export async function saveCourseLocation(userId, { courseName, lat, lng, city, s
 
   const { data, error } = await supabase
     .from('course_locations')
-    .insert({ course_name: name, created_by: userId, ...fields })
+    .insert({ course_name: name, created_by: userId, pin_placed_by: userId, ...fields })
     .select()
     .single();
   // Unique violation on lower(course_name): someone else pinned it between

@@ -3,6 +3,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { supabase } from '../services/supabase';
 import { getProfile, insertProfile, updateProfile as updateProfileRequest } from '../services/profiles';
 import { registerForPushNotifications } from '../services/pushNotifications';
+import { followUser } from '../services/social';
+
+// SaveitGolf's own account — auto-followed by every new user on signup.
+const DEFAULT_FOLLOW_USER_ID = 'b5c2931d-47ed-427e-85c0-c5073c53fc1f';
 
 const AuthContext = createContext(null);
 
@@ -73,6 +77,13 @@ export function AuthProvider({ children }) {
     async (fields) => {
       if (!session?.user?.id) throw new Error('Not signed in.');
       const row = await insertProfile(session.user.id, fields);
+      // Every new account starts out following SaveitGolf's own account, so
+      // the Following feed isn't empty on day one. followUser skips an
+      // existing follow (unique constraint) and self-follows; never let it
+      // block finishing signup.
+      await followUser(session.user.id, DEFAULT_FOLLOW_USER_ID).catch((err) =>
+        console.warn('[auth] default follow failed', err)
+      );
       setProfile(row);
       return row;
     },

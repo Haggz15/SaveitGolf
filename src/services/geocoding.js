@@ -1,4 +1,6 @@
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
 import stateCenters from '../data/stateCenters.json';
 
 const CACHE_KEY = 'saveitgolf.geocodeCache.v1';
@@ -204,4 +206,31 @@ export async function reverseGeocode(lat, lng) {
   cache[key] = result;
   await persistReverseCache(cache);
   return result;
+}
+
+// The device's own geocoder (expo-location's reverseGeocodeAsync — Apple's
+// CLGeocoder / Android's Geocoder) for a single, user-initiated lookup like
+// saving a course pin. iOS reports `region` as "CA", Android as
+// "California", so both are normalized to the abbreviation. Falls back to
+// Nominatim on web (no device geocoder) or when the native lookup fails or
+// comes back empty.
+export async function reverseGeocodeCityState(lat, lng) {
+  if (Platform.OS !== 'web') {
+    try {
+      const [place] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+      if (place) {
+        const city = place.city || place.subregion || null;
+        const region = place.region?.trim() || null;
+        const state = region
+          ? stateCenters[region.toUpperCase()]
+            ? region.toUpperCase()
+            : stateNameToAbbr[region.toLowerCase()] ?? region
+          : null;
+        if (city || state) return { city, state };
+      }
+    } catch (err) {
+      console.warn('[geocoding] device reverse geocode failed, falling back', err);
+    }
+  }
+  return reverseGeocode(lat, lng);
 }

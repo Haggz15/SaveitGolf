@@ -1,5 +1,18 @@
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, StyleSheet, SafeAreaView, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  Modal,
+  StyleSheet,
+  SafeAreaView,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  InputAccessoryView,
+  Keyboard,
+  Platform,
+  Pressable,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 import AuthTextField from '../auth/AuthTextField';
@@ -18,6 +31,11 @@ const PAD_KEYS = [
   ['7', '8', '9'],
   ['+', '0', '.'],
 ];
+
+// iOS's decimal-pad has no return key, so the average-score field gets a
+// "Done" bar above the keyboard to dismiss it. (Android's numeric keyboard
+// has its own dismiss key, and InputAccessoryView is iOS-only.)
+const AVERAGE_INPUT_ACCESSORY_ID = 'handicap-average-score-done';
 
 export default function HandicapInputModal({ visible, onClose, onSubmit }) {
   const [mode, setMode] = useState(MODES.KNOW);
@@ -91,113 +109,152 @@ export default function HandicapInputModal({ visible, onClose, onSubmit }) {
       supportedOrientations={['portrait']}
       onRequestClose={resetAndClose}
     >
-      <SafeAreaView style={styles.modalRoot}>
-        <View style={styles.sheet}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>Set Your Handicap</Text>
-            <TouchableOpacity onPress={resetAndClose} hitSlop={10}>
-              <Ionicons name="close" size={22} color={colors.white} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.content}>
-            <View style={styles.modeRow}>
+      {/* Lifts the sheet above the keyboard so the field and Save stay
+          visible while typing an average score. */}
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <SafeAreaView style={styles.modalRoot}>
+          {/* Tapping the dimmed area above the sheet dismisses the keyboard
+              first, then the sheet. */}
+          <Pressable
+            style={styles.backdrop}
+            onPress={() => (Keyboard.isVisible() ? Keyboard.dismiss() : resetAndClose())}
+            accessibilityLabel="Close"
+          />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHeader}>
               <TouchableOpacity
-                style={[styles.modeButton, mode === MODES.KNOW && styles.modeButtonActive]}
-                onPress={() => setMode(MODES.KNOW)}
+                onPress={resetAndClose}
+                hitSlop={10}
+                style={styles.headerSide}
+                accessibilityRole="button"
+                accessibilityLabel="Back"
               >
-                <Text style={[styles.modeButtonText, mode === MODES.KNOW && styles.modeButtonTextActive]}>
-                  I know my handicap
-                </Text>
+                <Ionicons name="chevron-back" size={24} color={colors.red} />
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modeButton, mode === MODES.AVERAGE && styles.modeButtonActive]}
-                onPress={() => setMode(MODES.AVERAGE)}
-              >
-                <Text style={[styles.modeButtonText, mode === MODES.AVERAGE && styles.modeButtonTextActive]}>
-                  Use my average score
-                </Text>
-              </TouchableOpacity>
+              <Text style={styles.sheetTitle}>Set Your Handicap</Text>
+              <View style={styles.headerSide} />
             </View>
 
-            {mode === MODES.KNOW ? (
-              <>
-                <View style={styles.padDisplay}>
-                  <Text
-                    style={[styles.padDisplayText, !handicapText && styles.padDisplayPlaceholder]}
-                    numberOfLines={1}
-                  >
-                    {handicapText || 'e.g. 12.4'}
+            <View style={styles.content}>
+              <View style={styles.modeRow}>
+                <TouchableOpacity
+                  style={[styles.modeButton, mode === MODES.KNOW && styles.modeButtonActive]}
+                  onPress={() => setMode(MODES.KNOW)}
+                >
+                  <Text style={[styles.modeButtonText, mode === MODES.KNOW && styles.modeButtonTextActive]}>
+                    I know my handicap
                   </Text>
-                  <TouchableOpacity
-                    onPress={handleBackspace}
-                    disabled={!handicapText}
-                    hitSlop={10}
-                    accessibilityLabel="Delete last character"
-                  >
-                    <Ionicons
-                      name="backspace-outline"
-                      size={24}
-                      color={handicapText ? colors.white : colors.muted}
-                    />
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.pad}>
-                  {PAD_KEYS.map((row) => (
-                    <View key={row.join('')} style={styles.padRow}>
-                      {row.map((key) => (
-                        <TouchableOpacity
-                          key={key}
-                          style={styles.padKey}
-                          onPress={() => handlePadKey(key)}
-                          activeOpacity={0.6}
-                        >
-                          <Text style={styles.padKeyText}>{key}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  ))}
-                </View>
-              </>
-            ) : (
-              <>
-                <AuthTextField
-                  placeholder="Average 18-hole score (e.g. 90)"
-                  value={averageScoreText}
-                  onChangeText={setAverageScoreText}
-                  keyboardType="decimal-pad"
-                />
-                <Text style={styles.helperText}>
-                  We will estimate your handicap based on your average score.
-                </Text>
-                {estimatedHandicap != null && (
-                  <Text style={styles.estimateText}>Estimated handicap index: {formatHandicap(estimatedHandicap)}</Text>
-                )}
-              </>
-            )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modeButton, mode === MODES.AVERAGE && styles.modeButtonActive]}
+                  onPress={() => setMode(MODES.AVERAGE)}
+                >
+                  <Text style={[styles.modeButtonText, mode === MODES.AVERAGE && styles.modeButtonTextActive]}>
+                    Use my average score
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+              {mode === MODES.KNOW ? (
+                <>
+                  <View style={styles.padDisplay}>
+                    <Text
+                      style={[styles.padDisplayText, !handicapText && styles.padDisplayPlaceholder]}
+                      numberOfLines={1}
+                    >
+                      {handicapText || 'e.g. 12.4'}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={handleBackspace}
+                      disabled={!handicapText}
+                      hitSlop={10}
+                      accessibilityLabel="Delete last character"
+                    >
+                      <Ionicons
+                        name="backspace-outline"
+                        size={24}
+                        color={handicapText ? colors.white : colors.muted}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.pad}>
+                    {PAD_KEYS.map((row) => (
+                      <View key={row.join('')} style={styles.padRow}>
+                        {row.map((key) => (
+                          <TouchableOpacity
+                            key={key}
+                            style={styles.padKey}
+                            onPress={() => handlePadKey(key)}
+                            activeOpacity={0.6}
+                          >
+                            <Text style={styles.padKeyText}>{key}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    ))}
+                  </View>
+                </>
+              ) : (
+                <>
+                  <AuthTextField
+                    placeholder="Average 18-hole score (e.g. 90)"
+                    value={averageScoreText}
+                    onChangeText={setAverageScoreText}
+                    keyboardType="decimal-pad"
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                    inputAccessoryViewID={Platform.OS === 'ios' ? AVERAGE_INPUT_ACCESSORY_ID : undefined}
+                  />
+                  <Text style={styles.helperText}>
+                    We will estimate your handicap based on your average score.
+                  </Text>
+                  {estimatedHandicap != null && (
+                    <Text style={styles.estimateText}>Estimated handicap index: {formatHandicap(estimatedHandicap)}</Text>
+                  )}
+                </>
+              )}
 
-            <TouchableOpacity
-              style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-              onPress={handleSave}
-              disabled={saving}
-              activeOpacity={0.85}
-            >
-              {saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.saveButtonText}>Save</Text>}
+              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+              <TouchableOpacity
+                style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+                onPress={handleSave}
+                disabled={saving}
+                activeOpacity={0.85}
+              >
+                {saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.saveButtonText}>Save</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView nativeID={AVERAGE_INPUT_ACCESSORY_ID}>
+          <View style={styles.keyboardToolbar}>
+            <TouchableOpacity onPress={Keyboard.dismiss} hitSlop={10}>
+              <Text style={styles.keyboardToolbarDone}>Done</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      </SafeAreaView>
+        </InputAccessoryView>
+      )}
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoider: {
+    flex: 1,
+  },
   modalRoot: {
     flex: 1,
     justifyContent: 'flex-end',
     backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  backdrop: {
+    flex: 1,
   },
   sheet: {
     backgroundColor: colors.navy,
@@ -214,8 +271,25 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.navyBorder,
   },
+  headerSide: {
+    width: 32,
+  },
   sheetTitle: {
     color: colors.white,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  keyboardToolbar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: colors.navyCard,
+    borderTopWidth: 1,
+    borderTopColor: colors.navyBorder,
+  },
+  keyboardToolbarDone: {
+    color: colors.red,
     fontSize: 16,
     fontWeight: '700',
   },

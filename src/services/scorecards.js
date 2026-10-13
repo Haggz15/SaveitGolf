@@ -174,7 +174,8 @@ export async function getScorecardsForCourse({ courseId, courseName }) {
   request = courseId
     ? request.eq('course_id', courseId)
     : request.is('course_id', null).ilike('course_name', escapeIlike((courseName ?? '').trim()));
-  request = request.order('total_score', { ascending: true });
+  // A leaderboard — the top 50 is all anyone scrolls.
+  request = request.order('total_score', { ascending: true }).limit(50);
 
   const { data, error } = await request;
   if (error) throw error;

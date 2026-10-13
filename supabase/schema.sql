@@ -1031,3 +1031,93 @@ create policy "Users can move pins they placed"
   on public.course_locations for update
   using (auth.uid() = created_by)
   with check (auth.uid() = created_by);
+
+-- Course pin ownership + display string, set from the Course Detail screen's
+-- in-screen "Place pin" flow. pin_placed_by is whoever placed the first pin
+-- (backfilled from created_by for pins dropped before this column existed);
+-- only they can move it. location_display is the reverse-geocoded
+-- "City, ST" shown under the course name.
+alter table public.course_locations
+  add column if not exists pin_placed_by uuid references auth.users (id) on delete set null;
+alter table public.course_locations
+  add column if not exists location_display text;
+
+update public.course_locations
+  set pin_placed_by = created_by
+  where pin_placed_by is null and created_by is not null;
+
+drop policy if exists "Signed-in users can pin a course" on public.course_locations;
+create policy "Signed-in users can pin a course"
+  on public.course_locations for insert
+  with check (auth.uid() = pin_placed_by);
+
+-- A row whose placer is gone (pin_placed_by null, e.g. their account was
+-- deleted) is up for grabs again: anyone signed in can claim it.
+drop policy if exists "Users can move pins they placed" on public.course_locations;
+create policy "Users can move pins they placed"
+  on public.course_locations for update
+  using (pin_placed_by is null or auth.uid() = pin_placed_by)
+  with check (auth.uid() = pin_placed_by);
+
+-- One row per course that has a geolocated post, per state — what the map's
+-- All Courses / Near Me pins need from posts (see getAllCoursesInState in
+-- src/services/stateCourses.js), without shipping one row per post. Keyed
+-- the same way the app dedupes courses: course_id when there is one, else
+-- the hand-typed name. security_invoker so posts' RLS still applies to
+-- whoever queries it.
+create or replace view public.course_post_locations
+  with (security_invoker = true) as
+select distinct on (state, coalesce(course_id, course_name))
+  course_id, course_name, city, state, lat, lng
+from public.posts
+where lat is not null and lng is not null
+order by state, coalesce(course_id, course_name), created_at;
+
+grant select on public.course_post_locations to anon, authenticated;
+
+-- Find Golfers (src/screens/FindGolfersScreen.js): profiles plus a live
+-- follower count, so search results and suggestions can show and sort by
+-- it without a per-row count query. security_invoker so profiles' and
+-- followers' RLS still apply to whoever queries it.
+create or replace view public.golfer_profiles
+  with (security_invoker = true) as
+select
+  p.user_id,
+  p.username,
+  p.full_name,
+  p.avatar_url,
+  (select count(*) from public.followers f where f.following_id = p.user_id)::int as follower_count
+from public.profiles p;
+
+grant select on public.golfer_profiles to anon, authenticated;
+
+-- Suggested golfers for the signed-in user, most-followed first, excluding
+-- themselves and anyone they already follow. With p_states, only golfers
+-- who have a My Courses entry in one of those states ("Golfers Near You");
+-- without, everyone ("Popular on SaveitGolf").
+create or replace function public.suggested_golfers(p_states text[] default null, p_limit int default 10)
+returns setof public.golfer_profiles
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select g.*
+  from public.golfer_profiles g
+  where g.user_id <> auth.uid()
+    and not exists (
+      select 1 from public.followers f
+      where f.follower_id = auth.uid() and f.following_id = g.user_id
+    )
+    and (
+      p_states is null
+      or exists (
+        select 1 from public.my_courses m
+        where m.user_id = g.user_id and m.state = any (p_states)
+      )
+    )
+  order by g.follower_count desc, g.username
+  limit least(greatest(coalesce(p_limit, 10), 1), 50);
+$$;
+
+grant execute on function public.suggested_golfers(text[], int) to authenticated;

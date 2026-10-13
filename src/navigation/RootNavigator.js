@@ -16,6 +16,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import OtherUserProfileScreen from '../screens/OtherUserProfileScreen';
 import UserScorecardsScreen from '../screens/UserScorecardsScreen';
 import CourseDetailScreen from '../screens/CourseDetailScreen';
+import FindGolfersScreen from '../screens/FindGolfersScreen';
 import SignUpScreen from '../screens/auth/SignUpScreen';
 import LogInScreen from '../screens/auth/LogInScreen';
 import ProfileSetupScreen from '../screens/auth/ProfileSetupScreen';
@@ -170,6 +171,7 @@ export default function RootNavigator() {
           <Stack.Screen name="ProfileFeed" component={FeedScreen} />
           <Stack.Screen name="UserProfile" component={OtherUserProfileScreen} />
           <Stack.Screen name="UserScorecards" component={UserScorecardsScreen} />
+          <Stack.Screen name="FindGolfers" component={FindGolfersScreen} />
           <Stack.Screen name="Terms" component={TermsOfServiceScreen} />
           <Stack.Screen name="Privacy" component={PrivacyPolicyScreen} />
         </Stack.Navigator>

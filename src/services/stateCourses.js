@@ -28,11 +28,12 @@ export async function getAllCoursesInState(stateAbbr) {
       .select('course_id, course_name, city, state, latitude, longitude')
       .eq('state', stateAbbr)
       .not('latitude', 'is', null),
+    // One row per course rather than per post — see the course_post_locations
+    // view in schema.sql.
     supabase
-      .from('posts')
+      .from('course_post_locations')
       .select('course_id, course_name, city, state, lat, lng')
-      .eq('state', stateAbbr)
-      .not('lat', 'is', null),
+      .eq('state', stateAbbr),
     supabase
       .from('scorecards')
       .select('course_id, course_name, city, state, lat, lng')

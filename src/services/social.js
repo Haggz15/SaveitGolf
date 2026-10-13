@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { createNotification } from './notifications';
+import { escapeIlike, quoteOrValue } from '../utils/ilike';
 
 // Matches on username or full_name, case-insensitive, excluding the current
 // user so people don't see a "Follow yourself" result.
@@ -177,4 +178,54 @@ export async function getFollowingList(userId) {
   if (profilesError) throw profilesError;
   const byId = new Map((profiles ?? []).map((profile) => [profile.user_id, profile]));
   return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+
+// Find Golfers — rows from the golfer_profiles view (profile + live
+// follower_count; see schema.sql), shaped for the screen's user rows.
+function mapGolfer(row) {
+  return {
+    userId: row.user_id,
+    username: row.username,
+    fullName: row.full_name,
+    avatarUrl: row.avatar_url,
+    followerCount: row.follower_count ?? 0,
+  };
+}
+
+// Live search by username or full name, most-followed first. Unlike
+// searchProfiles above, the text is matched literally (no "%"/"_"
+// wildcards) and quoted so commas/periods don't break the .or() filter.
+export async function searchGolfers(query, currentUserId) {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const pattern = quoteOrValue(`%${escapeIlike(trimmed)}%`);
+
+  let request = supabase
+    .from('golfer_profiles')
+    .select('user_id, username, full_name, avatar_url, follower_count')
+    .or(`username.ilike.${pattern},full_name.ilike.${pattern}`)
+    .order('follower_count', { ascending: false })
+    .limit(20);
+  if (currentUserId) request = request.neq('user_id', currentUserId);
+
+  const { data, error } = await request;
+  if (error) throw error;
+  return (data ?? []).map(mapGolfer);
+}
+
+// Most-followed golfers the signed-in user doesn't follow yet (never
+// themselves) — scoped to golfers with a My Courses entry in `states` when
+// given. See the suggested_golfers function in schema.sql.
+export async function getSuggestedGolfers({ states = null, limit = 10 } = {}) {
+  const { data, error } = await supabase.rpc('suggested_golfers', { p_states: states, p_limit: limit });
+  if (error) throw error;
+  return (data ?? []).map(mapGolfer);
+}
+
+// Distinct states across a user's My Courses entries.
+export async function getMyCourseStates(userId) {
+  if (!userId) return [];
+  const { data, error } = await supabase.from('my_courses').select('state').eq('user_id', userId).not('state', 'is', null);
+  if (error) throw error;
+  return [...new Set((data ?? []).map((row) => row.state))];
 }
