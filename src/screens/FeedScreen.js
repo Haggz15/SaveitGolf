@@ -24,7 +24,7 @@ import NotificationPanel from '../components/feed/NotificationPanel';
 import PostActionsSheet from '../components/feed/PostActionsSheet';
 import ShotOfWeekBanner from '../components/feed/ShotOfWeekBanner';
 import MentionText from '../components/social/MentionText';
-import WatermarkCapture, { stampPostPhoto } from '../components/feed/WatermarkCapture';
+import PostWatermarkCapture, { stampPostPhoto } from '../components/feed/PostWatermarkCapture';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import {
@@ -82,8 +82,8 @@ function PostSlide({
     if (videoTapFeedback.current) videoTapFeedback.current();
   }
 
-  // Someone else's photo gets a "SaveitGolf" badge stamped into its
-  // bottom-left corner (see WatermarkCapture). Videos, the user's own posts,
+  // Someone else's photo gets the GolfBallMark + @author stamped onto its
+  // middle-right edge (see PostWatermarkCapture). Videos, the user's own posts,
   // and web always save the original uploaded file straight from media_url.
   async function saveMediaForPost(mediaUrl) {
     const stampedUri = await stampPostPhoto({ post, currentUserId, captureRef: watermarkCaptureRef });
@@ -1079,7 +1079,7 @@ export default function FeedScreen({ navigation, route }) {
         onBlock={handleBlockUser}
       />
 
-      <WatermarkCapture ref={watermarkCaptureRef} />
+      <PostWatermarkCapture ref={watermarkCaptureRef} />
 
       <Toast
         message={toastMessage}
