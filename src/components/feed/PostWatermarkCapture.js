@@ -1,7 +1,6 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
 import { Image, PixelRatio, Platform, StyleSheet, Text, View } from 'react-native';
 import ViewShot from 'react-native-view-shot';
-import GolfBallMark, { useGolfBallFont } from '../common/GolfBallMark';
 import colors from '../../theme/colors';
 
 // Longest edge of the exported image, in device pixels. Big enough to look
@@ -10,8 +9,9 @@ const MAX_EXPORT_EDGE = 2048;
 // Watermark is authored at these sizes for a phone-width (390pt) image and
 // scaled up with the export, so it looks the same relative size on any photo.
 const REFERENCE_WIDTH = 390;
-const LOGO_WIDTH = 32;
-const USERNAME_FONT_SIZE = 18;
+const LOGO = require('../../../assets/icon.png');
+const LOGO_SIZE = 32;
+const USERNAME_FONT_SIZE = 14;
 // Bail out if the photo never loads (bad URL, offline) instead of leaving
 // the Save button spinning forever.
 const LOAD_TIMEOUT_MS = 15000;
@@ -29,18 +29,20 @@ function nextFrames() {
 }
 
 // Mounted once per FeedScreen (never inside FlatList cells) and kept
-// off-screen. stamp(uri, username) renders the photo with the GolfBallMark
-// logo and "@username" on its middle-right edge (no background — a drop
-// shadow keeps the white text legible on any photo), waits for the Image's onLoad, captures it with
-// ViewShot and resolves with the local file URI of the watermarked JPEG.
+// off-screen. stamp(uri, username) renders the photo with the app icon and
+// "@username" on its middle-right edge (no background — a drop shadow keeps
+// the white text legible on any photo), waits for both the photo and the icon
+// to load, captures it with ViewShot and resolves with the local file URI of
+// the watermarked JPEG.
 const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, ref) {
   const viewShotRef = useRef(null);
-  const ballFont = useGolfBallFont();
   const [job, setJob] = useState(null); // { id, uri, username, width, height }
   const pendingRef = useRef(null); // { id, resolve, reject, timer }
   // Serialises stamp() calls — there's only one off-screen canvas.
   const queueRef = useRef(Promise.resolve());
   const jobIdRef = useRef(0);
+  // Images loaded for the current job; capture once both photo and logo are in.
+  const loadedRef = useRef({ id: null, count: 0 });
 
   const finish = useCallback((id, error, result) => {
     const pending = pendingRef.current;
@@ -79,6 +81,9 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
   }), [runStamp]);
 
   async function handleLoad(id) {
+    if (loadedRef.current.id !== id) loadedRef.current = { id, count: 0 };
+    loadedRef.current.count += 1;
+    if (loadedRef.current.count < 2) return;
     try {
       await nextFrames();
       const capturedUri = await viewShotRef.current.capture();
@@ -107,7 +112,17 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
             onError={(e) => finish(job.id, new Error(e?.nativeEvent?.error || 'Could not load image'))}
           />
           <View style={[styles.watermark, { right: job.width * 0.04, gap: 6 * scale }]}>
-            <GolfBallMark fontFamily={ballFont} displayWidth={LOGO_WIDTH * scale} />
+            <Image
+              key={`logo-${job.id}`}
+              source={LOGO}
+              style={{
+                width: LOGO_SIZE * scale,
+                height: LOGO_SIZE * scale,
+                borderRadius: LOGO_SIZE * 0.22 * scale,
+              }}
+              onLoad={() => handleLoad(job.id)}
+              onError={() => finish(job.id, new Error('Could not load watermark logo'))}
+            />
             {job.username ? (
               <Text
                 style={[
@@ -169,7 +184,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   username: {
-    fontFamily: 'DancingScript_700Bold',
+    fontWeight: '600',
     color: colors.white,
     textShadowColor: 'rgba(0, 0, 0, 0.55)',
   },
