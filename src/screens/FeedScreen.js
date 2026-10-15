@@ -24,6 +24,7 @@ import NotificationPanel from '../components/feed/NotificationPanel';
 import PostActionsSheet from '../components/feed/PostActionsSheet';
 import ShotOfWeekBanner from '../components/feed/ShotOfWeekBanner';
 import MentionText from '../components/social/MentionText';
+import WatermarkCapture, { stampPostPhoto } from '../components/feed/WatermarkCapture';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import {
@@ -39,7 +40,7 @@ import { createNotification } from '../services/notifications';
 import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
 import { getCurrentShotOfWeek } from '../services/shotOfWeek';
-import { saveMediaToDevice } from '../utils/saveMedia';
+import { saveMediaToDevice, saveLocalUriToLibrary } from '../utils/saveMedia';
 
 function PostSlide({
   post,
@@ -58,6 +59,7 @@ function PostSlide({
   onMorePress,
   onMentionPress,
   onToast,
+  watermarkCaptureRef,
 }) {
   const [liked, setLiked] = useState(initiallyLiked);
   const [likeCount, setLikeCount] = useState(post.likes);
@@ -80,9 +82,13 @@ function PostSlide({
     if (videoTapFeedback.current) videoTapFeedback.current();
   }
 
-  // Always saves the original uploaded file (photo or video) straight from
-  // media_url — never a screen capture of the rendered slide.
-  const saveMediaForPost = (mediaUrl) => saveMediaToDevice(mediaUrl);
+  // Someone else's photo gets a "SaveitGolf" badge stamped into its
+  // bottom-left corner (see WatermarkCapture). Videos, the user's own posts,
+  // and web always save the original uploaded file straight from media_url.
+  async function saveMediaForPost(mediaUrl) {
+    const stampedUri = await stampPostPhoto({ post, currentUserId, captureRef: watermarkCaptureRef });
+    return stampedUri ? saveLocalUriToLibrary(stampedUri) : saveMediaToDevice(mediaUrl);
+  }
 
   useEffect(() => {
     if (isVideo) {
@@ -384,6 +390,9 @@ export default function FeedScreen({ navigation, route }) {
       ? measuredPagerHeight
       : windowHeight - insets.top - HEADER_CONTENT_HEIGHT - TAB_BAR_HEIGHT;
   const postsListRef = useRef(null);
+  // Single off-screen canvas shared by every PostSlide for stamping the
+  // SaveitGolf watermark onto saved photos.
+  const watermarkCaptureRef = useRef(null);
   // Caches the current user's following list for the lifetime of a feed load
   // so "load more" pages don't re-query it on every scroll-to-bottom.
   const followingIdsRef = useRef([]);
@@ -988,6 +997,7 @@ export default function FeedScreen({ navigation, route }) {
                   onMorePress={setActionsSheetPost}
                   onMentionPress={handleMentionPress}
                   onToast={showToast}
+                  watermarkCaptureRef={watermarkCaptureRef}
                 />
               )}
               pagingEnabled
@@ -1068,6 +1078,8 @@ export default function FeedScreen({ navigation, route }) {
         onReport={handleReportPost}
         onBlock={handleBlockUser}
       />
+
+      <WatermarkCapture ref={watermarkCaptureRef} />
 
       <Toast
         message={toastMessage}
