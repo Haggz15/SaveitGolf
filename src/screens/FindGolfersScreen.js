@@ -13,7 +13,6 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as Location from 'expo-location';
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -26,7 +25,6 @@ import {
 } from '../services/social';
 
 const SEARCH_DEBOUNCE_MS = 300;
-const NEAR_YOU_RADIUS_MILES = 100;
 const NEAR_YOU_COUNT = 8;
 const POPULAR_COUNT = 10;
 
@@ -37,20 +35,6 @@ function getInitials(name) {
 
 function followerLabel(count) {
   return `${count} ${count === 1 ? 'follower' : 'followers'}`;
-}
-
-// The device's current position, or null if location permission is
-// denied or the lookup fails.
-async function getDeviceCoords() {
-  try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return null;
-    const { coords } = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
-    return coords;
-  } catch (err) {
-    console.warn('[findGolfers] location lookup failed', err);
-    return null;
-  }
 }
 
 function GolferRow({ golfer, isFollowing, followerCount, onToggleFollow, onOpen }) {
@@ -98,7 +82,8 @@ export default function FindGolfersScreen({ navigation }) {
   const [nearYou, setNearYou] = useState([]);
   const [popular, setPopular] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
-  const [locationAvailable, setLocationAvailable] = useState(true);
+  // The state Near You matched on, or null if the user has none yet.
+  const [nearYouState, setNearYouState] = useState(null);
 
   const [followingIds, setFollowingIds] = useState(new Set());
   // Optimistic +1/-1 per user on top of the follower_count each row was
@@ -119,8 +104,7 @@ export default function FindGolfersScreen({ navigation }) {
     }, [userId])
   );
 
-  // Suggestions load once per visit and skip the user and everyone they
-  // already follow; following someone here keeps them listed for the rest
+  // Suggestions load once per visit; following someone here keeps them listed for the rest
   // of the visit (now showing Unfollow).
   useEffect(() => {
     if (!userId) return undefined;
@@ -131,30 +115,21 @@ export default function FindGolfersScreen({ navigation }) {
         console.error('Failed to load following list:', err);
         return [];
       });
-      const excludeIds = [userId, ...followed];
-      const [coords, top] = await Promise.all([
-        getDeviceCoords(),
-        getPopularGolfers({ limit: POPULAR_COUNT, excludeIds }).catch((err) => {
+      // Near You skips everyone already followed; Popular only skips the
+      // user themselves (see getPopularGolfers).
+      const [near, top] = await Promise.all([
+        getNearbyGolfers({ userId, limit: NEAR_YOU_COUNT, excludeIds: [userId, ...followed] }).catch((err) => {
+          console.error('Failed to load golfers near you:', err);
+          return { state: null, golfers: [] };
+        }),
+        getPopularGolfers({ limit: POPULAR_COUNT, excludeIds: [userId] }).catch((err) => {
           console.error('Failed to load popular golfers:', err);
           return [];
         }),
       ]);
-      if (!coords) console.log('[findGolfers] near you — no device location, skipping');
-      const near = coords
-        ? await getNearbyGolfers({
-            latitude: coords.latitude,
-            longitude: coords.longitude,
-            radiusMiles: NEAR_YOU_RADIUS_MILES,
-            limit: NEAR_YOU_COUNT,
-            excludeIds,
-          }).catch((err) => {
-            console.error('Failed to load golfers near you:', err);
-            return [];
-          })
-        : [];
       if (cancelled) return;
-      setLocationAvailable(Boolean(coords));
-      setNearYou(near);
+      setNearYouState(near.state);
+      setNearYou(near.golfers);
       setPopular(top);
       setSuggestionsLoading(false);
     })();
@@ -301,9 +276,9 @@ export default function FindGolfersScreen({ navigation }) {
             nearYou.map(renderRow)
           ) : (
             <Text style={styles.sectionEmpty}>
-              {locationAvailable
-                ? `No golfers within ${NEAR_YOU_RADIUS_MILES} miles yet.`
-                : 'Turn on location to see golfers near you.'}
+              {nearYouState
+                ? `No other golfers in ${nearYouState} yet.`
+                : 'Post a round or add a course to see golfers near you.'}
             </Text>
           )}
 

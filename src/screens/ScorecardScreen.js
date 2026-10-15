@@ -22,6 +22,7 @@ import PhotoLayoutToggle from '../components/scorecard/PhotoLayoutToggle';
 import ShareOptionsModal from '../components/scorecard/ShareOptionsModal';
 import WebPhotoCropModal from '../components/scorecard/WebPhotoCropModal';
 import PhotoCropModal from '../components/scorecard/PhotoCropModal';
+import PhotoActionSheet from '../components/scorecard/PhotoActionSheet';
 import EditScoreModal from '../components/scorecard/EditScoreModal';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
@@ -30,6 +31,7 @@ import {
   getLatestScorecard,
   saveScorecard,
   saveScorecardPhoto,
+  setScorecardPhotoUrl,
   updateScorecardPhotoLayout,
 } from '../services/scorecards';
 import { notifyFollowersOfScorecard } from '../services/notifications';
@@ -57,8 +59,8 @@ export default function ScorecardScreen() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
   // Web only: which part of the photo the `cover`-resized frame centers on
-  // (see WebPhotoCropModal) — native bakes its crop into the picked file
-  // itself via allowsEditing, so this stays at its default center there.
+  // (see WebPhotoCropModal) — native bakes crops into the file itself
+  // (PhotoCropModal), so this stays at its default center there.
   const [photoPosition, setPhotoPosition] = useState({ x: 50, y: 50 });
   // Web only: the just-picked, not-yet-positioned photo waiting on
   // WebPhotoCropModal, and whether that modal is open.
@@ -69,8 +71,10 @@ export default function ScorecardScreen() {
   // position to restore if that's cancelled.
   const [repositioningWeb, setRepositioningWeb] = useState(false);
   const prevPhotoPositionRef = useRef(photoPosition);
-  // Native only: PhotoCropModal, opened by tapping the attached photo.
+  // Native only: PhotoCropModal, opened from the photo's Crop Photo action.
   const [showCrop, setShowCrop] = useState(false);
+  // Change Photo / Crop Photo sheet, opened by tapping the attached photo.
+  const [showPhotoActions, setShowPhotoActions] = useState(false);
   // 'side' or 'behind' (Fix 2/5) — which layout ScorecardCard renders the
   // attached photo with. Initialized from whatever the active scorecard has
   // saved, and reset alongside photoUri whenever a different scorecard
@@ -177,12 +181,15 @@ export default function ScorecardScreen() {
   // the `scorecards` storage bucket at full quality and swaps in the
   // resulting public URL, so it survives a refresh and future visits to
   // this screen.
-  async function applyPickedPhoto(uri, position = { x: 50, y: 50 }) {
+  // `crop: true` when `uri` is a crop of the current photo rather than a
+  // newly picked one — it then keeps the stored original (see
+  // saveScorecardPhoto).
+  async function applyPickedPhoto(uri, position = { x: 50, y: 50 }, { crop = false } = {}) {
     // Fix 2: layout always defaults to "behind" the first time a photo is
     // attached to a scorecard, even if a previous photo on this same
     // scorecard had been switched to "side" (that preference goes away with
     // the photo it belonged to).
-    const isFirstPhoto = !activeScorecard.photoUrl;
+    const isFirstPhoto = !crop && !activeScorecard.photoUrl;
     setPhotoUri(uri);
     setPhotoPosition(position);
     if (isFirstPhoto) setPhotoLayout('behind');
@@ -192,10 +199,16 @@ export default function ScorecardScreen() {
       setPhotoUploadLabel('Optimizing…');
       const compressedUri = await compressImage(uri);
       setPhotoUploadLabel('Uploading…');
-      const uploadedUrl = await saveScorecardPhoto(user.id, activeScorecard.id, compressedUri);
+      const { photoUrl: uploadedUrl, originalPhotoUrl } = await saveScorecardPhoto(
+        user.id,
+        activeScorecard.id,
+        compressedUri,
+        { crop, originalPhotoUrl: cropSourceUri }
+      );
       setActiveScorecard((prev) => ({
         ...prev,
         photoUrl: uploadedUrl,
+        originalPhotoUrl: originalPhotoUrl ?? prev.originalPhotoUrl,
         photoLayout: isFirstPhoto ? 'behind' : prev.photoLayout,
       }));
       setPhotoUri(uploadedUrl);
@@ -256,31 +269,57 @@ export default function ScorecardScreen() {
 
   function handleWebCropConfirm() {
     setShowWebCrop(false);
-    // Repositioning the photo already on the card only moves its frame —
-    // nothing new to upload.
-    if (!repositioningWeb) applyPickedPhoto(rawPhotoUri, photoPosition);
+    if (!repositioningWeb) {
+      applyPickedPhoto(rawPhotoUri, photoPosition);
+    } else if (rawPhotoUri !== photoUri) {
+      // Repositioning the original after a native crop: the card goes back
+      // to the full original, framed by the new position.
+      setPhotoUri(rawPhotoUri);
+      setActiveScorecard((prev) => ({ ...prev, photoUrl: rawPhotoUri }));
+      if (activeScorecard.id) {
+        setScorecardPhotoUrl(activeScorecard.id, rawPhotoUri).catch((err) =>
+          console.error('Failed to restore original photo:', err)
+        );
+      }
+    }
+    // Otherwise repositioning only moves the frame — nothing to upload.
     setRawPhotoUri(null);
     setRepositioningWeb(false);
   }
 
-  // Tapping the attached photo crops it: a real pixel crop on native
-  // (PhotoCropModal, re-uploaded like a newly picked photo), and the
-  // drag-to-position frame on web, which has no pixel crop.
+  // Every crop starts from the photo as first attached, never from an
+  // earlier crop, so the frame can always be widened again.
+  const cropSourceUri = activeScorecard.originalPhotoUrl || activeScorecard.photoUrl || photoUri;
+
+  // Tapping the attached photo offers Change Photo / Crop Photo.
   function handlePhotoPress() {
-    if (!photoUri) return;
+    if (photoUri) setShowPhotoActions(true);
+  }
+
+  function handleChangePhotoAction() {
+    setShowPhotoActions(false);
+    // Let the sheet finish dismissing before the picker presents.
+    setTimeout(handlePickPhoto, 350);
+  }
+
+  // Crop Photo: a real pixel crop on native (PhotoCropModal, uploaded as
+  // the scorecard's crop), and the drag-to-position frame on web, which
+  // has no pixel crop.
+  function handleCropPhotoAction() {
+    setShowPhotoActions(false);
     if (Platform.OS === 'web') {
       prevPhotoPositionRef.current = photoPosition;
       setRepositioningWeb(true);
-      setRawPhotoUri(photoUri);
+      setRawPhotoUri(cropSourceUri);
       setShowWebCrop(true);
     } else {
-      setShowCrop(true);
+      setTimeout(() => setShowCrop(true), 350);
     }
   }
 
   function handleCropConfirm(croppedUri) {
     setShowCrop(false);
-    applyPickedPhoto(croppedUri);
+    applyPickedPhoto(croppedUri, undefined, { crop: true });
   }
 
   async function handlePickPhotoNative() {
@@ -295,14 +334,14 @@ export default function ScorecardScreen() {
         return;
       }
 
-      // allowsEditing shows the native OS crop UI (pinch to zoom, drag to
-      // reposition) for both layouts — no aspect ratio is forced so the
-      // user isn't boxed into a specific crop shape (Fix 1). quality stays
-      // at 1 (no compression) to avoid graininess in the exported share
-      // image, and exif is skipped since it's never used.
+      // No OS crop step: the full photo is stored as the scorecard's
+      // original so Crop Photo (tap the photo) can always crop from — and
+      // widen back to — the whole frame. quality stays at 1 (no
+      // compression) to avoid graininess in the exported share image, and
+      // exif is skipped since it's never used.
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 1,
         exif: false,
       });
@@ -679,10 +718,17 @@ export default function ScorecardScreen() {
         />
       )}
 
+      <PhotoActionSheet
+        visible={showPhotoActions}
+        onChangePhoto={handleChangePhotoAction}
+        onCropPhoto={handleCropPhotoAction}
+        onClose={() => setShowPhotoActions(false)}
+      />
+
       {Platform.OS !== 'web' && (
         <PhotoCropModal
           visible={showCrop}
-          uri={photoUri}
+          uri={cropSourceUri}
           onCancel={() => setShowCrop(false)}
           onConfirm={handleCropConfirm}
           onChooseDifferent={() => {

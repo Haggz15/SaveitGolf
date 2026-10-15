@@ -253,7 +253,7 @@ function RemovePhotoButton({ onPress, hideShareExtras, style }) {
 //   bottom so the photo peeks through below the total block).
 // - 'side' (Option 2): the card splits into a solid-navy left column (52%,
 //   all the scores/name content) and a photo-filled right column (48%),
-//   separated by a light border at the seam.
+//   set apart at the seam by rounded corners and a shadow (no border line).
 //
 // With no photo the card is just its usual solid navy regardless of
 // `photoLayout`. `onRequestPhoto` re-opens the picker when the visible
@@ -365,11 +365,13 @@ export default function ScorecardCard({
             onPress={onRequestPhoto}
             activeOpacity={onRequestPhoto ? 0.9 : 1}
           >
-            <Image
-              source={{ uri: photoUri }}
-              style={[styles.sidePhotoImage, photoPositionStyle]}
-              resizeMode="cover"
-            />
+            <View style={styles.sidePhotoClip}>
+              <Image
+                source={{ uri: photoUri }}
+                style={[styles.sidePhotoImage, photoPositionStyle]}
+                resizeMode="cover"
+              />
+            </View>
             {onRemovePhoto && (
               <RemovePhotoButton onPress={onRemovePhoto} hideShareExtras={hideShareExtras} style={styles.sideRemoveButton} />
             )}
@@ -456,8 +458,9 @@ const styles = StyleSheet.create({
     paddingTop: 14 + 12,
   },
   // Side layout (Option 2): solid-navy left column (52%) with the score
-  // content, photo-filled right column (48%) split by sideRight's border. Row height is driven by sideLeft's intrinsic content
-  // height — sideRight stretches (default alignItems) to match it.
+  // content, photo-filled right column (48%) set off by sideRight's shadow.
+  // Row height is driven by sideLeft's intrinsic content height — sideRight
+  // stretches (default alignItems) to match it.
   sideRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
@@ -469,14 +472,29 @@ const styles = StyleSheet.create({
     backgroundColor: colors.navy,
     alignSelf: 'flex-start',
   },
-  // The light left border keeps the photo visually separate from the navy
-  // score column instead of blending into it.
+  // No seam line: the photo panel reads as separate from the navy score
+  // column by its rounded inner corners and a shadow cast left onto the
+  // navy. The shadow lives here and the clipping on sidePhotoClip, since
+  // overflow: 'hidden' on the same view would clip the shadow on iOS.
   sideRight: {
     width: '48%',
     position: 'relative',
+    borderTopLeftRadius: 14,
+    borderBottomLeftRadius: 14,
+    // A background is what Android's elevation casts its shadow from.
+    backgroundColor: '#1a2d4f',
+    shadowColor: '#000',
+    shadowOffset: { width: -4, height: 0 },
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  sidePhotoClip: {
+    ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
-    borderLeftWidth: 2,
-    borderLeftColor: 'rgba(255,255,255,0.85)',
+    borderTopLeftRadius: 14,
+    borderBottomLeftRadius: 14,
+    backgroundColor: '#1a2d4f',
   },
   // Absolute so the photo's intrinsic size never contributes to the row's
   // height — sideRight is sized only by the measured scores height.
@@ -488,7 +506,7 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   // Overrides removePhotoButton's top-right corner pin to instead sit on
-  // the fade seam, vertically centered.
+  // the seam, vertically centered.
   sideRemoveButton: {
     top: '50%',
     right: undefined,

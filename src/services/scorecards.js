@@ -31,6 +31,10 @@ function mapRow(row) {
     manualTotal: row.manual_total ?? null,
     manualPar: row.manual_par ?? null,
     photoUrl: row.photo_url ?? null,
+    // The photo as first attached, before any Crop Photo — every crop starts
+    // from this so the user can always widen the frame again. Null on rows
+    // whose photo predates the column (their photo_url is the original).
+    originalPhotoUrl: row.original_photo_url ?? null,
     compositeFront: row.composite_front ?? null,
     compositeBack: row.composite_back ?? null,
     pars: row.pars ? JSON.parse(row.pars) : null,
@@ -102,6 +106,7 @@ export async function saveScorecard(userId, scorecard) {
       total_par: totalPar,
       pars: JSON.stringify(holePars),
       photo_url: null,
+      original_photo_url: null,
       composite_front: scorecard.compositeFront ?? null,
       composite_back: scorecard.compositeBack ?? null,
       nine_side: scorecard.nineSide ?? 'front',
@@ -160,12 +165,18 @@ export async function updateScorecardPhotoLayout(scorecardId, photoLayout) {
 }
 
 // Uploads a local photo uri (blob: on web, file:// from expo-image-picker on
-// native) to the `scorecards` R2 bucket at a fixed per-scorecard path,
-// overwriting any photo already attached to that scorecard, then stores the
-// public URL on the row. Returns the public URL so the caller can update the
+// native) to the `scorecards` R2 bucket and stores the public URL on the
+// row. Returns { photoUrl, originalPhotoUrl } so the caller can update the
 // card immediately without refetching.
-export async function saveScorecardPhoto(userId, scorecardId, uri) {
-  const path = `${userId}/${scorecardId}.jpg`;
+//
+// A newly attached photo goes to `${scorecardId}.jpg` and becomes both
+// photo_url and original_photo_url. A crop (`crop: true`) goes to its own
+// `${scorecardId}_crop.jpg` object and only replaces photo_url, so the
+// original stays untouched for the next crop. `originalPhotoUrl` is the
+// photo the crop was cut from — stored as original_photo_url for rows that
+// predate the column, whose existing photo_url is that original.
+export async function saveScorecardPhoto(userId, scorecardId, uri, { crop = false, originalPhotoUrl = null } = {}) {
+  const path = crop ? `${userId}/${scorecardId}_crop.jpg` : `${userId}/${scorecardId}.jpg`;
 
   const response = await fetch(uri);
   const arrayBuffer = await response.arrayBuffer();
@@ -173,14 +184,22 @@ export async function saveScorecardPhoto(userId, scorecardId, uri) {
   // Every upload overwrites the same object, so version the URL — otherwise
   // a re-picked or cropped photo keeps showing the cached old one.
   const photoUrl = `${await uploadToR2('scorecards', path, arrayBuffer, 'image/jpeg')}?v=${Date.now()}`;
+  const original = crop ? originalPhotoUrl : photoUrl;
 
   const { error: updateError } = await supabase
     .from('scorecards')
-    .update({ photo_url: photoUrl })
+    .update(original ? { photo_url: photoUrl, original_photo_url: original } : { photo_url: photoUrl })
     .eq('id', scorecardId);
   if (updateError) throw updateError;
 
-  return photoUrl;
+  return { photoUrl, originalPhotoUrl: original };
+}
+
+// Points photo_url back at an already-uploaded URL (web's reposition of
+// the original after a native crop) — nothing to upload.
+export async function setScorecardPhotoUrl(scorecardId, photoUrl) {
+  const { error } = await supabase.from('scorecards').update({ photo_url: photoUrl }).eq('id', scorecardId);
+  if (error) throw error;
 }
 
 // All scorecards logged at a given course, across every user, sorted lowest

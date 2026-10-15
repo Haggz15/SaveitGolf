@@ -1152,3 +1152,11 @@ grant execute on function public.suggested_golfers(text[], int, int, boolean) to
 -- Null means "use total_score / total_par as saved with the round".
 alter table public.scorecards add column if not exists manual_total integer;
 alter table public.scorecards add column if not exists manual_par integer;
+
+-- Crop Photo (ScorecardCard → PhotoActionSheet): the scorecard photo as
+-- first attached, before any crop. photo_url holds the current (possibly
+-- cropped) photo; every crop is cut from original_photo_url so the frame
+-- can always be widened again. Null on rows whose photo predates this
+-- column — their photo_url is the original, and it's copied here on the
+-- first crop.
+alter table public.scorecards add column if not exists original_photo_url text;
