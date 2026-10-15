@@ -206,19 +206,22 @@ function TextWatermark({ style }) {
   );
 }
 
-// The SaveitGolf ball logo, pinned to the photo's bottom-right corner at
-// ~9% of the photo's width. Only visible while `hideShareExtras` is true
-// (i.e. during a share/save capture), so it's baked into the exported image
-// but never shows on the live preview. Kept mounted at opacity 0 otherwise
-// so the image has already decoded by the time the capture fires.
-function PhotoLogoWatermark({ visible, style }) {
+// The app icon (photo layouts only) followed by "@username", pinned to the
+// bottom-right corner. Only visible while `hideShareExtras` is true (i.e.
+// during a share/save capture), so it's baked into the exported image but
+// never shows on the live preview. Kept mounted at opacity 0 otherwise so
+// the icon has already decoded by the time the capture fires.
+function ExportWatermark({ visible, username, showLogo, style }) {
+  if (!showLogo && !username) return null;
   return (
-    <Image
-      source={LOGO}
-      style={[styles.photoLogoWatermark, style, !visible && styles.invisible]}
-      resizeMode="contain"
-      pointerEvents="none"
-    />
+    <View style={[styles.exportWatermark, style, !visible && styles.invisible]} pointerEvents="none">
+      {showLogo && <Image source={LOGO} style={styles.exportWatermarkLogo} resizeMode="contain" />}
+      {username ? (
+        <Text style={styles.exportWatermarkUsername} numberOfLines={1}>
+          @{username}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -291,6 +294,7 @@ function RemovePhotoButton({ onPress, hideShareExtras, style }) {
 export default function ScorecardCard({
   scorecard,
   fullName,
+  username,
   photoUri,
   photoLayout = 'behind',
   photoPosition,
@@ -391,7 +395,12 @@ export default function ScorecardCard({
             {onRemovePhoto && (
               <RemovePhotoButton onPress={onRemovePhoto} hideShareExtras={hideShareExtras} style={styles.sideRemoveButton} />
             )}
-            <PhotoLogoWatermark visible={hideShareExtras} style={styles.sidePhotoLogoWatermark} />
+            <ExportWatermark
+              visible={hideShareExtras}
+              username={username}
+              showLogo
+              style={styles.sideExportWatermark}
+            />
           </PhotoWrapper>
         </View>
       ) : (
@@ -425,7 +434,7 @@ export default function ScorecardCard({
             <RemovePhotoButton onPress={onRemovePhoto} hideShareExtras={hideShareExtras} />
           )}
 
-          {hasPhoto && <PhotoLogoWatermark visible={hideShareExtras} />}
+          <ExportWatermark visible={hideShareExtras} username={username} showLogo={hasPhoto} />
         </>
       )}
 
@@ -722,21 +731,36 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: 10,
   },
-  // Behind layout: the photo fills the whole card, so pin to the card's
-  // bottom-right; width is a % of the card (≈ the photo's width here).
-  photoLogoWatermark: {
+  // Behind / no-photo layouts: pinned to the card's bottom-right, level with
+  // the centered "SaveitGolf" text. maxWidth keeps a long username clear of it.
+  exportWatermark: {
     position: 'absolute',
     right: 8,
     bottom: 8,
-    width: '9%',
-    aspectRatio: 1,
-    borderRadius: 6,
+    maxWidth: '38%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
-  // Side layout: sits in the photo column's own bottom-right corner, so the
-  // 9% width is measured against that column (the photo) rather than the card.
-  sidePhotoLogoWatermark: {
+  // Side layout: sits in the photo column's own bottom-right corner.
+  sideExportWatermark: {
     bottom: 6,
     right: 6,
+    maxWidth: '90%',
+  },
+  exportWatermarkLogo: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+  },
+  exportWatermarkUsername: {
+    flexShrink: 1,
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '600',
+    textShadowColor: 'rgba(0, 0, 0, 0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   // Pinned to the card's top-right corner, only shown once a photo is
   // filling the background.

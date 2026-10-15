@@ -550,6 +550,7 @@ export default function ScorecardScreen() {
             <ScorecardCard
               scorecard={activeScorecard}
               fullName={fullName}
+              username={profile?.username}
               photoUri={photoUri}
               photoLayout={photoLayout}
               photoPosition={photoPosition}
