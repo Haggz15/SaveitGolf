@@ -17,7 +17,7 @@ import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import {
   searchGolfers,
-  getNearbyGolfers,
+  getGolfersAtYourCourses,
   getPopularGolfers,
   getFollowingIds,
   followUser,
@@ -25,7 +25,7 @@ import {
 } from '../services/social';
 
 const SEARCH_DEBOUNCE_MS = 300;
-const NEAR_YOU_COUNT = 8;
+const AT_YOUR_COURSES_COUNT = 8;
 const POPULAR_COUNT = 10;
 
 function getInitials(name) {
@@ -67,7 +67,7 @@ function GolferRow({ golfer, isFollowing, followerCount, onToggleFollow, onOpen 
 }
 
 // Replaces the old Add Friends modal: live search plus two discovery lists
-// ("Golfers Near You", "Popular on SaveitGolf") while the search is empty.
+// ("Golfers at Your Courses", "Popular on SaveitGolf") while the search is empty.
 export default function FindGolfersScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -79,11 +79,9 @@ export default function FindGolfersScreen({ navigation }) {
   const debounceRef = useRef(null);
   const searchRequestRef = useRef(0);
 
-  const [nearYou, setNearYou] = useState([]);
+  const [atYourCourses, setAtYourCourses] = useState([]);
   const [popular, setPopular] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
-  // The state Near You matched on, or null if the user has none yet.
-  const [nearYouState, setNearYouState] = useState(null);
 
   const [followingIds, setFollowingIds] = useState(new Set());
   // Optimistic +1/-1 per user on top of the follower_count each row was
@@ -115,12 +113,16 @@ export default function FindGolfersScreen({ navigation }) {
         console.error('Failed to load following list:', err);
         return [];
       });
-      // Near You skips everyone already followed; Popular only skips the
-      // user themselves (see getPopularGolfers).
-      const [near, top] = await Promise.all([
-        getNearbyGolfers({ userId, limit: NEAR_YOU_COUNT, excludeIds: [userId, ...followed] }).catch((err) => {
-          console.error('Failed to load golfers near you:', err);
-          return { state: null, golfers: [] };
+      // At Your Courses skips everyone already followed; Popular only skips
+      // the user themselves (see getPopularGolfers).
+      const [shared, top] = await Promise.all([
+        getGolfersAtYourCourses({
+          userId,
+          limit: AT_YOUR_COURSES_COUNT,
+          excludeIds: [userId, ...followed],
+        }).catch((err) => {
+          console.error('Failed to load golfers at your courses:', err);
+          return [];
         }),
         getPopularGolfers({ limit: POPULAR_COUNT, excludeIds: [userId] }).catch((err) => {
           console.error('Failed to load popular golfers:', err);
@@ -128,8 +130,7 @@ export default function FindGolfersScreen({ navigation }) {
         }),
       ]);
       if (cancelled) return;
-      setNearYouState(near.state);
-      setNearYou(near.golfers);
+      setAtYourCourses(shared);
       setPopular(top);
       setSuggestionsLoading(false);
     })();
@@ -271,15 +272,11 @@ export default function FindGolfersScreen({ navigation }) {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
-          <Text style={styles.sectionTitle}>Golfers Near You</Text>
-          {nearYou.length ? (
-            nearYou.map(renderRow)
+          <Text style={styles.sectionTitle}>Golfers at Your Courses</Text>
+          {atYourCourses.length ? (
+            atYourCourses.map(renderRow)
           ) : (
-            <Text style={styles.sectionEmpty}>
-              {nearYouState
-                ? `No other golfers in ${nearYouState} yet.`
-                : 'Post a round or add a course to see golfers near you.'}
-            </Text>
+            <Text style={styles.sectionEmpty}>Play a round and find golfers who've played your courses.</Text>
           )}
 
           <Text style={[styles.sectionTitle, styles.sectionTitleSpaced]}>Popular on SaveitGolf</Text>

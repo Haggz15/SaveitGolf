@@ -106,7 +106,6 @@ export async function saveScorecard(userId, scorecard) {
       total_par: totalPar,
       pars: JSON.stringify(holePars),
       photo_url: null,
-      original_photo_url: null,
       composite_front: scorecard.compositeFront ?? null,
       composite_back: scorecard.compositeBack ?? null,
       nine_side: scorecard.nineSide ?? 'front',
@@ -186,13 +185,24 @@ export async function saveScorecardPhoto(userId, scorecardId, uri, { crop = fals
   const photoUrl = `${await uploadToR2('scorecards', path, arrayBuffer, 'image/jpeg')}?v=${Date.now()}`;
   const original = crop ? originalPhotoUrl : photoUrl;
 
-  const { error: updateError } = await supabase
+  let { error: updateError } = await supabase
     .from('scorecards')
     .update(original ? { photo_url: photoUrl, original_photo_url: original } : { photo_url: photoUrl })
     .eq('id', scorecardId);
+  // original_photo_url not migrated yet (see schema.sql) — still save the
+  // photo itself rather than losing it.
+  if (updateError && original && isMissingColumnError(updateError)) {
+    console.warn('[scorecards] original_photo_url column missing — saving photo_url only');
+    ({ error: updateError } = await supabase.from('scorecards').update({ photo_url: photoUrl }).eq('id', scorecardId));
+  }
   if (updateError) throw updateError;
 
   return { photoUrl, originalPhotoUrl: original };
+}
+
+// PostgREST's "column not in schema cache" / Postgres's undefined_column.
+function isMissingColumnError(error) {
+  return error?.code === 'PGRST204' || error?.code === '42703';
 }
 
 // Points photo_url back at an already-uploaded URL (web's reposition of

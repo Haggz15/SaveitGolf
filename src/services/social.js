@@ -237,86 +237,79 @@ function countFollowers(rows) {
   return counts;
 }
 
-// The state the user most recently golfed in: their newest post or My
-// Courses entry that has a state, falling back to their profile's
-// home_state. Null if none of those is set.
-async function getUserState(userId) {
-  const [post, course, profile] = await Promise.all([
-    supabase
-      .from('posts')
-      .select('state, created_at')
-      .eq('user_id', userId)
-      .not('state', 'is', null)
-      .neq('state', '')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('my_courses')
-      .select('state, created_at')
-      .eq('user_id', userId)
-      .not('state', 'is', null)
-      .neq('state', '')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase.from('profiles').select('home_state').eq('user_id', userId).maybeSingle(),
-  ]);
-  if (post.error) throw post.error;
-  if (course.error) throw course.error;
-  const latest = [post.data, course.data]
-    .filter(Boolean)
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-  return latest?.state ?? profile.data?.home_state ?? null;
+// Course ids / names per .or() request — keeps the filter (and URL) short
+// for users with long My Courses lists.
+const SHARED_COURSE_CHUNK = 40;
+
+// Rows from `table` (posts or my_courses) by anyone but `userId` at any of
+// `courses`, matched on course_id or a case-insensitive exact course_name.
+async function fetchRowsAtCourses(table, courses, userId) {
+  const requests = [];
+  for (let i = 0; i < courses.length; i += SHARED_COURSE_CHUNK) {
+    const chunk = courses.slice(i, i + SHARED_COURSE_CHUNK);
+    const ids = [...new Set(chunk.map((c) => c.course_id).filter(Boolean))];
+    const filters = chunk
+      .filter((c) => c.course_name?.trim())
+      .map((c) => `course_name.ilike.${quoteOrValue(escapeIlike(c.course_name.trim()))}`);
+    if (ids.length) filters.unshift(`course_id.in.(${ids.map(quoteOrValue).join(',')})`);
+    if (!filters.length) continue;
+    requests.push(
+      supabase
+        .from(table)
+        .select('user_id, course_id, course_name')
+        .neq('user_id', userId)
+        .or(filters.join(','))
+        .limit(1000)
+    );
+  }
+  const results = await Promise.all(requests);
+  const failed = results.find((r) => r.error);
+  if (failed) throw failed.error;
+  return results.flatMap((r) => r.data ?? []);
 }
 
-// "Golfers Near You": other golfers with a post or My Courses entry in the
-// same state as the signed-in user's most recent one (see getUserState),
-// most recently active first. Matching on state rather than coordinates
-// because many posts / My Courses rows have a state but no lat/lng.
-// `excludeIds` (the signed-in user plus everyone they follow) are skipped.
-// Returns { state, golfers }.
-export async function getNearbyGolfers({ userId, limit = 8, excludeIds = [] }) {
-  const state = await getUserState(userId);
-  console.log('[findGolfers] near you — state:', state);
-  if (!state) return { state: null, golfers: [] };
+// "Golfers at Your Courses": other golfers who've posted at or saved any
+// course in the signed-in user's My Courses, most shared courses first.
+// A row counts toward one of the user's courses by course_id first, then
+// by case-insensitive course_name. `excludeIds` (the user plus everyone
+// they follow) are skipped.
+export async function getGolfersAtYourCourses({ userId, limit = 8, excludeIds = [] }) {
+  const { data: myCourses, error } = await supabase
+    .from('my_courses')
+    .select('course_id, course_name')
+    .eq('user_id', userId);
+  if (error) throw error;
+  if (!myCourses?.length) return [];
 
-  const [posts, courses] = await Promise.all([
-    supabase
-      .from('posts')
-      .select('user_id, created_at')
-      .eq('state', state)
-      .neq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(1000),
-    supabase
-      .from('my_courses')
-      .select('user_id, created_at')
-      .eq('state', state)
-      .neq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(1000),
-  ]);
-  console.log('[findGolfers] near you — posts in state:', posts.error ?? posts.data?.length);
-  console.log('[findGolfers] near you — my_courses in state:', courses.error ?? courses.data?.length);
-  if (posts.error) throw posts.error;
-  if (courses.error) throw courses.error;
-
-  const excluded = new Set(excludeIds);
-  const lastActive = new Map();
-  [...(posts.data ?? []), ...(courses.data ?? [])].forEach((row) => {
-    if (excluded.has(row.user_id)) return;
-    const at = new Date(row.created_at).getTime();
-    if (!lastActive.has(row.user_id) || at > lastActive.get(row.user_id)) lastActive.set(row.user_id, at);
+  // Each of the user's courses gets one key, reachable by id or by name.
+  const keyById = new Map();
+  const keyByName = new Map();
+  myCourses.forEach((c, i) => {
+    if (c.course_id && !keyById.has(c.course_id)) keyById.set(c.course_id, i);
+    const name = c.course_name?.trim().toLowerCase();
+    if (name && !keyByName.has(name)) keyByName.set(name, i);
   });
 
-  const ids = [...lastActive.entries()]
-    .sort((a, b) => b[1] - a[1])
+  const [posts, saved] = await Promise.all([
+    fetchRowsAtCourses('posts', myCourses, userId),
+    fetchRowsAtCourses('my_courses', myCourses, userId),
+  ]);
+
+  const excluded = new Set(excludeIds);
+  const shared = new Map();
+  [...posts, ...saved].forEach((row) => {
+    if (excluded.has(row.user_id)) return;
+    const key = keyById.get(row.course_id) ?? keyByName.get(row.course_name?.trim().toLowerCase());
+    if (key === undefined) return;
+    if (!shared.has(row.user_id)) shared.set(row.user_id, new Set());
+    shared.get(row.user_id).add(key);
+  });
+
+  const ids = [...shared.entries()]
+    .sort((a, b) => b[1].size - a[1].size)
     .slice(0, limit)
     .map(([id]) => id);
-  const golfers = await getGolfersByIds(ids);
-  console.log('[findGolfers] near you — golfers:', golfers);
-  return { state, golfers };
+  return getGolfersByIds(ids);
 }
 
 // "Popular on SaveitGolf": golfers ranked by live follower count, most

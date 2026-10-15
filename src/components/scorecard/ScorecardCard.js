@@ -248,12 +248,12 @@ function RemovePhotoButton({ onPress, hideShareExtras, style }) {
 // persisted per-scorecard as `photoLayout` (Fix 5):
 //
 // - 'behind' (Option 3, the original/default layout): the photo fills the
-//   entire card as a background image with a dark gradient overlay behind
-//   the scores (heavy at the top where the text sits, fading out toward the
-//   bottom so the photo peeks through below the total block).
+//   entire card as a background image under a light black overlay (40% at
+//   the top where the text sits, 30% at the bottom) so the photo stays
+//   vivid behind the scores.
 // - 'side' (Option 2): the card splits into a solid-navy left column (52%,
 //   all the scores/name content) and a photo-filled right column (48%),
-//   set apart at the seam by rounded corners and a shadow (no border line).
+//   sitting flush against it — no border, line or shadow at the seam.
 //
 // With no photo the card is just its usual solid navy regardless of
 // `photoLayout`. `onRequestPhoto` re-opens the picker when the visible
@@ -365,13 +365,11 @@ export default function ScorecardCard({
             onPress={onRequestPhoto}
             activeOpacity={onRequestPhoto ? 0.9 : 1}
           >
-            <View style={styles.sidePhotoClip}>
-              <Image
-                source={{ uri: photoUri }}
-                style={[styles.sidePhotoImage, photoPositionStyle]}
-                resizeMode="cover"
-              />
-            </View>
+            <Image
+              source={{ uri: photoUri }}
+              style={[styles.sidePhotoImage, photoPositionStyle]}
+              resizeMode="cover"
+            />
             {onRemovePhoto && (
               <RemovePhotoButton onPress={onRemovePhoto} hideShareExtras={hideShareExtras} style={styles.sideRemoveButton} />
             )}
@@ -395,8 +393,8 @@ export default function ScorecardCard({
 
           {hasPhoto && (
             <LinearGradient
-              colors={['rgba(13,31,60,0.97)', 'rgba(13,31,60,0.92)', 'rgba(13,31,60,0.5)', 'rgba(13,31,60,0.15)']}
-              locations={[0, 0.5, 0.75, 1]}
+              colors={['rgba(0,0,0,0.4)', 'rgba(0,0,0,0.3)']}
+              locations={[0, 1]}
               style={styles.photoGradient}
               pointerEvents="none"
             />
@@ -441,8 +439,8 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  // Heavy at the top (behind the name/scores) fading to nearly transparent
-  // at the bottom, so the photo peeks through below the total block.
+  // 40% black at the top (behind the name/scores) easing to 30% at the
+  // bottom — enough for the text to read without hiding the photo.
   photoGradient: {
     position: 'absolute',
     top: 0,
@@ -458,7 +456,7 @@ const styles = StyleSheet.create({
     paddingTop: 14 + 12,
   },
   // Side layout (Option 2): solid-navy left column (52%) with the score
-  // content, photo-filled right column (48%) set off by sideRight's shadow.
+  // content, photo-filled right column (48%) flush against it.
   // Row height is driven by sideLeft's intrinsic content height — sideRight
   // stretches (default alignItems) to match it.
   sideRow: {
@@ -472,29 +470,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.navy,
     alignSelf: 'flex-start',
   },
-  // No seam line: the photo panel reads as separate from the navy score
-  // column by its rounded inner corners and a shadow cast left onto the
-  // navy. The shadow lives here and the clipping on sidePhotoClip, since
-  // overflow: 'hidden' on the same view would clip the shadow on iOS.
+  // No border, line or shadow at the seam — the photo meets the navy
+  // column directly and the content difference alone separates them.
   sideRight: {
     width: '48%',
     position: 'relative',
-    borderTopLeftRadius: 14,
-    borderBottomLeftRadius: 14,
-    // A background is what Android's elevation casts its shadow from.
-    backgroundColor: '#1a2d4f',
-    shadowColor: '#000',
-    shadowOffset: { width: -4, height: 0 },
-    shadowOpacity: 0.45,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  sidePhotoClip: {
-    ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
-    borderTopLeftRadius: 14,
-    borderBottomLeftRadius: 14,
-    backgroundColor: '#1a2d4f',
   },
   // Absolute so the photo's intrinsic size never contributes to the row's
   // height — sideRight is sized only by the measured scores height.
