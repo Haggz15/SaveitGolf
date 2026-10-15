@@ -18,24 +18,17 @@ import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import {
   searchGolfers,
-  getSuggestedGolfers,
-  getMyCourseStates,
+  getNearbyGolfers,
+  getPopularGolfers,
   getFollowingIds,
   followUser,
   unfollowUser,
 } from '../services/social';
-import { reverseGeocodeCityState } from '../services/geocoding';
 
 const SEARCH_DEBOUNCE_MS = 300;
-// Near You always shows NEAR_YOU_COUNT golfers when that many exist, topped
-// up from the whole app if the user's states don't have enough. Popular
-// shows POPULAR_MIN-POPULAR_MAX, preferring golfers with followers. Both
-// include golfers the user already follows (ranked last, showing Unfollow)
-// so neither section goes empty once they follow everyone suggested.
-const NEAR_YOU_COUNT = 3;
-const POPULAR_MIN = 5;
-const POPULAR_MAX = 10;
-const POOL_LIMIT = NEAR_YOU_COUNT + POPULAR_MAX + 7;
+const NEAR_YOU_RADIUS_MILES = 100;
+const NEAR_YOU_COUNT = 8;
+const POPULAR_COUNT = 10;
 
 function getInitials(name) {
   if (!name) return '?';
@@ -46,25 +39,18 @@ function followerLabel(count) {
   return `${count} ${count === 1 ? 'follower' : 'followers'}`;
 }
 
-// The states "Golfers Near You" draws from: wherever the user has played
-// (their My Courses), else where their device is right now, else the home
-// state from their profile. Empty when none of those are known.
-async function resolveNearbyStates(userId, homeState) {
-  const courseStates = await getMyCourseStates(userId).catch(() => []);
-  if (courseStates.length) return courseStates;
-
+// The device's current position, or null if location permission is
+// denied or the lookup fails.
+async function getDeviceCoords() {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status === 'granted') {
-      const { coords } = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
-      const place = await reverseGeocodeCityState(coords.latitude, coords.longitude);
-      if (place?.state) return [place.state];
-    }
+    if (status !== 'granted') return null;
+    const { coords } = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
+    return coords;
   } catch (err) {
     console.warn('[findGolfers] location lookup failed', err);
+    return null;
   }
-
-  return homeState ? [homeState] : [];
 }
 
 function GolferRow({ golfer, isFollowing, followerCount, onToggleFollow, onOpen }) {
@@ -100,7 +86,7 @@ function GolferRow({ golfer, isFollowing, followerCount, onToggleFollow, onOpen 
 // ("Golfers Near You", "Popular on SaveitGolf") while the search is empty.
 export default function FindGolfersScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const userId = user?.id;
 
   const [query, setQuery] = useState('');
@@ -112,6 +98,7 @@ export default function FindGolfersScreen({ navigation }) {
   const [nearYou, setNearYou] = useState([]);
   const [popular, setPopular] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
+  const [locationAvailable, setLocationAvailable] = useState(true);
 
   const [followingIds, setFollowingIds] = useState(new Set());
   // Optimistic +1/-1 per user on top of the follower_count each row was
@@ -132,41 +119,41 @@ export default function FindGolfersScreen({ navigation }) {
     }, [userId])
   );
 
-  // Suggestions load once per visit; already-followed golfers are ranked
-  // last server-side, so following someone here keeps them listed (now
-  // showing Unfollow).
+  // Suggestions load once per visit and skip the user and everyone they
+  // already follow; following someone here keeps them listed for the rest
+  // of the visit (now showing Unfollow).
   useEffect(() => {
     if (!userId) return undefined;
     let cancelled = false;
     (async () => {
       setSuggestionsLoading(true);
-      const [nearby, pool] = await Promise.all([
-        resolveNearbyStates(userId, profile?.home_state)
-          .then((states) =>
-            states.length
-              ? getSuggestedGolfers({ states, limit: NEAR_YOU_COUNT, includeFollowed: true })
-              : []
-          )
-          .catch((err) => {
-            console.error('Failed to load golfers near you:', err);
-            return [];
-          }),
-        getSuggestedGolfers({ limit: POOL_LIMIT, includeFollowed: true }).catch((err) => {
+      const followed = await getFollowingIds(userId).catch((err) => {
+        console.error('Failed to load following list:', err);
+        return [];
+      });
+      const excludeIds = [userId, ...followed];
+      const [coords, top] = await Promise.all([
+        getDeviceCoords(),
+        getPopularGolfers({ limit: POPULAR_COUNT, excludeIds }).catch((err) => {
           console.error('Failed to load popular golfers:', err);
           return [];
         }),
       ]);
+      if (!coords) console.log('[findGolfers] near you — no device location, skipping');
+      const near = coords
+        ? await getNearbyGolfers({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            radiusMiles: NEAR_YOU_RADIUS_MILES,
+            limit: NEAR_YOU_COUNT,
+            excludeIds,
+          }).catch((err) => {
+            console.error('Failed to load golfers near you:', err);
+            return [];
+          })
+        : [];
       if (cancelled) return;
-      const nearIds = new Set(nearby.map((g) => g.userId));
-      const rest = pool.filter((g) => !nearIds.has(g.userId));
-      const near = [...nearby, ...rest.slice(0, Math.max(0, NEAR_YOU_COUNT - nearby.length))];
-      near.forEach((g) => nearIds.add(g.userId));
-      const remaining = rest.filter((g) => !nearIds.has(g.userId));
-      const withFollowers = remaining.filter((g) => g.followerCount > 0).slice(0, POPULAR_MAX);
-      const top =
-        withFollowers.length >= POPULAR_MIN
-          ? withFollowers
-          : [...withFollowers, ...remaining.filter((g) => g.followerCount === 0)].slice(0, POPULAR_MIN);
+      setLocationAvailable(Boolean(coords));
       setNearYou(near);
       setPopular(top);
       setSuggestionsLoading(false);
@@ -174,7 +161,6 @@ export default function FindGolfersScreen({ navigation }) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   useEffect(() => () => debounceRef.current && clearTimeout(debounceRef.current), []);
@@ -314,7 +300,11 @@ export default function FindGolfersScreen({ navigation }) {
           {nearYou.length ? (
             nearYou.map(renderRow)
           ) : (
-            <Text style={styles.sectionEmpty}>No golfers near you yet.</Text>
+            <Text style={styles.sectionEmpty}>
+              {locationAvailable
+                ? `No golfers within ${NEAR_YOU_RADIUS_MILES} miles yet.`
+                : 'Turn on location to see golfers near you.'}
+            </Text>
           )}
 
           <Text style={[styles.sectionTitle, styles.sectionTitleSpaced]}>Popular on SaveitGolf</Text>

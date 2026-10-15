@@ -213,31 +213,118 @@ export async function searchGolfers(query, currentUserId) {
   return (data ?? []).map(mapGolfer);
 }
 
-// Most-followed golfers the signed-in user doesn't follow yet (never
-// themselves) — scoped to golfers with a My Courses entry or home state in
-// `states` when given, and to those with at least `minFollowers` followers.
-// `includeFollowed` also returns already-followed golfers, ranked after the
-// rest. See the suggested_golfers function in schema.sql.
-export async function getSuggestedGolfers({
-  states = null,
-  limit = 10,
-  minFollowers = 0,
-  includeFollowed = false,
-} = {}) {
-  const { data, error } = await supabase.rpc('suggested_golfers', {
-    p_states: states,
-    p_limit: limit,
-    p_min_followers: minFollowers,
-    p_include_followed: includeFollowed,
-  });
-  if (error) throw error;
-  return (data ?? []).map(mapGolfer);
+const EARTH_RADIUS_MILES = 3958.8;
+const MILES_PER_DEGREE_LAT = 69;
+
+function haversineMiles(lat1, lng1, lat2, lng2) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_RADIUS_MILES * Math.asin(Math.sqrt(a));
 }
 
-// Distinct states across a user's My Courses entries.
-export async function getMyCourseStates(userId) {
-  if (!userId) return [];
-  const { data, error } = await supabase.from('my_courses').select('state').eq('user_id', userId).not('state', 'is', null);
+// Profiles for `ids` in that order, each with a live follower count from
+// the followers table.
+async function getGolfersByIds(ids) {
+  if (!ids.length) return [];
+  const [{ data: profiles, error }, { data: follows, error: followsError }] = await Promise.all([
+    supabase.from('profiles').select('user_id, username, full_name, avatar_url').in('user_id', ids),
+    supabase.from('followers').select('following_id').in('following_id', ids),
+  ]);
   if (error) throw error;
-  return [...new Set((data ?? []).map((row) => row.state))];
+  if (followsError) throw followsError;
+  const counts = countFollowers(follows);
+  const byId = new Map((profiles ?? []).map((p) => [p.user_id, p]));
+  return ids
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+    .map((p) => mapGolfer({ ...p, follower_count: counts.get(p.user_id) ?? 0 }));
+}
+
+function countFollowers(rows) {
+  const counts = new Map();
+  (rows ?? []).forEach((row) => counts.set(row.following_id, (counts.get(row.following_id) ?? 0) + 1));
+  return counts;
+}
+
+// "Golfers Near You": other golfers with a post or My Courses entry within
+// `radiusMiles` of (latitude, longitude), closest first. A bounding box
+// narrows the rows server-side, then Haversine drops the box's corners.
+// `excludeIds` (the signed-in user plus everyone they follow) are skipped.
+export async function getNearbyGolfers({ latitude, longitude, radiusMiles = 100, limit = 8, excludeIds = [] }) {
+  const latDelta = radiusMiles / MILES_PER_DEGREE_LAT;
+  const lngDelta = radiusMiles / (MILES_PER_DEGREE_LAT * Math.max(Math.cos((latitude * Math.PI) / 180), 0.01));
+  const box = {
+    minLat: latitude - latDelta,
+    maxLat: latitude + latDelta,
+    minLng: longitude - lngDelta,
+    maxLng: longitude + lngDelta,
+  };
+
+  const [posts, courses] = await Promise.all([
+    supabase
+      .from('posts')
+      .select('user_id, lat, lng')
+      .gte('lat', box.minLat)
+      .lte('lat', box.maxLat)
+      .gte('lng', box.minLng)
+      .lte('lng', box.maxLng)
+      .limit(1000),
+    supabase
+      .from('my_courses')
+      .select('user_id, latitude, longitude')
+      .gte('latitude', box.minLat)
+      .lte('latitude', box.maxLat)
+      .gte('longitude', box.minLng)
+      .lte('longitude', box.maxLng)
+      .limit(1000),
+  ]);
+  console.log('[findGolfers] near you — posts in box:', posts.error ?? posts.data);
+  console.log('[findGolfers] near you — my_courses in box:', courses.error ?? courses.data);
+  if (posts.error) throw posts.error;
+  if (courses.error) throw courses.error;
+
+  const excluded = new Set(excludeIds);
+  const nearest = new Map();
+  const consider = (userId, lat, lng) => {
+    if (excluded.has(userId) || lat == null || lng == null) return;
+    const miles = haversineMiles(latitude, longitude, lat, lng);
+    if (miles > radiusMiles) return;
+    if (!nearest.has(userId) || miles < nearest.get(userId)) nearest.set(userId, miles);
+  };
+  (posts.data ?? []).forEach((row) => consider(row.user_id, row.lat, row.lng));
+  (courses.data ?? []).forEach((row) => consider(row.user_id, row.latitude, row.longitude));
+
+  const ids = [...nearest.entries()]
+    .sort((a, b) => a[1] - b[1])
+    .slice(0, limit)
+    .map(([id]) => id);
+  const golfers = await getGolfersByIds(ids);
+  console.log('[findGolfers] near you — golfers:', golfers);
+  return golfers;
+}
+
+// "Popular on SaveitGolf": every golfer not in `excludeIds`, most followers
+// first (golfers with 0 followers included), ties broken by username.
+export async function getPopularGolfers({ limit = 10, excludeIds = [] } = {}) {
+  const [profiles, follows] = await Promise.all([
+    supabase.from('profiles').select('user_id, username, full_name, avatar_url'),
+    supabase.from('followers').select('following_id'),
+  ]);
+  console.log('[findGolfers] popular — profiles:', profiles.error ?? profiles.data);
+  console.log('[findGolfers] popular — followers:', follows.error ?? follows.data);
+  if (profiles.error) throw profiles.error;
+  if (follows.error) throw follows.error;
+
+  const excluded = new Set(excludeIds);
+  const counts = countFollowers(follows.data);
+  const golfers = (profiles.data ?? [])
+    .filter((p) => !excluded.has(p.user_id))
+    .map((p) => mapGolfer({ ...p, follower_count: counts.get(p.user_id) ?? 0 }))
+    .sort((a, b) => b.followerCount - a.followerCount || (a.username ?? '').localeCompare(b.username ?? ''))
+    .slice(0, limit);
+  console.log('[findGolfers] popular — golfers:', golfers);
+  return golfers;
 }

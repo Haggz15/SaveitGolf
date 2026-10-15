@@ -24,8 +24,12 @@ function mapRow(row) {
     date: formatDate(row.played_at ?? row.created_at),
     front,
     ...(back.length ? { back } : {}),
-    totalScore: row.total_score,
-    totalPar: row.total_par,
+    // The owner's manual overrides (Edit Score) win over the hole-by-hole
+    // totals saved with the round.
+    totalScore: row.manual_total ?? row.total_score,
+    totalPar: row.manual_par ?? row.total_par,
+    manualTotal: row.manual_total ?? null,
+    manualPar: row.manual_par ?? null,
     photoUrl: row.photo_url ?? null,
     compositeFront: row.composite_front ?? null,
     compositeBack: row.composite_back ?? null,
@@ -110,9 +114,25 @@ export async function saveScorecard(userId, scorecard) {
   return mapRow(data);
 }
 
+// Throws if nothing was deleted — RLS turns a delete the user isn't allowed
+// to make into a silent no-op rather than an error.
 export async function deleteScorecard(scorecardId) {
-  const { error } = await supabase.from('scorecards').delete().eq('id', scorecardId);
+  const { data, error } = await supabase.from('scorecards').delete().eq('id', scorecardId).select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Scorecard was not deleted.');
+}
+
+// Saves the owner's Edit Score overrides — total strokes and the course
+// par the +/- is measured against. Returns the updated, mapped scorecard.
+export async function updateScorecardScore(scorecardId, { manualTotal, manualPar }) {
+  const { data, error } = await supabase
+    .from('scorecards')
+    .update({ manual_total: manualTotal, manual_par: manualPar })
+    .eq('id', scorecardId)
+    .select()
+    .single();
+  if (error) throw error;
+  return mapRow(data);
 }
 
 // Only one scorecard can be pinned per user — pinning a new one clears the
@@ -150,7 +170,9 @@ export async function saveScorecardPhoto(userId, scorecardId, uri) {
   const response = await fetch(uri);
   const arrayBuffer = await response.arrayBuffer();
 
-  const photoUrl = await uploadToR2('scorecards', path, arrayBuffer, 'image/jpeg');
+  // Every upload overwrites the same object, so version the URL — otherwise
+  // a re-picked or cropped photo keeps showing the cached old one.
+  const photoUrl = `${await uploadToR2('scorecards', path, arrayBuffer, 'image/jpeg')}?v=${Date.now()}`;
 
   const { error: updateError } = await supabase
     .from('scorecards')
@@ -192,7 +214,7 @@ export async function getScorecardsForCourse({ courseId, courseName }) {
     profilesById = Object.fromEntries((profiles ?? []).map((p) => [p.user_id, p]));
   }
 
-  return rows.map((row) => {
+  const entries = rows.map((row) => {
     const profile = profilesById[row.user_id];
     const name = profile?.full_name || profile?.username || 'Golfer';
     return {
@@ -208,10 +230,13 @@ export async function getScorecardsForCourse({ courseId, courseName }) {
         .toUpperCase(),
       avatarUrl: profile?.avatar_url ?? null,
       date: formatDate(row.played_at ?? row.created_at),
-      score: row.total_score,
-      par: row.total_par,
+      score: row.manual_total ?? row.total_score,
+      par: row.manual_par ?? row.total_par,
     };
   });
+  // Manual overrides (Edit Score) can change a row's score, so re-rank on
+  // the score actually shown rather than trusting total_score's order.
+  return entries.sort((a, b) => a.score - b.score);
 }
 
 // Best (lowest) score per course, top 5 lowest scores. No longer used by
@@ -220,13 +245,18 @@ export async function getScorecardsForCourse({ courseId, courseName }) {
 export async function getTopCoursesForUser(userId) {
   const { data, error } = await supabase
     .from('scorecards')
-    .select('course_id, course_name, total_score, total_par')
+    .select('course_id, course_name, total_score, total_par, manual_total, manual_par')
     .eq('user_id', userId);
 
   if (error) throw error;
 
   const bestByCourse = new Map();
-  for (const row of data ?? []) {
+  for (const raw of data ?? []) {
+    const row = {
+      ...raw,
+      total_score: raw.manual_total ?? raw.total_score,
+      total_par: raw.manual_par ?? raw.total_par,
+    };
     const key = row.course_id || row.course_name;
     const existing = bestByCourse.get(key);
     if (!existing || row.total_score < existing.bestScore) {

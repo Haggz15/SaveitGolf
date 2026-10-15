@@ -7,6 +7,8 @@ import colors from '../../theme/colors';
 import ScorecardCard from './ScorecardCard';
 import PhotoLayoutToggle from './PhotoLayoutToggle';
 import WebPhotoCropModal from './WebPhotoCropModal';
+import PhotoCropModal from './PhotoCropModal';
+import EditScoreModal from './EditScoreModal';
 import ShareOptionsModal from './ShareOptionsModal';
 import Toast from '../Toast';
 import { saveScorecardPhoto, updateScorecardPhotoLayout } from '../../services/scorecards';
@@ -22,7 +24,8 @@ const CAPTURE_ID = 'scorecard-detail-card';
 // the green plus. Adding or changing a photo is restricted to the
 // scorecard's own owner; viewing someone else's scorecard is otherwise
 // fully read-only except for the Share button, which is always available.
-export default function ScorecardDetailModal({ visible, scorecard, fullName, onClose }) {
+// `onScorecardUpdated` gets the scorecard back after its owner edits the score.
+export default function ScorecardDetailModal({ visible, scorecard, fullName, onClose, onScorecardUpdated }) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const shareCardRef = useRef(null);
@@ -42,6 +45,13 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
   // WebPhotoCropModal, and whether that modal is open.
   const [rawPhotoUri, setRawPhotoUri] = useState(null);
   const [showWebCrop, setShowWebCrop] = useState(false);
+  // Web only: true when WebPhotoCropModal is repositioning the photo that's
+  // already on the card (tapped) rather than a just-picked one, and the
+  // position to restore if that's cancelled.
+  const [repositioningWeb, setRepositioningWeb] = useState(false);
+  const prevPhotoPositionRef = useRef(photoPosition);
+  // Native only: PhotoCropModal, opened by tapping the attached photo.
+  const [showCrop, setShowCrop] = useState(false);
   // 'side' or 'behind' (Fix 2/5) — initialized from the scorecard's saved
   // preference and reset whenever a different scorecard is opened.
   const [photoLayout, setPhotoLayout] = useState('behind');
@@ -50,6 +60,7 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
   // applyPickedPhoto), this just drives a small "Uploading…" indicator.
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
+  const [showEditScore, setShowEditScore] = useState(false);
 
   useEffect(() => {
     setPhotoUri(scorecard?.photoUrl ?? null);
@@ -125,12 +136,37 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
   function handleWebCropCancel() {
     setShowWebCrop(false);
     setRawPhotoUri(null);
+    if (repositioningWeb) setPhotoPosition(prevPhotoPositionRef.current);
+    setRepositioningWeb(false);
   }
 
   function handleWebCropConfirm() {
     setShowWebCrop(false);
-    applyPickedPhoto(rawPhotoUri, photoPosition);
+    // Repositioning the photo already on the card only moves its frame —
+    // nothing new to upload.
+    if (!repositioningWeb) applyPickedPhoto(rawPhotoUri, photoPosition);
     setRawPhotoUri(null);
+    setRepositioningWeb(false);
+  }
+
+  // Tapping the attached photo crops it: a real pixel crop on native
+  // (PhotoCropModal, re-uploaded like a newly picked photo), and the
+  // drag-to-position frame on web, which has no pixel crop.
+  function handlePhotoPress() {
+    if (!photoUri) return;
+    if (Platform.OS === 'web') {
+      prevPhotoPositionRef.current = photoPosition;
+      setRepositioningWeb(true);
+      setRawPhotoUri(photoUri);
+      setShowWebCrop(true);
+    } else {
+      setShowCrop(true);
+    }
+  }
+
+  function handleCropConfirm(croppedUri) {
+    setShowCrop(false);
+    applyPickedPhoto(croppedUri);
   }
 
   async function handlePickPhotoNative() {
@@ -381,12 +417,13 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
                   photoUri={photoUri}
                   photoLayout={photoLayout}
                   photoPosition={photoPosition}
-                  onRequestPhoto={isOwner ? handlePickPhoto : undefined}
+                  onRequestPhoto={isOwner ? handlePhotoPress : undefined}
                   onRemovePhoto={() => {
                     setPhotoUri(null);
                     setPhotoPosition({ x: 50, y: 50 });
                   }}
                   onAddPhoto={savedPhotoUrl || isOwner ? handleAddPhotoPress : undefined}
+                  onEditScore={isOwner && scorecard?.id ? () => setShowEditScore(true) : undefined}
                   hideShareExtras={hideShareExtras}
                   captureId={CAPTURE_ID}
                 />
@@ -446,6 +483,30 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
           onPositionChange={setPhotoPosition}
           onCancel={handleWebCropCancel}
           onConfirm={handleWebCropConfirm}
+        />
+      )}
+
+      <EditScoreModal
+        visible={showEditScore}
+        scorecard={scorecard}
+        onClose={() => setShowEditScore(false)}
+        onSaved={(updated) => {
+          setShowEditScore(false);
+          onScorecardUpdated?.(updated);
+        }}
+      />
+
+      {Platform.OS !== 'web' && (
+        <PhotoCropModal
+          visible={showCrop}
+          uri={photoUri}
+          onCancel={() => setShowCrop(false)}
+          onConfirm={handleCropConfirm}
+          onChooseDifferent={() => {
+            setShowCrop(false);
+            // Let the crop modal finish dismissing before the picker presents.
+            setTimeout(handlePickPhoto, 350);
+          }}
         />
       )}
     </Modal>

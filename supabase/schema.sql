@@ -1145,3 +1145,10 @@ as $$
 $$;
 
 grant execute on function public.suggested_golfers(text[], int, int, boolean) to authenticated;
+
+-- Edit Score (src/components/scorecard/EditScoreModal.js): the owner's
+-- manual override of a round's total strokes and of the course par its
+-- +/- is measured against (e.g. when the course API had the wrong par).
+-- Null means "use total_score / total_par as saved with the round".
+alter table public.scorecards add column if not exists manual_total integer;
+alter table public.scorecards add column if not exists manual_par integer;

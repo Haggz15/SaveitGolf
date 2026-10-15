@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 
 export function sumPar(holes) {
@@ -13,8 +14,11 @@ export function sumScore(holes) {
 
 export function computeTotals(scorecard) {
   const isNineHoleRound = !scorecard.back || scorecard.back.length === 0;
-  const totalPar = sumPar(scorecard.front) + (isNineHoleRound ? 0 : sumPar(scorecard.back));
-  const totalScore = sumScore(scorecard.front) + (isNineHoleRound ? 0 : sumScore(scorecard.back));
+  // The owner's Edit Score overrides, when set, replace the hole-by-hole sums.
+  const totalPar =
+    scorecard.manualPar ?? sumPar(scorecard.front) + (isNineHoleRound ? 0 : sumPar(scorecard.back));
+  const totalScore =
+    scorecard.manualTotal ?? sumScore(scorecard.front) + (isNineHoleRound ? 0 : sumScore(scorecard.back));
   const diff = totalScore - totalPar;
   const diffLabel = diff === 0 ? 'E' : diff > 0 ? `+${diff}` : `${diff}`;
   return { isNineHoleRound, totalPar, totalScore, diff, diffLabel };
@@ -202,11 +206,23 @@ function TextWatermark({ style }) {
 
 // Full-width block sat directly below the front/back (or single) nine
 // totals row — never floating between or beside the nines.
-function TotalBlock({ totalScore, diffLabel, diffTextColor }) {
+// `onEditScore`, when passed (owner only), adds a pencil that opens
+// EditScoreModal — hidden during a share capture like the other controls.
+function TotalBlock({ totalScore, diffLabel, diffTextColor, onEditScore, hideShareExtras }) {
   return (
     <View style={styles.totalBlock}>
       <Text style={styles.totalBlockScore}>{totalScore}</Text>
       <Text style={[styles.totalBlockDiff, { color: diffTextColor }]}> ({diffLabel})</Text>
+      {onEditScore && (
+        <TouchableOpacity
+          onPress={onEditScore}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={[styles.editScoreButton, hideShareExtras && styles.hidden]}
+          accessibilityLabel="Edit score"
+        >
+          <Ionicons name="pencil" size={14} color="rgba(255,255,255,0.7)" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -237,8 +253,7 @@ function RemovePhotoButton({ onPress, hideShareExtras, style }) {
 //   bottom so the photo peeks through below the total block).
 // - 'side' (Option 2): the card splits into a solid-navy left column (52%,
 //   all the scores/name content) and a photo-filled right column (48%),
-//   blended at the seam with a navy-to-transparent gradient over the
-//   photo's left edge.
+//   separated by a light border at the seam.
 //
 // With no photo the card is just its usual solid navy regardless of
 // `photoLayout`. `onRequestPhoto` re-opens the picker when the visible
@@ -264,6 +279,7 @@ export default function ScorecardCard({
   onRequestPhoto,
   onRemovePhoto,
   onAddPhoto,
+  onEditScore,
   hideShareExtras,
   captureId,
 }) {
@@ -327,7 +343,13 @@ export default function ScorecardCard({
       />
 
       <View style={styles.divider} />
-      <TotalBlock totalScore={totalScore} diffLabel={diffLabel} diffTextColor={diffTextColor} />
+      <TotalBlock
+        totalScore={totalScore}
+        diffLabel={diffLabel}
+        diffTextColor={diffTextColor}
+        onEditScore={onEditScore}
+        hideShareExtras={hideShareExtras}
+      />
     </View>
   );
 
@@ -347,13 +369,6 @@ export default function ScorecardCard({
               source={{ uri: photoUri }}
               style={[styles.sidePhotoImage, photoPositionStyle]}
               resizeMode="cover"
-            />
-            <LinearGradient
-              colors={['#0d1f3c', 'rgba(13,31,60,0)']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.sidePhotoFade}
-              pointerEvents="none"
             />
             {onRemovePhoto && (
               <RemovePhotoButton onPress={onRemovePhoto} hideShareExtras={hideShareExtras} style={styles.sideRemoveButton} />
@@ -441,8 +456,7 @@ const styles = StyleSheet.create({
     paddingTop: 14 + 12,
   },
   // Side layout (Option 2): solid-navy left column (52%) with the score
-  // content, photo-filled right column (48%) blended at the seam via
-  // sidePhotoFade. Row height is driven by sideLeft's intrinsic content
+  // content, photo-filled right column (48%) split by sideRight's border. Row height is driven by sideLeft's intrinsic content
   // height — sideRight stretches (default alignItems) to match it.
   sideRow: {
     flexDirection: 'row',
@@ -455,10 +469,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.navy,
     alignSelf: 'flex-start',
   },
+  // The light left border keeps the photo visually separate from the navy
+  // score column instead of blending into it.
   sideRight: {
     width: '48%',
     position: 'relative',
     overflow: 'hidden',
+    borderLeftWidth: 2,
+    borderLeftColor: 'rgba(255,255,255,0.85)',
   },
   // Absolute so the photo's intrinsic size never contributes to the row's
   // height — sideRight is sized only by the measured scores height.
@@ -468,15 +486,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-  },
-  // Navy-to-transparent, left to right, over the photo's left edge so it
-  // blends into the solid-navy left column rather than showing a hard seam.
-  sidePhotoFade: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    width: '55%',
   },
   // Overrides removePhotoButton's top-right corner pin to instead sit on
   // the fade seam, vertically centered.
@@ -671,6 +680,14 @@ const styles = StyleSheet.create({
   totalBlockDiff: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  // Pinned to the right edge so the score stays centered.
+  editScoreButton: {
+    position: 'absolute',
+    right: 8,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
   },
   // "Save it Golf" text watermark, centered below the entire card. Sits
   // over the lightest part of the gradient when a photo is present (the

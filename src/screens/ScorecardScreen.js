@@ -21,6 +21,8 @@ import ScorecardCard from '../components/scorecard/ScorecardCard';
 import PhotoLayoutToggle from '../components/scorecard/PhotoLayoutToggle';
 import ShareOptionsModal from '../components/scorecard/ShareOptionsModal';
 import WebPhotoCropModal from '../components/scorecard/WebPhotoCropModal';
+import PhotoCropModal from '../components/scorecard/PhotoCropModal';
+import EditScoreModal from '../components/scorecard/EditScoreModal';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import { scorecard as mockScorecard } from '../data/mockData';
@@ -62,6 +64,13 @@ export default function ScorecardScreen() {
   // WebPhotoCropModal, and whether that modal is open.
   const [rawPhotoUri, setRawPhotoUri] = useState(null);
   const [showWebCrop, setShowWebCrop] = useState(false);
+  // Web only: true when WebPhotoCropModal is repositioning the photo that's
+  // already on the card (tapped) rather than a just-picked one, and the
+  // position to restore if that's cancelled.
+  const [repositioningWeb, setRepositioningWeb] = useState(false);
+  const prevPhotoPositionRef = useRef(photoPosition);
+  // Native only: PhotoCropModal, opened by tapping the attached photo.
+  const [showCrop, setShowCrop] = useState(false);
   // 'side' or 'behind' (Fix 2/5) — which layout ScorecardCard renders the
   // attached photo with. Initialized from whatever the active scorecard has
   // saved, and reset alongside photoUri whenever a different scorecard
@@ -79,6 +88,7 @@ export default function ScorecardScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [pastListKey, setPastListKey] = useState(0);
   const [detailScorecard, setDetailScorecard] = useState(null);
+  const [showEditScore, setShowEditScore] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
 
   useEffect(() => {
@@ -106,6 +116,40 @@ export default function ScorecardScreen() {
   }, [activeScorecard.id]);
 
   const fullName = (profile?.full_name || 'Unnamed Golfer').toUpperCase();
+
+  // A deleted scorecard leaves the Past Scorecards list on its own; this
+  // also swaps it off the big card (falling back to the next-latest round)
+  // and closes its detail view if that's open.
+  async function handleScorecardDeleted(scorecardId) {
+    if (detailScorecard?.id === scorecardId) setDetailScorecard(null);
+    if (activeScorecard.id !== scorecardId || !user?.id) return;
+    try {
+      const latest = await getLatestScorecard(user.id);
+      setActiveScorecard(latest ?? mockScorecard);
+    } catch (err) {
+      console.error('Failed to load latest scorecard:', err);
+      setActiveScorecard(mockScorecard);
+    }
+  }
+
+  // Edit Score saved — from the big card or a past scorecard's detail view.
+  // Patches the big card if it's the same round and reloads the list so its
+  // row shows the new score and +/-.
+  function handleScorecardScoreUpdated(updated) {
+    setActiveScorecard((prev) =>
+      prev.id === updated.id
+        ? {
+            ...prev,
+            manualTotal: updated.manualTotal,
+            manualPar: updated.manualPar,
+            totalScore: updated.totalScore,
+            totalPar: updated.totalPar,
+          }
+        : prev
+    );
+    setDetailScorecard((prev) => (prev?.id === updated.id ? { ...prev, ...updated } : prev));
+    setPastListKey((k) => k + 1);
+  }
 
   async function handleScorecardSaved(newScorecard) {
     if (!user?.id) return;
@@ -206,12 +250,37 @@ export default function ScorecardScreen() {
   function handleWebCropCancel() {
     setShowWebCrop(false);
     setRawPhotoUri(null);
+    if (repositioningWeb) setPhotoPosition(prevPhotoPositionRef.current);
+    setRepositioningWeb(false);
   }
 
   function handleWebCropConfirm() {
     setShowWebCrop(false);
-    applyPickedPhoto(rawPhotoUri, photoPosition);
+    // Repositioning the photo already on the card only moves its frame —
+    // nothing new to upload.
+    if (!repositioningWeb) applyPickedPhoto(rawPhotoUri, photoPosition);
     setRawPhotoUri(null);
+    setRepositioningWeb(false);
+  }
+
+  // Tapping the attached photo crops it: a real pixel crop on native
+  // (PhotoCropModal, re-uploaded like a newly picked photo), and the
+  // drag-to-position frame on web, which has no pixel crop.
+  function handlePhotoPress() {
+    if (!photoUri) return;
+    if (Platform.OS === 'web') {
+      prevPhotoPositionRef.current = photoPosition;
+      setRepositioningWeb(true);
+      setRawPhotoUri(photoUri);
+      setShowWebCrop(true);
+    } else {
+      setShowCrop(true);
+    }
+  }
+
+  function handleCropConfirm(croppedUri) {
+    setShowCrop(false);
+    applyPickedPhoto(croppedUri);
   }
 
   async function handlePickPhotoNative() {
@@ -506,12 +575,13 @@ export default function ScorecardScreen() {
               photoUri={photoUri}
               photoLayout={photoLayout}
               photoPosition={photoPosition}
-              onRequestPhoto={handlePickPhoto}
+              onRequestPhoto={handlePhotoPress}
               onRemovePhoto={() => {
                 setPhotoUri(null);
                 setPhotoPosition({ x: 50, y: 50 });
               }}
               onAddPhoto={handleAddPhotoPress}
+              onEditScore={activeScorecard.id ? () => setShowEditScore(true) : undefined}
               hideShareExtras={hideShareExtras}
               captureId="scorecard-card"
             />
@@ -548,7 +618,12 @@ export default function ScorecardScreen() {
         <View style={styles.pastSection}>
           <Text style={styles.pastSectionTitle}>Past Scorecards</Text>
           {user?.id && (
-            <PastScorecardsList key={pastListKey} userId={user.id} onSelect={setDetailScorecard} />
+            <PastScorecardsList
+              key={pastListKey}
+              userId={user.id}
+              onSelect={setDetailScorecard}
+              onDeleted={handleScorecardDeleted}
+            />
           )}
         </View>
       </ScrollView>
@@ -565,6 +640,17 @@ export default function ScorecardScreen() {
         scorecard={detailScorecard}
         fullName={fullName}
         onClose={() => setDetailScorecard(null)}
+        onScorecardUpdated={handleScorecardScoreUpdated}
+      />
+
+      <EditScoreModal
+        visible={showEditScore}
+        scorecard={activeScorecard}
+        onClose={() => setShowEditScore(false)}
+        onSaved={(updated) => {
+          setShowEditScore(false);
+          handleScorecardScoreUpdated(updated);
+        }}
       />
 
       <ShareOptionsModal
@@ -590,6 +676,20 @@ export default function ScorecardScreen() {
           onPositionChange={setPhotoPosition}
           onCancel={handleWebCropCancel}
           onConfirm={handleWebCropConfirm}
+        />
+      )}
+
+      {Platform.OS !== 'web' && (
+        <PhotoCropModal
+          visible={showCrop}
+          uri={photoUri}
+          onCancel={() => setShowCrop(false)}
+          onConfirm={handleCropConfirm}
+          onChooseDifferent={() => {
+            setShowCrop(false);
+            // Let the crop modal finish dismissing before the picker presents.
+            setTimeout(handlePickPhoto, 350);
+          }}
         />
       )}
     </View>

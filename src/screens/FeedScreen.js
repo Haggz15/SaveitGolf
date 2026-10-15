@@ -1495,16 +1495,17 @@ const styles = StyleSheet.create({
   },
   stateBadge: {
     position: 'absolute',
-    right: 14,
-    bottom: 14,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    // Raised off the corner but kept below the action rail (bottom: 120).
+    right: 16,
+    bottom: 40,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 8,
     backgroundColor: 'rgba(6, 14, 26, 0.65)',
   },
   stateBadgeText: {
     color: colors.white,
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0.4,
   },

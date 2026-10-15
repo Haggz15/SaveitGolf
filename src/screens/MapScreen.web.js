@@ -451,7 +451,7 @@ export default function MapScreen({ navigation, route }) {
               ))}
             {withCoords(mapMarkers, 'render markers').map((course) => {
               const isHighlighted = selectedCourse?.id === course.id;
-              const isGreen = course.isMine || course.isFriend;
+              const isGreen = course.isFriend;
               return (
                 <SilentMarkerBoundary key={`${course.id}-${course.isFriend ? 'friend' : 'mine'}`}>
                   <Marker

@@ -65,7 +65,9 @@ function CourseMarker({ course, highlighted, onPress }) {
       tracksViewChanges={highlighted}
       zIndex={highlighted ? 10 : 1}
     >
-      <CoursePushPin color="#c0001a" size={highlighted ? 40 : 28} />
+      {/* Another golfer's courses (opened from their profile) are green;
+          the user's own stay the standard red. */}
+      <CoursePushPin color={course.isFriend ? colors.green : '#c0001a'} size={highlighted ? 40 : 28} />
     </Marker>
   );
 }

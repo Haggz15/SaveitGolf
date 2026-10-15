@@ -19,8 +19,9 @@ function diffColor(totalScore, totalPar) {
 
 // Newest-first list of a user's logged rounds — used on the Scorecard
 // screen (current user) and the Scorecards screen (self or another user).
-// Tapping a row hands the full mapped scorecard back to `onSelect`.
-export default function PastScorecardsList({ userId, onSelect, emptyText }) {
+// Tapping a row hands the full mapped scorecard back to `onSelect`;
+// `onDeleted` hears the id of each scorecard deleted from the list.
+export default function PastScorecardsList({ userId, onSelect, onDeleted, emptyText }) {
   const { user } = useAuth();
   const [scorecards, setScorecards] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -47,6 +48,7 @@ export default function PastScorecardsList({ userId, onSelect, emptyText }) {
       try {
         await deleteScorecard(scorecardId);
         setScorecards((prev) => prev.filter((s) => s.id !== scorecardId));
+        onDeleted?.(scorecardId);
       } catch (err) {
         console.error('Failed to delete scorecard:', err);
         if (Platform.OS === 'web') {

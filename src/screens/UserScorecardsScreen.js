@@ -13,6 +13,8 @@ export default function UserScorecardsScreen({ route, navigation }) {
   const { userId, displayName } = route.params ?? {};
   const insets = useSafeAreaInsets();
   const [detailScorecard, setDetailScorecard] = useState(null);
+  // Bumped after an Edit Score save so the list reloads with the new score.
+  const [listKey, setListKey] = useState(0);
 
   return (
     <View style={styles.screen}>
@@ -31,7 +33,14 @@ export default function UserScorecardsScreen({ route, navigation }) {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {userId && <PastScorecardsList userId={userId} onSelect={setDetailScorecard} />}
+        {userId && (
+          <PastScorecardsList
+            key={listKey}
+            userId={userId}
+            onSelect={setDetailScorecard}
+            onDeleted={(id) => setDetailScorecard((prev) => (prev?.id === id ? null : prev))}
+          />
+        )}
       </ScrollView>
 
       <ScorecardDetailModal
@@ -39,6 +48,10 @@ export default function UserScorecardsScreen({ route, navigation }) {
         scorecard={detailScorecard}
         fullName={displayName}
         onClose={() => setDetailScorecard(null)}
+        onScorecardUpdated={(updated) => {
+          setDetailScorecard((prev) => (prev ? { ...prev, ...updated } : prev));
+          setListKey((k) => k + 1);
+        }}
       />
     </View>
   );
