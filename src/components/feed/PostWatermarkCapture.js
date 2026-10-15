@@ -9,7 +9,9 @@ const MAX_EXPORT_EDGE = 2048;
 // Watermark is authored at these sizes for a phone-width (390pt) image and
 // scaled up with the export, so it looks the same relative size on any photo.
 const REFERENCE_WIDTH = 390;
-const LOGO = require('../../../assets/icon.png');
+// Transparent cutout of the app icon (icon.png has its navy background baked
+// in), so only the ball and tee float over the photo.
+const LOGO = require('../../../assets/watermark-logo.png');
 const LOGO_SIZE = 32;
 const USERNAME_FONT_SIZE = 14;
 // Bail out if the photo never loads (bad URL, offline) instead of leaving
@@ -29,7 +31,7 @@ function nextFrames() {
 }
 
 // Mounted once per FeedScreen (never inside FlatList cells) and kept
-// off-screen. stamp(uri, username) renders the photo with the app icon and
+// off-screen. stamp(uri, username) renders the photo with the app logo and
 // "@username" on its middle-right edge (no background — a drop shadow keeps
 // the white text legible on any photo), waits for both the photo and the icon
 // to load, captures it with ViewShot and resolves with the local file URI of
@@ -115,11 +117,7 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
             <Image
               key={`logo-${job.id}`}
               source={LOGO}
-              style={{
-                width: LOGO_SIZE * scale,
-                height: LOGO_SIZE * scale,
-                borderRadius: LOGO_SIZE * 0.22 * scale,
-              }}
+              style={{ width: LOGO_SIZE * scale, height: LOGO_SIZE * scale }}
               onLoad={() => handleLoad(job.id)}
               onError={() => finish(job.id, new Error('Could not load watermark logo'))}
             />

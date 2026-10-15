@@ -4,7 +4,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 
-const LOGO = require('../../../assets/icon.png');
+// Transparent cutout of the app icon (icon.png has its navy background baked
+// in), so only the ball and tee float over the photo.
+const LOGO = require('../../../assets/watermark-logo.png');
 
 export function sumPar(holes) {
   return holes.reduce((sum, h) => sum + h.par, 0);
@@ -751,7 +753,6 @@ const styles = StyleSheet.create({
   exportWatermarkLogo: {
     width: 28,
     height: 28,
-    borderRadius: 6,
   },
   exportWatermarkUsername: {
     flexShrink: 1,
