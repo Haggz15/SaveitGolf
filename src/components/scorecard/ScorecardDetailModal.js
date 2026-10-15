@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform, Linking, Alert, ActivityIndicator } from 'react-native';
+import { Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform, Alert, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
@@ -358,69 +358,16 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
     }
   }
 
-  async function handleShareTikTok() {
-    try {
-      try {
-        await saveLocalUriToLibrary(shareImageUri);
-      } catch (err) {
-        if (err.message !== 'PERMISSION_DENIED') throw err;
-      }
-      setShowShareModal(false);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const canOpen = await Linking.canOpenURL('tiktok://');
-      if (!canOpen) {
-        Alert.alert('TikTok not installed', 'Please install TikTok to share there.');
-        return;
-      }
-      await Linking.openURL('tiktok://');
-      Alert.alert(
-        'TikTok Opened',
-        'Your scorecard has been saved to your Camera Roll. In TikTok tap + then select the scorecard from your photos to post.',
-        [{ text: 'Got it' }]
-      );
-    } catch (err) {
-      console.error('TikTok share error:', err);
-      Alert.alert('Something went wrong', 'Could not open TikTok. Please try again.');
-    }
-  }
-
-  async function handleShareInstagram() {
-    try {
-      const { File, Paths } = require('expo-file-system');
-      const destFile = new File(Paths.cache, 'SaveitGolf-Scorecard.png');
-      new File(shareImageUri).copy(destFile);
-      const destPath = destFile.uri;
-      setShowShareModal(false);
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
-      const canOpenStories = await Linking.canOpenURL('instagram-stories://share');
-      if (canOpenStories) {
-        await Linking.openURL(`instagram-stories://share?backgroundImage=${encodeURIComponent(destPath)}`);
-        return;
-      }
-
-      const Sharing = require('expo-sharing');
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (isAvailable) {
-        await Sharing.shareAsync(destPath, { mimeType: 'image/png', dialogTitle: 'Share Scorecard to Instagram' });
-      } else {
-        Alert.alert('Instagram not installed', 'Please install Instagram to share there.');
-      }
-    } catch (err) {
-      console.error('Instagram share error:', err);
-      Alert.alert('Something went wrong', 'Could not share to Instagram. Please try again.');
-    }
-  }
-
-  async function handleShareMore() {
+  // Hands the image to the native iOS share sheet — AirDrop, Messages,
+  // Instagram, etc. all show up there as the user's own choice.
+  async function handleShareNative() {
     try {
       setShowShareModal(false);
       await new Promise((resolve) => setTimeout(resolve, 300));
       const Sharing = require('expo-sharing');
       const isAvailable = await Sharing.isAvailableAsync();
       if (isAvailable) {
-        await Sharing.shareAsync(shareImageUri, { mimeType: 'image/png', dialogTitle: 'Share your SaveitGolf Scorecard' });
+        await Sharing.shareAsync(shareImageUri, { mimeType: 'image/png', UTI: 'public.png', dialogTitle: 'Share your SaveitGolf Scorecard' });
       }
     } catch (err) {
       console.error('Share error:', err);
@@ -503,10 +450,8 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
       <ShareOptionsModal
         visible={showShareModal}
         onClose={() => setShowShareModal(false)}
-        onShareTikTok={handleShareTikTok}
-        onShareInstagram={handleShareInstagram}
         onSaveToPhotos={handleSaveToPhotos}
-        onShareMore={handleShareMore}
+        onShare={handleShareNative}
       />
 
       <Toast

@@ -4,6 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 
+const LOGO = require('../../../assets/icon.png');
+
 export function sumPar(holes) {
   return holes.reduce((sum, h) => sum + h.par, 0);
 }
@@ -193,14 +195,30 @@ function NineTotalsRow({ frontTotal, backTotal, isNineHoleRound, frontLabel, onA
   );
 }
 
-// "Save it Golf" in Dancing Script, centered beneath the entire card — no
-// ball art (the golf-ball watermark has been removed entirely), so it stays
-// a plain, legible text mark under both the with-photo and no-photo layouts.
+// "SaveitGolf" in Dancing Script, centered beneath the entire card —
+// matches the app header's logo exactly (one word, all white), under both
+// the with-photo and no-photo layouts.
 function TextWatermark({ style }) {
   return (
     <Text style={[styles.textWatermark, style]} numberOfLines={1} pointerEvents="none">
-      Save it<Text style={styles.textWatermarkGolf}> Golf</Text>
+      SaveitGolf
     </Text>
+  );
+}
+
+// The SaveitGolf ball logo, pinned to the photo's bottom-right corner at
+// ~9% of the photo's width. Only visible while `hideShareExtras` is true
+// (i.e. during a share/save capture), so it's baked into the exported image
+// but never shows on the live preview. Kept mounted at opacity 0 otherwise
+// so the image has already decoded by the time the capture fires.
+function PhotoLogoWatermark({ visible, style }) {
+  return (
+    <Image
+      source={LOGO}
+      style={[styles.photoLogoWatermark, style, !visible && styles.invisible]}
+      resizeMode="contain"
+      pointerEvents="none"
+    />
   );
 }
 
@@ -373,6 +391,7 @@ export default function ScorecardCard({
             {onRemovePhoto && (
               <RemovePhotoButton onPress={onRemovePhoto} hideShareExtras={hideShareExtras} style={styles.sideRemoveButton} />
             )}
+            <PhotoLogoWatermark visible={hideShareExtras} style={styles.sidePhotoLogoWatermark} />
           </PhotoWrapper>
         </View>
       ) : (
@@ -405,6 +424,8 @@ export default function ScorecardCard({
           {hasPhoto && onRemovePhoto && (
             <RemovePhotoButton onPress={onRemovePhoto} hideShareExtras={hideShareExtras} />
           )}
+
+          {hasPhoto && <PhotoLogoWatermark visible={hideShareExtras} />}
         </>
       )}
 
@@ -628,6 +649,9 @@ const styles = StyleSheet.create({
   hidden: {
     display: 'none',
   },
+  invisible: {
+    opacity: 0,
+  },
   // Each item gets a 13px leading spacer — matching the hole-number
   // column's width — so its score digit lands directly under the hole
   // scores above, plus its own top border echoing the divider above the
@@ -688,22 +712,31 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
   },
-  // "Save it Golf" text watermark, centered below the entire card. Sits
-  // over the lightest part of the gradient when a photo is present (the
-  // photo "peeks through" here per the Option 3 design), so it keeps its
-  // own opacity rather than needing extra contrast treatment.
+  // "SaveitGolf" text watermark, centered below the entire card — same
+  // font and solid white as the app header's logo.
   textWatermark: {
     width: '100%',
     fontFamily: 'DancingScript_700Bold',
-    fontWeight: '700',
     fontSize: 18,
     color: colors.white,
-    opacity: 0.6,
     textAlign: 'center',
     paddingVertical: 10,
   },
-  textWatermarkGolf: {
-    color: colors.red,
+  // Behind layout: the photo fills the whole card, so pin to the card's
+  // bottom-right; width is a % of the card (≈ the photo's width here).
+  photoLogoWatermark: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    width: '9%',
+    aspectRatio: 1,
+    borderRadius: 6,
+  },
+  // Side layout: sits in the photo column's own bottom-right corner, so the
+  // 9% width is measured against that column (the photo) rather than the card.
+  sidePhotoLogoWatermark: {
+    bottom: 6,
+    right: 6,
   },
   // Pinned to the card's top-right corner, only shown once a photo is
   // filling the background.
