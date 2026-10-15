@@ -248,8 +248,8 @@ function RemovePhotoButton({ onPress, hideShareExtras, style }) {
 // persisted per-scorecard as `photoLayout` (Fix 5):
 //
 // - 'behind' (Option 3, the original/default layout): the photo fills the
-//   entire card as a background image under a light black overlay (40% at
-//   the top where the text sits, 30% at the bottom) so the photo stays
+//   entire card as a background image under a light black overlay (45% at
+//   the top where the text sits, 35% at the bottom) so the photo stays
 //   vivid behind the scores.
 // - 'side' (Option 2): the card splits into a solid-navy left column (52%,
 //   all the scores/name content) and a photo-filled right column (48%),
@@ -393,7 +393,7 @@ export default function ScorecardCard({
 
           {hasPhoto && (
             <LinearGradient
-              colors={['rgba(0,0,0,0.4)', 'rgba(0,0,0,0.3)']}
+              colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.35)']}
               locations={[0, 1]}
               style={styles.photoGradient}
               pointerEvents="none"

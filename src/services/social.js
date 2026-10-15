@@ -268,34 +268,102 @@ async function fetchRowsAtCourses(table, courses, userId) {
   return results.flatMap((r) => r.data ?? []);
 }
 
-// "Golfers at Your Courses": other golfers who've posted at or saved any
-// course in the signed-in user's My Courses, most shared courses first.
-// A row counts toward one of the user's courses by course_id first, then
-// by case-insensitive course_name. `excludeIds` (the user plus everyone
-// they follow) are skipped.
-export async function getGolfersAtYourCourses({ userId, limit = 8, excludeIds = [] }) {
-  const { data: myCourses, error } = await supabase
-    .from('my_courses')
-    .select('course_id, course_name')
-    .eq('user_id', userId);
-  if (error) throw error;
-  if (!myCourses?.length) return [];
+// Courses a row belongs to: course_id when set, else its lowercased name.
+function courseKey(row) {
+  return row.course_id || row.course_name?.trim().toLowerCase() || null;
+}
 
-  // Each of the user's courses gets one key, reachable by id or by name.
+const SUGGESTED_TOP_COURSES = 3;
+
+// Every posts.user_id row, optionally only for `userIds`, paged past
+// PostgREST's 1000-row cap. Returns a Map of user_id -> post count.
+async function countPostsByUser(userIds) {
+  const PAGE = 1000;
+  const ID_CHUNK = 100;
+  const counts = new Map();
+  const chunks = [];
+  if (userIds) {
+    for (let i = 0; i < userIds.length; i += ID_CHUNK) chunks.push(userIds.slice(i, i + ID_CHUNK));
+  } else {
+    chunks.push(null);
+  }
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      for (let from = 0; ; from += PAGE) {
+        let request = supabase.from('posts').select('user_id').order('id').range(from, from + PAGE - 1);
+        if (chunk) request = request.in('user_id', chunk);
+        const { data, error } = await request;
+        if (error) throw error;
+        (data ?? []).forEach((r) => counts.set(r.user_id, (counts.get(r.user_id) ?? 0) + 1));
+        if (!data || data.length < PAGE) return;
+      }
+    })
+  );
+  return counts;
+}
+
+// "Suggested for You": the signed-in user's 3 most-played courses (posts +
+// my_courses rows per course), then other golfers with any post or
+// my_courses row at those courses — matched on course_id first, then
+// case-insensitive course_name — ranked by how many of the 3 they share,
+// then by total post count. With no courses yet, falls back to the most
+// active golfers by post count. `excludeIds` (the user plus everyone they
+// follow) are skipped.
+export async function getSuggestedGolfers({ userId, limit = 8, excludeIds = [] }) {
+  const excluded = new Set([userId, ...excludeIds]);
+  const [{ data: myPosts, error: postsError }, { data: mySaved, error: savedError }] = await Promise.all([
+    supabase.from('posts').select('course_id, course_name').eq('user_id', userId).limit(5000),
+    supabase.from('my_courses').select('course_id, course_name').eq('user_id', userId),
+  ]);
+  if (postsError) throw postsError;
+  if (savedError) throw savedError;
+
+  // Tally the user's rows per course; a course_id-less row joins an
+  // id'd course of the same name.
+  const tally = new Map();
+  const idByName = new Map();
+  const mine = [...(myPosts ?? []), ...(mySaved ?? [])];
+  mine.forEach((r) => {
+    const name = r.course_name?.trim().toLowerCase();
+    if (r.course_id && name && !idByName.has(name)) idByName.set(name, r.course_id);
+  });
+  mine.forEach((r) => {
+    const name = r.course_name?.trim().toLowerCase();
+    const key = r.course_id || (name && idByName.get(name)) || name;
+    if (!key) return;
+    const entry = tally.get(key) ?? { course_id: r.course_id, course_name: r.course_name, count: 0 };
+    if (!entry.course_id && r.course_id) entry.course_id = r.course_id;
+    entry.count += 1;
+    tally.set(key, entry);
+  });
+  const topCourses = [...tally.values()]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, SUGGESTED_TOP_COURSES);
+
+  if (!topCourses.length) {
+    const counts = await countPostsByUser();
+    const ids = [...counts.entries()]
+      .filter(([id]) => !excluded.has(id))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([id]) => id);
+    return getGolfersByIds(ids);
+  }
+
+  // Each top course gets one key, reachable by id or by name.
   const keyById = new Map();
   const keyByName = new Map();
-  myCourses.forEach((c, i) => {
-    if (c.course_id && !keyById.has(c.course_id)) keyById.set(c.course_id, i);
+  topCourses.forEach((c, i) => {
+    if (c.course_id) keyById.set(c.course_id, i);
     const name = c.course_name?.trim().toLowerCase();
     if (name && !keyByName.has(name)) keyByName.set(name, i);
   });
 
   const [posts, saved] = await Promise.all([
-    fetchRowsAtCourses('posts', myCourses, userId),
-    fetchRowsAtCourses('my_courses', myCourses, userId),
+    fetchRowsAtCourses('posts', topCourses, userId),
+    fetchRowsAtCourses('my_courses', topCourses, userId),
   ]);
 
-  const excluded = new Set(excludeIds);
   const shared = new Map();
   [...posts, ...saved].forEach((row) => {
     if (excluded.has(row.user_id)) return;
@@ -304,9 +372,14 @@ export async function getGolfersAtYourCourses({ userId, limit = 8, excludeIds = 
     if (!shared.has(row.user_id)) shared.set(row.user_id, new Set());
     shared.get(row.user_id).add(key);
   });
+  if (!shared.size) return [];
 
+  const postCounts = await countPostsByUser([...shared.keys()]);
   const ids = [...shared.entries()]
-    .sort((a, b) => b[1].size - a[1].size)
+    .sort(
+      (a, b) =>
+        b[1].size - a[1].size || (postCounts.get(b[0]) ?? 0) - (postCounts.get(a[0]) ?? 0)
+    )
     .slice(0, limit)
     .map(([id]) => id);
   return getGolfersByIds(ids);

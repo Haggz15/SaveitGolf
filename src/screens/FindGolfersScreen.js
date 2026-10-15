@@ -17,7 +17,7 @@ import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import {
   searchGolfers,
-  getGolfersAtYourCourses,
+  getSuggestedGolfers,
   getPopularGolfers,
   getFollowingIds,
   followUser,
@@ -25,7 +25,7 @@ import {
 } from '../services/social';
 
 const SEARCH_DEBOUNCE_MS = 300;
-const AT_YOUR_COURSES_COUNT = 8;
+const SUGGESTED_COUNT = 8;
 const POPULAR_COUNT = 10;
 
 function getInitials(name) {
@@ -67,7 +67,7 @@ function GolferRow({ golfer, isFollowing, followerCount, onToggleFollow, onOpen 
 }
 
 // Replaces the old Add Friends modal: live search plus two discovery lists
-// ("Golfers at Your Courses", "Popular on SaveitGolf") while the search is empty.
+// ("Suggested for You", "Popular on SaveitGolf") while the search is empty.
 export default function FindGolfersScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -79,7 +79,7 @@ export default function FindGolfersScreen({ navigation }) {
   const debounceRef = useRef(null);
   const searchRequestRef = useRef(0);
 
-  const [atYourCourses, setAtYourCourses] = useState([]);
+  const [suggested, setSuggested] = useState([]);
   const [popular, setPopular] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
 
@@ -113,15 +113,15 @@ export default function FindGolfersScreen({ navigation }) {
         console.error('Failed to load following list:', err);
         return [];
       });
-      // At Your Courses skips everyone already followed; Popular only skips
+      // Suggested skips everyone already followed; Popular only skips
       // the user themselves (see getPopularGolfers).
       const [shared, top] = await Promise.all([
-        getGolfersAtYourCourses({
+        getSuggestedGolfers({
           userId,
-          limit: AT_YOUR_COURSES_COUNT,
+          limit: SUGGESTED_COUNT,
           excludeIds: [userId, ...followed],
         }).catch((err) => {
-          console.error('Failed to load golfers at your courses:', err);
+          console.error('Failed to load suggested golfers:', err);
           return [];
         }),
         getPopularGolfers({ limit: POPULAR_COUNT, excludeIds: [userId] }).catch((err) => {
@@ -130,7 +130,7 @@ export default function FindGolfersScreen({ navigation }) {
         }),
       ]);
       if (cancelled) return;
-      setAtYourCourses(shared);
+      setSuggested(shared);
       setPopular(top);
       setSuggestionsLoading(false);
     })();
@@ -272,11 +272,11 @@ export default function FindGolfersScreen({ navigation }) {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
-          <Text style={styles.sectionTitle}>Golfers at Your Courses</Text>
-          {atYourCourses.length ? (
-            atYourCourses.map(renderRow)
+          <Text style={styles.sectionTitle}>Suggested for You</Text>
+          {suggested.length ? (
+            suggested.map(renderRow)
           ) : (
-            <Text style={styles.sectionEmpty}>Play a round and find golfers who've played your courses.</Text>
+            <Text style={styles.sectionEmpty}>Post some rounds and we'll suggest golfers who play where you play.</Text>
           )}
 
           <Text style={[styles.sectionTitle, styles.sectionTitleSpaced]}>Popular on SaveitGolf</Text>
