@@ -360,17 +360,23 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
 
   // Hands the image to the native iOS share sheet — AirDrop, Messages,
   // Instagram, etc. all show up there as the user's own choice.
+  // ShareOptionsModal only calls this once its own sheet has fully
+  // dismissed, so iOS has nothing in the way of presenting the share sheet.
   async function handleShareNative() {
     try {
-      setShowShareModal(false);
-      await new Promise((resolve) => setTimeout(resolve, 300));
       const Sharing = require('expo-sharing');
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (isAvailable) {
-        await Sharing.shareAsync(shareImageUri, { mimeType: 'image/png', UTI: 'public.png', dialogTitle: 'Share your SaveitGolf Scorecard' });
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Sharing unavailable', 'Sharing is not available on this device.');
+        return;
       }
+      // Re-capture if the earlier capture came back empty — ViewShot writes
+      // its PNG into the app's temp/cache directory either way.
+      const uri = shareImageUri || (await captureScorecard());
+      if (!uri) throw new Error('No scorecard image was captured.');
+      await Sharing.shareAsync(uri, { mimeType: 'image/png', UTI: 'public.png', dialogTitle: 'Share Scorecard' });
     } catch (err) {
       console.error('Share error:', err);
+      Alert.alert('Something went wrong', `Could not share your scorecard.\n\n${err.message}`);
     }
   }
 

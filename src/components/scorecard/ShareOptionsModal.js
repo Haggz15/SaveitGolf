@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
@@ -8,6 +9,24 @@ import colors from '../../theme/colors';
 // Instagram, TikTok etc. without any app-specific deep links.
 // Native iOS only; ScorecardScreen never opens this on web.
 export default function ShareOptionsModal({ visible, onClose, onSaveToPhotos, onShare }) {
+  // iOS silently refuses to present the native share sheet while this modal
+  // is still animating away, so Share closes the sheet first and only fires
+  // onShare once it's fully dismissed (onDismiss), with a timer fallback in
+  // case onDismiss never arrives.
+  const pendingShare = useRef(false);
+
+  function runPendingShare() {
+    if (!pendingShare.current) return;
+    pendingShare.current = false;
+    onShare();
+  }
+
+  function handleSharePress() {
+    pendingShare.current = true;
+    onClose();
+    setTimeout(runPendingShare, 800);
+  }
+
   return (
     <Modal
       visible={visible}
@@ -15,6 +34,7 @@ export default function ShareOptionsModal({ visible, onClose, onSaveToPhotos, on
       animationType="slide"
       supportedOrientations={['portrait']}
       onRequestClose={onClose}
+      onDismiss={runPendingShare}
     >
       <View style={styles.backdrop}>
         <TouchableOpacity style={styles.backdropTouch} activeOpacity={1} onPress={onClose} />
@@ -26,7 +46,7 @@ export default function ShareOptionsModal({ visible, onClose, onSaveToPhotos, on
             <Text style={styles.optionTitle}>Save to Camera Roll</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={onShare} style={[styles.option, styles.lastOption]} activeOpacity={0.85}>
+          <TouchableOpacity onPress={handleSharePress} style={[styles.option, styles.lastOption]} activeOpacity={0.85}>
             <Ionicons name="share-outline" size={20} color={colors.white} />
             <Text style={styles.optionTitle}>Share</Text>
           </TouchableOpacity>
