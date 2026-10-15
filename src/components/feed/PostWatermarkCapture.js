@@ -12,8 +12,11 @@ const REFERENCE_WIDTH = 390;
 // Transparent cutout of the app icon (icon.png has its navy background baked
 // in), so only the ball and tee float over the photo.
 const LOGO = require('../../../assets/watermark-logo.png');
-const LOGO_SIZE = 32;
+const LOGO_SIZE = 36;
 const USERNAME_FONT_SIZE = 14;
+const WORDMARK_FONT_SIZE = 28;
+// Inset of both watermark elements from the photo's edges.
+const EDGE_INSET = 12;
 // Bail out if the photo never loads (bad URL, offline) instead of leaving
 // the Save button spinning forever.
 const LOAD_TIMEOUT_MS = 15000;
@@ -32,9 +35,9 @@ function nextFrames() {
 
 // Mounted once per FeedScreen (never inside FlatList cells) and kept
 // off-screen. stamp(uri, username) renders the photo with the app logo and
-// "@username" on its middle-right edge (no background — a drop shadow keeps
-// the white text legible on any photo), waits for both the photo and the icon
-// to load, captures it with ViewShot and resolves with the local file URI of
+// "@username" in the top-left corner and a "SaveitGolf" script wordmark in the
+// bottom-right (no backgrounds — drop shadows keep the white text legible on
+// any photo), waits for both the photo and the icon to load, captures it with ViewShot and resolves with the local file URI of
 // the watermarked JPEG.
 const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, ref) {
   const viewShotRef = useRef(null);
@@ -100,6 +103,9 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
 
   const scale = job.width / REFERENCE_WIDTH;
   const fontSize = USERNAME_FONT_SIZE * scale;
+  const wordmarkSize = WORDMARK_FONT_SIZE * scale;
+  const inset = EDGE_INSET * scale;
+  const shadow = { textShadowRadius: 3 * scale, textShadowOffset: { width: 0, height: scale } };
 
   return (
     <View style={styles.offscreen} pointerEvents="none">
@@ -113,7 +119,7 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
             onLoad={() => handleLoad(job.id)}
             onError={(e) => finish(job.id, new Error(e?.nativeEvent?.error || 'Could not load image'))}
           />
-          <View style={[styles.watermark, { right: job.width * 0.04, gap: 6 * scale }]}>
+          <View style={[styles.byline, { top: inset, left: inset, gap: 6 * scale }]}>
             <Image
               key={`logo-${job.id}`}
               source={LOGO}
@@ -122,21 +128,26 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
               onError={() => finish(job.id, new Error('Could not load watermark logo'))}
             />
             {job.username ? (
-              <Text
-                style={[
-                  styles.username,
-                  {
-                    fontSize,
-                    lineHeight: fontSize * 1.3,
-                    textShadowRadius: 3 * scale,
-                    textShadowOffset: { width: 0, height: scale },
-                  },
-                ]}
-              >
+              <Text style={[styles.username, styles.shadow, shadow, { fontSize, lineHeight: fontSize * 1.3 }]}>
                 @{job.username}
               </Text>
             ) : null}
           </View>
+          <Text
+            style={[
+              styles.wordmark,
+              styles.shadow,
+              shadow,
+              {
+                bottom: inset,
+                right: inset,
+                fontSize: wordmarkSize,
+                lineHeight: wordmarkSize * 1.3,
+              },
+            ]}
+          >
+            SaveitGolf
+          </Text>
         </View>
       </ViewShot>
     </View>
@@ -172,18 +183,22 @@ const styles = StyleSheet.create({
     left: -10000,
     top: 0,
   },
-  // Vertically centred against the right edge: top/bottom 0 plus
-  // alignItems centres the logo and username without knowing their height.
-  watermark: {
+  byline: {
     position: 'absolute',
-    top: 0,
-    bottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
   },
   username: {
     fontWeight: '600',
     color: colors.white,
+  },
+  // Font is loaded app-wide in App.js, so it's ready before any capture.
+  wordmark: {
+    position: 'absolute',
+    fontFamily: 'DancingScript_700Bold',
+    color: colors.white,
+  },
+  shadow: {
     textShadowColor: 'rgba(0, 0, 0, 0.55)',
   },
 });
