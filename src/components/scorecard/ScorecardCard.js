@@ -102,15 +102,23 @@ function StyledPlayerName({ fullName }) {
   );
 }
 
-// Birdie/eagle: green circle border. Bogey/double bogey: red square border.
-// Par: plain white number, no shape. The card is always full width now
-// (Option 3), so cells always use the larger "wide" sizing — `variant`
-// just picks which of the two wide sizes (9-hole rounds get the bigger one,
-// since a single nine has more room to spare than a front+back pair).
+// Birdie: green circle border. Bogey: red square border. Par: plain white
+// number, no shape. Eagle (or better) adds a second green circle around the
+// first; double bogey adds a second red square. Triple bogey or worse keeps
+// the double square but thickens the outer ring and tints the inside red so
+// it reads as worse than a double. The extra ring is absolutely positioned
+// outside the cell, so the cell's width (and the score column) never shifts;
+// ringed cells just get a little vertical margin so stacked rings don't
+// collide. The card is always full width now (Option 3), so cells always
+// use the larger "wide" sizing — `variant` just picks which of the two wide
+// sizes (9-hole rounds get the bigger one, since a single nine has more
+// room to spare than a front+back pair).
 function ScoreCell({ score, par, variant }) {
   const diff = score - par;
   const isUnder = diff <= -1;
   const isOver = diff >= 1;
+  const hasOuterRing = diff <= -2 || diff >= 2;
+  const isTriplePlus = diff >= 3;
   const color = isUnder ? colors.brightGreen : isOver ? colors.red : colors.white;
   const cellStyle = variant === 'wide9' ? styles.scoreCellWide9 : styles.scoreCellWide18;
   const digitStyle = variant === 'wide9' ? styles.scoreDigitWide9 : styles.scoreDigitWide18;
@@ -122,8 +130,20 @@ function ScoreCell({ score, par, variant }) {
         isUnder && styles.scoreCellCircle,
         isOver && styles.scoreCellSquare,
         (isUnder || isOver) && { borderColor: color },
+        hasOuterRing && styles.scoreCellRinged,
+        isTriplePlus && styles.scoreCellTripleFill,
       ]}
     >
+      {hasOuterRing && (
+        <View
+          pointerEvents="none"
+          style={[
+            isUnder ? styles.scoreOuterCircle : styles.scoreOuterSquare,
+            isTriplePlus && styles.scoreOuterTriple,
+            { borderColor: color },
+          ]}
+        />
+      )}
       <Text style={[digitStyle, { color }]}>{score}</Text>
     </View>
   );
@@ -639,6 +659,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 2,
   },
+  // Outer ring sits 3pt outside the cell's 1pt border (absolute offsets are
+  // measured from inside the border, hence -4).
+  scoreCellRinged: {
+    marginVertical: 3,
+  },
+  scoreOuterCircle: {
+    position: 'absolute',
+    top: -4,
+    left: -4,
+    right: -4,
+    bottom: -4,
+    borderWidth: 1,
+    borderRadius: 11,
+  },
+  scoreOuterSquare: {
+    position: 'absolute',
+    top: -4,
+    left: -4,
+    right: -4,
+    bottom: -4,
+    borderWidth: 1,
+    borderRadius: 4,
+  },
+  scoreOuterTriple: {
+    borderWidth: 2,
+  },
+  scoreCellTripleFill: {
+    backgroundColor: 'rgba(192,0,26,0.3)',
+  },
   // Front/back totals row — one shared row below the hole scores, not
   // nested per-column. Mirrors ninesRow's full width and 12px gap so each
   // flex:1 half sits exactly under its nine. Wrapped in nineTotalsRowWrap
@@ -711,6 +760,9 @@ const styles = StyleSheet.create({
   nineTotalsLabel: {
     width: 50,
     marginLeft: -36,
+    // Pushes the label left (slot is flex-end) so it doesn't touch the
+    // score; with the row's 3pt gap this gives ~8pt of separation.
+    marginRight: 5,
     textAlign: 'right',
     color: 'rgba(255,255,255,0.9)',
     fontSize: 8,

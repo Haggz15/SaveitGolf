@@ -50,38 +50,46 @@ export function NameSection({ fullName, courseName, style }) {
   );
 }
 
-// Birdie/eagle: green circle(s) around the number. Bogey/double bogey: red
-// square(s). Par: plain white number, no shape. Eagle/double-bogey (2+ under
-// or over) add a second, larger ring around the first for "two circles"/"two
-// squares".
+// Birdie: green circle around the number. Bogey: red square. Par: plain
+// white number, no shape. Eagle (or better) adds a second green circle
+// around the first; double bogey adds a second red square. Triple bogey or
+// worse keeps the double square but thickens the outer ring and tints the
+// inside red so it reads as worse than a double. The extra ring is
+// absolutely positioned outside the cell, so the cell keeps its 20pt
+// footprint and stays centered on the score column; ringed cells just get
+// a little vertical margin so stacked rings don't collide.
 function ScoreCell({ score, par }) {
   const diff = score - par;
   const isUnder = diff <= -1;
   const isOver = diff >= 1;
+  const hasOuterRing = diff <= -2 || diff >= 2;
+  const isTriplePlus = diff >= 3;
   const color = isUnder ? colors.brightGreen : isOver ? colors.red : colors.white;
-  const ringCount = isUnder ? Math.min(-diff, 2) : isOver ? Math.min(diff, 2) : 0;
 
-  let node = (
+  return (
     <View
       style={[
         styles.scoreCellBase,
-        ringCount >= 1 && (isUnder ? styles.scoreCellCircle : styles.scoreCellSquare),
-        ringCount >= 1 && { borderColor: color },
+        isUnder && styles.scoreCellCircle,
+        isOver && styles.scoreCellSquare,
+        (isUnder || isOver) && { borderColor: color },
+        hasOuterRing && styles.scoreCellRinged,
+        isTriplePlus && styles.scoreCellTripleFill,
       ]}
     >
+      {hasOuterRing && (
+        <View
+          pointerEvents="none"
+          style={[
+            isUnder ? styles.scoreOuterCircle : styles.scoreOuterSquare,
+            isTriplePlus && styles.scoreOuterTriple,
+            { borderColor: color },
+          ]}
+        />
+      )}
       <Text style={[styles.scoreDigit, { color }]}>{score}</Text>
     </View>
   );
-
-  if (ringCount >= 2) {
-    node = (
-      <View style={[isUnder ? styles.scoreOuterCircle : styles.scoreOuterSquare, { borderColor: color }]}>
-        {node}
-      </View>
-    );
-  }
-
-  return node;
 }
 
 // One nine (front or back): each hole row is [hole number | score cell], no
@@ -209,21 +217,34 @@ const styles = StyleSheet.create({
     borderWidth: 1.4,
     borderRadius: 2,
   },
+  // Outer ring sits 3pt outside the cell's 1.4pt border (absolute offsets
+  // are measured from inside the border, hence -4.4).
+  scoreCellRinged: {
+    marginVertical: 3,
+  },
   scoreOuterCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    position: 'absolute',
+    top: -4.4,
+    left: -4.4,
+    right: -4.4,
+    bottom: -4.4,
     borderWidth: 1.4,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: 13,
   },
   scoreOuterSquare: {
-    width: 26,
-    height: 26,
-    borderRadius: 3,
+    position: 'absolute',
+    top: -4.4,
+    left: -4.4,
+    right: -4.4,
+    bottom: -4.4,
     borderWidth: 1.4,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: 4,
+  },
+  scoreOuterTriple: {
+    borderWidth: 2.4,
+  },
+  scoreCellTripleFill: {
+    backgroundColor: 'rgba(192,0,26,0.3)',
   },
   nineDivider: {
     height: 1,
@@ -244,6 +265,8 @@ const styles = StyleSheet.create({
   nineTotalLabel: {
     width: 50,
     marginLeft: -36,
+    // With the row's 6pt gap this gives ~8pt between label and score.
+    marginRight: 2,
     textAlign: 'right',
     color: 'rgba(255,255,255,0.9)',
     fontSize: 8,
