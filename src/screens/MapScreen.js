@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Platform, TouchableOpacity, Switch, Linking } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity, Switch, Linking, FlatList } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -56,6 +56,10 @@ function guard(fn) {
 function withCoords(courses, context) {
   return filterCoursesWithValidCoordinates(courses, context);
 }
+
+// Width of the right-side course list panel; the zoom controls and played
+// badge shift left by this much while it's showing so they stay tappable.
+const COURSE_LIST_PANEL_WIDTH = 150;
 
 function CourseMarker({ course, highlighted, onPress }) {
   return (
@@ -129,6 +133,7 @@ export default function MapScreen({ navigation, route }) {
   const mapRef = useRef(null);
   const [emptyMyCoursesToast, setEmptyMyCoursesToast] = useState(null);
   const [courseSearchFocused, setCourseSearchFocused] = useState(false);
+  const [courseListHidden, setCourseListHidden] = useState(false);
   const playedEmptyToastShownRef = useRef(false);
   const {
     region,
@@ -199,6 +204,16 @@ export default function MapScreen({ navigation, route }) {
   // sits on top of the search results.
   const playedBadgeCourses = friendFilter ? (friendFilter.loading ? [] : friendFilter.courses) : myCoursesList;
   const showPlayedBadge = playedBadgeCourses.length > 0 && !courseSearchFocused && !searchQuery.trim();
+
+  // Right-side list of the courses currently pinned, shown in Courses Near
+  // Me or friend-filter mode once markers have loaded. Dismissable via its
+  // close button; re-entering either mode brings it back.
+  const markerCourses = withCoords(mapMarkers, 'render markers');
+  const showCourseList =
+    !courseListHidden && (filter === MAP_FILTERS.NEAR || !!friendFilter) && markerCourses.length > 0;
+  useEffect(() => {
+    setCourseListHidden(false);
+  }, [filter, friendFilter]);
 
   // The Map tab stays mounted across tab switches (bottom tab navigators
   // don't unmount screens), so a course added on the Profile tab wouldn't
@@ -316,7 +331,14 @@ export default function MapScreen({ navigation, route }) {
       )}
       <FilterPills
         value={filter}
-        onChange={(next) => (next === MAP_FILTERS.NEAR ? selectNearMe() : setFilter(next))}
+        onChange={(next) => {
+          if (next === MAP_FILTERS.NEAR) {
+            setCourseListHidden(false);
+            selectNearMe();
+          } else {
+            setFilter(next);
+          }
+        }}
         nearMeCount={nearMeCount}
         nearMeLoading={nearMeLoading}
       />
@@ -392,7 +414,7 @@ export default function MapScreen({ navigation, route }) {
                   <StateMarker state={state} onPress={guard(handleSelectStateMarker)} />
                 </SilentMarkerBoundary>
               ))}
-            {withCoords(mapMarkers, 'render markers').map((course) => (
+            {markerCourses.map((course) => (
               <SilentMarkerBoundary key={`${course.id}-${course.isFriend ? 'friend' : 'mine'}`}>
                 <CourseMarker
                   course={course}
@@ -421,13 +443,53 @@ export default function MapScreen({ navigation, route }) {
           </MapView>
         </MapErrorBoundary>
 
+        {showCourseList && (
+          <View style={styles.courseListPanel}>
+            <View style={styles.courseListHeader}>
+              <Text style={styles.courseListTitle}>Courses</Text>
+              <TouchableOpacity
+                onPress={() => setCourseListHidden(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={16} color={colors.white} />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={markerCourses}
+              keyExtractor={(course) => `${course.id}-${course.isFriend ? 'friend' : 'mine'}`}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.courseListItem,
+                    selectedCourse?.id === item.id && styles.courseListItemSelected,
+                  ]}
+                  onPress={guard(() => handleSelectCourse(item))}
+                  activeOpacity={0.6}
+                >
+                  <Text style={styles.courseListItemText} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              ItemSeparatorComponent={() => <View style={styles.courseListDivider} />}
+            />
+          </View>
+        )}
+
         {showPlayedBadge && (
-          <CoursesPlayedBadge courses={playedBadgeCourses} onSelectCourse={guard(handleSelectPlayedCourse)} />
+          <CoursesPlayedBadge
+            courses={playedBadgeCourses}
+            onSelectCourse={guard(handleSelectPlayedCourse)}
+            rightOffset={showCourseList ? COURSE_LIST_PANEL_WIDTH : 0}
+          />
         )}
         <ZoomControls
           onZoomIn={guard(handleZoomIn)}
           onZoomOut={guard(handleZoomOut)}
-          style={showPlayedBadge ? { top: 12 + COURSES_PLAYED_BADGE_OFFSET } : null}
+          style={[
+            showPlayedBadge && { top: 12 + COURSES_PLAYED_BADGE_OFFSET },
+            showCourseList && { right: 16 + COURSE_LIST_PANEL_WIDTH },
+          ]}
         />
 
         {selectedCourse && (
@@ -530,6 +592,45 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  courseListPanel: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: COURSE_LIST_PANEL_WIDTH,
+    backgroundColor: 'rgba(13,31,60,0.85)',
+  },
+  courseListHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(255,255,255,0.15)',
+  },
+  courseListTitle: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  courseListItem: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  courseListItemSelected: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  courseListItemText: {
+    color: colors.white,
+    fontSize: 11,
+  },
+  courseListDivider: {
+    height: 0.5,
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   feedFocusMarker: {
     alignItems: 'center',

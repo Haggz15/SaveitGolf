@@ -86,7 +86,10 @@ function ScoreCell({ score, par }) {
 
 // One nine (front or back): each hole row is [hole number | score cell], no
 // heading above — the label only reappears once, in the total row below the
-// nine scores.
+// nine scores. That row mirrors holeRow's slots so the total sits directly
+// under the score column with "FRONT"/"BACK" inline to its left; both texts
+// are wider than their slots, so they use fixed widths with negative
+// margins that keep the slot footprint identical to the hole rows.
 export function ExportNineColumn({ holes, label, style }) {
   return (
     <View style={style}>
@@ -98,8 +101,12 @@ export function ExportNineColumn({ holes, label, style }) {
       ))}
       <View style={styles.nineDivider} />
       <View style={styles.nineTotalRow}>
-        <Text style={styles.nineTotalScore}>{sumScore(holes)}</Text>
-        <Text style={styles.nineTotalLabel}>{label}</Text>
+        <View style={styles.nineTotalLabelSlot}>
+          <Text style={styles.nineTotalLabel} numberOfLines={1}>{label}</Text>
+        </View>
+        <View style={styles.nineTotalScoreSlot}>
+          <Text style={styles.nineTotalScore} numberOfLines={1}>{sumScore(holes)}</Text>
+        </View>
       </View>
     </View>
   );
@@ -225,18 +232,34 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   nineTotalRow: {
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    justifyContent: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  // Same width as holeNumber; the label overflows leftward, right-aligned.
+  nineTotalLabelSlot: {
+    width: 14,
+    alignItems: 'flex-end',
   },
   nineTotalLabel: {
+    width: 50,
+    marginLeft: -36,
+    textAlign: 'right',
     color: 'rgba(255,255,255,0.9)',
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
+  // Same width as scoreCellBase; the total is centered on the score column.
+  nineTotalScoreSlot: {
+    width: 20,
+    alignItems: 'center',
+  },
   nineTotalScore: {
+    width: 36,
+    marginHorizontal: -8,
+    textAlign: 'center',
     color: colors.white,
     fontSize: 15,
     fontWeight: '700',

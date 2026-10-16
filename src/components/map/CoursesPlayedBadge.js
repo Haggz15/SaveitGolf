@@ -8,7 +8,7 @@ import colors from '../../theme/colors';
 // so it never drifts from the Courses Played pins. Tapping the pill toggles
 // a dropdown listing those courses by name; tapping one closes the dropdown
 // and focuses that course on the map. Tapping anywhere else closes it.
-export default function CoursesPlayedBadge({ courses, onSelectCourse }) {
+export default function CoursesPlayedBadge({ courses, onSelectCourse, rightOffset = 0 }) {
   const [open, setOpen] = useState(false);
   const count = courses?.length ?? 0;
   if (!count) return null;
@@ -16,7 +16,7 @@ export default function CoursesPlayedBadge({ courses, onSelectCourse }) {
   return (
     <>
       {open && <Pressable style={[StyleSheet.absoluteFill, styles.backdrop]} onPress={() => setOpen(false)} />}
-      <TouchableOpacity style={styles.badge} onPress={() => setOpen((v) => !v)} activeOpacity={0.8}>
+      <TouchableOpacity style={[styles.badge, rightOffset ? { right: 16 + rightOffset } : null]} onPress={() => setOpen((v) => !v)} activeOpacity={0.8}>
         <Image source={require('../../../assets/icon.png')} style={styles.logo} />
         <Text style={styles.text}>
           Played {count} {count === 1 ? 'course' : 'courses'}
@@ -24,7 +24,7 @@ export default function CoursesPlayedBadge({ courses, onSelectCourse }) {
         <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color={colors.white} style={styles.chevron} />
       </TouchableOpacity>
       {open && (
-        <View style={styles.dropdown}>
+        <View style={[styles.dropdown, rightOffset ? { right: 16 + rightOffset } : null]}>
           <ScrollView>
             {courses.map((course, index) => (
               <TouchableOpacity

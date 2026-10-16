@@ -151,9 +151,37 @@ function NineColumn({ holes, variant, holeNumberOffset = 0 }) {
   );
 }
 
-// Sits directly below the hole-scores row: "Front <n>" / "Back <n>" as two
-// flex:1 items with the same gap as ninesRow, so each total centers under
-// its own nine, each with its own top border echoing the hole rows' divider.
+// One nine's total, laid out exactly like a holeRow — [label slot the width
+// of the hole number | total in a slot the width of a score cell] — so the
+// total sits directly under that nine's score column and the label reads
+// inline to its left, right-aligned against where the hole numbers end.
+// Both texts are wider than their slots, so they get a fixed wider width
+// with negative margins that keep the slot's footprint (and so the row's
+// centering) identical to the hole rows above.
+function NineTotalsItem({ label, total, variant }) {
+  const isWide9 = variant === 'wide9';
+  return (
+    <View style={styles.nineTotalsItem}>
+      <View style={styles.nineTotalsItemInner}>
+        <View style={isWide9 ? styles.nineTotalsLabelSlotWide9 : styles.nineTotalsLabelSlot}>
+          <Text style={[styles.nineTotalsLabel, isWide9 && styles.nineTotalsLabelWide9]} numberOfLines={1}>
+            {label}
+          </Text>
+        </View>
+        <View style={isWide9 ? styles.nineTotalsScoreSlotWide9 : styles.nineTotalsScoreSlot}>
+          <Text style={[styles.nineTotalsScore, isWide9 && styles.nineTotalsScoreWide9]} numberOfLines={1}>
+            {total}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// Sits directly below the hole-scores row: "FRONT <n>" / "BACK <n>" as two
+// flex:1 items with the same gap as ninesRow, so each total lines up under
+// its own nine's score column (see NineTotalsItem), each with its own top
+// border echoing the hole rows' divider.
 // Back is omitted for a 9-hole round. The green "add photo" plus is
 // absolutely positioned at the row's right edge, so it doesn't narrow the
 // halves and push the totals out of line with the nines above, and always stays
@@ -162,20 +190,12 @@ function NineColumn({ holes, variant, holeNumberOffset = 0 }) {
 // undoing it instead). `hideShareExtras` (set true for the duration of a
 // capture) hides it from the exported image since it lives inside the
 // captured subtree.
-function NineTotalsRow({ frontTotal, backTotal, isNineHoleRound, frontLabel, onAddPhoto, hasPhoto, hideShareExtras }) {
+function NineTotalsRow({ frontTotal, backTotal, isNineHoleRound, frontLabel, variant, onAddPhoto, hasPhoto, hideShareExtras }) {
   return (
     <View style={styles.nineTotalsRowWrap}>
       <View style={styles.nineTotalsRow}>
-        <View style={styles.nineTotalsItem}>
-          <Text style={styles.nineTotalsScore}>{frontTotal}</Text>
-          <Text style={styles.nineTotalsLabel}>{frontLabel}</Text>
-        </View>
-        {!isNineHoleRound && (
-          <View style={styles.nineTotalsItem}>
-            <Text style={styles.nineTotalsScore}>{backTotal}</Text>
-            <Text style={styles.nineTotalsLabel}>Back</Text>
-          </View>
-        )}
+        <NineTotalsItem label={frontLabel} total={frontTotal} variant={variant} />
+        {!isNineHoleRound && <NineTotalsItem label="Back" total={backTotal} variant={variant} />}
       </View>
       {onAddPhoto && (
         <TouchableOpacity
@@ -360,6 +380,7 @@ export default function ScorecardCard({
         backTotal={backTotal}
         isNineHoleRound={isNineHoleRound}
         frontLabel={frontLabel}
+        variant={nineVariant}
         onAddPhoto={onAddPhoto}
         hasPhoto={hasPhoto}
         hideShareExtras={hideShareExtras}
@@ -660,28 +681,70 @@ const styles = StyleSheet.create({
   invisible: {
     opacity: 0,
   },
-  // Total stacked above its label, both left-aligned within its half,
-  // with its own top border echoing the divider above the hole rows.
+  // One nine's total cell, with its own top border echoing the divider
+  // above the hole rows. The inner row mirrors holeRow (centered, gap 3,
+  // slots sized to holeNumber/scoreCell) so the total lands under the
+  // score column.
   nineTotalsItem: {
     flex: 1,
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    justifyContent: 'flex-start',
     borderTopWidth: 0.5,
     borderColor: 'rgba(255,255,255,0.15)',
     paddingTop: 3,
     marginTop: 3,
   },
+  nineTotalsItemInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  // Label slot = holeNumber width (14 / 18); the label itself is wider and
+  // overflows leftward via a negative marginLeft, right-aligned.
+  nineTotalsLabelSlot: {
+    width: 14,
+    alignItems: 'flex-end',
+  },
+  nineTotalsLabelSlotWide9: {
+    width: 18,
+    alignItems: 'flex-end',
+  },
   nineTotalsLabel: {
+    width: 50,
+    marginLeft: -36,
+    textAlign: 'right',
     color: 'rgba(255,255,255,0.9)',
     fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
+  nineTotalsLabelWide9: {
+    width: 56,
+    marginLeft: -38,
+    fontSize: 11,
+  },
+  // Score slot = scoreCell width (20 / 28); the two-digit total gets a
+  // wider centered box with negative side margins so it stays centered on
+  // the score column without changing the slot's footprint.
+  nineTotalsScoreSlot: {
+    width: 20,
+    alignItems: 'center',
+  },
+  nineTotalsScoreSlotWide9: {
+    width: 28,
+    alignItems: 'center',
+  },
   nineTotalsScore: {
+    width: 36,
+    marginHorizontal: -8,
+    textAlign: 'center',
     color: colors.white,
     fontSize: 18,
     fontWeight: '700',
+  },
+  nineTotalsScoreWide9: {
+    width: 44,
+    marginHorizontal: -8,
+    fontSize: 20,
   },
   // Grand total block: sits directly below the front/back (or single) nine
   // totals row, spanning the full card width — never floating between or
