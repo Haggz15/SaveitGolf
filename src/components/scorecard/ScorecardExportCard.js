@@ -98,8 +98,8 @@ export function ExportNineColumn({ holes, label, style }) {
       ))}
       <View style={styles.nineDivider} />
       <View style={styles.nineTotalRow}>
-        <Text style={styles.nineTotalLabel}>{label}</Text>
         <Text style={styles.nineTotalScore}>{sumScore(holes)}</Text>
+        <Text style={styles.nineTotalLabel}>{label}</Text>
       </View>
     </View>
   );
@@ -225,10 +225,9 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   nineTotalRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     justifyContent: 'flex-start',
-    gap: 5,
   },
   nineTotalLabel: {
     color: 'rgba(255,255,255,0.9)',

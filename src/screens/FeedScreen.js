@@ -1414,22 +1414,18 @@ const styles = StyleSheet.create({
     left: 14,
     maxWidth: 175,
   },
-  // Faint backing plate so the course name stays legible over bright
-  // photos and video frames; alignSelf keeps it hugging the text.
+  // No backing plate — the heavy text shadow on topLeftCourseName keeps it
+  // legible over bright skies. alignSelf keeps the tap target hugging the text.
   topLeftCourseNameWrap: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(0,0,0,0.25)',
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 3,
   },
   topLeftCourseName: {
     fontFamily: 'Cinzel_700Bold',
-    fontSize: 15,
+    fontSize: 16,
     color: colors.white,
-    textShadowColor: 'rgba(0,0,0,0.9)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 6,
+    textShadowColor: 'rgba(0,0,0,0.95)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
   topLeftCompositeName: {
     fontFamily: 'Cinzel_700Bold',

@@ -167,13 +167,13 @@ function NineTotalsRow({ frontTotal, backTotal, isNineHoleRound, frontLabel, onA
     <View style={styles.nineTotalsRowWrap}>
       <View style={styles.nineTotalsRow}>
         <View style={styles.nineTotalsItem}>
-          <Text style={styles.nineTotalsLabel}>{frontLabel}</Text>
           <Text style={styles.nineTotalsScore}>{frontTotal}</Text>
+          <Text style={styles.nineTotalsLabel}>{frontLabel}</Text>
         </View>
         {!isNineHoleRound && (
           <View style={styles.nineTotalsItem}>
-            <Text style={styles.nineTotalsLabel}>Back</Text>
             <Text style={styles.nineTotalsScore}>{backTotal}</Text>
+            <Text style={styles.nineTotalsLabel}>Back</Text>
           </View>
         )}
       </View>
@@ -660,14 +660,13 @@ const styles = StyleSheet.create({
   invisible: {
     opacity: 0,
   },
-  // Centered within its half, the same way holeRow centers each nine's
-  // hole rows, with its own top border echoing the divider above them.
+  // Total stacked above its label, both left-aligned within its half,
+  // with its own top border echoing the divider above the hole rows.
   nineTotalsItem: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
     borderTopWidth: 0.5,
     borderColor: 'rgba(255,255,255,0.15)',
     paddingTop: 3,
@@ -699,8 +698,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   totalBlockScore: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 44,
+    fontWeight: '800',
     color: colors.white,
   },
   totalBlockDiff: {
