@@ -1192,3 +1192,9 @@ alter table public.scorecards add column if not exists manual_par integer;
 -- column — their photo_url is the original, and it's copied here on the
 -- first crop.
 alter table public.scorecards add column if not exists original_photo_url text;
+
+-- False when the course wasn't found in the Golf Course API, so `pars` is
+-- only the default fallback pattern — the card then shows every hole score
+-- as a plain number with no birdie/bogey styling. Null on older rows, which
+-- the app treats as "known" only if course_id is set.
+alter table public.scorecards add column if not exists pars_known boolean;

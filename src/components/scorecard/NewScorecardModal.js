@@ -28,7 +28,9 @@ const AUTO_ADVANCE_DELAY_MS = 500;
 
 // For a 9-hole round played on the back nine, pull pars for holes 10-18
 // instead of 1-9 — both from live tee data and the default fallback
-// pattern (which happens to sum to par 36 either half).
+// pattern (which happens to sum to par 36 either half). `known` is false
+// when the fallback pattern was used, so the card skips per-hole
+// birdie/bogey styling it can't actually vouch for.
 async function resolveHolePars(course, holesCount, nineSide) {
   const offset = holesCount === 9 && nineSide === 'back' ? 9 : 0;
   if (course?.id) {
@@ -37,13 +39,13 @@ async function resolveHolePars(course, holesCount, nineSide) {
       const primaryTee = full.tees?.male?.[0] ?? full.tees?.female?.[0];
       const holes = primaryTee?.holes;
       if (holes && holes.length >= offset + holesCount) {
-        return holes.slice(offset, offset + holesCount).map((h) => h.par ?? 4);
+        return { pars: holes.slice(offset, offset + holesCount).map((h) => h.par ?? 4), known: true };
       }
     } catch (err) {
       // Fall through to the default pattern below.
     }
   }
-  return DEFAULT_HOLE_PATTERN.slice(offset, offset + holesCount);
+  return { pars: DEFAULT_HOLE_PATTERN.slice(offset, offset + holesCount), known: false };
 }
 
 function sumFilled(scores, holeNumbers) {
@@ -62,6 +64,7 @@ const INITIAL_STATE = {
   holesCount: null,
   nineSide: 'front',
   pars: null,
+  parsKnown: false,
   loadingPars: false,
   scores: {},
   compositeToggleOpen: false,
@@ -129,8 +132,8 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
 
   async function handleSelectHoles(holesCount) {
     patch({ holesCount, loadingPars: true, step: 'entry' });
-    const pars = await resolveHolePars(state.selectedCourse, holesCount, state.nineSide);
-    patch({ pars, loadingPars: false });
+    const { pars, known } = await resolveHolePars(state.selectedCourse, holesCount, state.nineSide);
+    patch({ pars, parsKnown: known, loadingPars: false });
   }
 
   function handleScoreChange(hole, text) {
@@ -191,7 +194,7 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
   }
 
   async function handleSave() {
-    const { selectedCourse, holesCount, nineSide, pars, scores, compositeFront, compositeBack } = state;
+    const { selectedCourse, holesCount, nineSide, pars, parsKnown, scores, compositeFront, compositeBack } = state;
     const holeNumbers = Array.from({ length: holesCount }, (_, i) => i + 1);
 
     const front = holeNumbers.slice(0, 9).map((hole, idx) => ({
@@ -216,6 +219,7 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
       compositeFront: compositeFront.trim() || null,
       compositeBack: holesCount === 18 ? compositeBack.trim() || null : null,
       nineSide: holesCount === 9 ? nineSide : 'front',
+      parsKnown,
     };
 
     onSaved(newScorecard);
@@ -269,16 +273,13 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
               autoFocus
             />
 
-            {state.courseQuery.trim().length >= 2 && (
+            {/* No API matches -> no dropdown at all; Continue still proceeds with the typed name. */}
+            {state.courseQuery.trim().length >= 2 && (state.searching || state.courseResults.length > 0) && (
               <View style={styles.dropdown}>
                 {state.searching ? (
                   <View style={styles.statusRow}>
                     <ActivityIndicator size="small" color={colors.red} />
                     <Text style={styles.statusText}>Searching…</Text>
-                  </View>
-                ) : state.courseResults.length === 0 ? (
-                  <View style={styles.statusRow}>
-                    <Text style={styles.statusText}>No matches — you can still continue with this name</Text>
                   </View>
                 ) : (
                   <FlatList

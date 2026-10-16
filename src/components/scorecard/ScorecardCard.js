@@ -112,9 +112,11 @@ function StyledPlayerName({ fullName }) {
 // collide. The card is always full width now (Option 3), so cells always
 // use the larger "wide" sizing — `variant` just picks which of the two wide
 // sizes (9-hole rounds get the bigger one, since a single nine has more
-// room to spare than a front+back pair).
-function ScoreCell({ score, par, variant }) {
-  const diff = score - par;
+// room to spare than a front+back pair). When `parsKnown` is false (course
+// not in the API, so par is only a guess) every score is a plain white
+// number — no shapes, rings or tint.
+function ScoreCell({ score, par, variant, parsKnown = true }) {
+  const diff = parsKnown ? score - par : 0;
   const isUnder = diff <= -1;
   const isOver = diff >= 1;
   const hasOuterRing = diff <= -2 || diff >= 2;
@@ -156,7 +158,7 @@ function ScoreCell({ score, par, variant }) {
 // totals live in the separate NineTotalsRow below, not nested in here.
 // `holeNumberOffset` shifts the displayed hole numbers (e.g. +9 so a
 // back-nine round reads 10-18) without touching the underlying holes data.
-function NineColumn({ holes, variant, holeNumberOffset = 0 }) {
+function NineColumn({ holes, variant, holeNumberOffset = 0, parsKnown }) {
   return (
     <View style={styles.nineColumn}>
       {holes.map((h) => (
@@ -164,7 +166,7 @@ function NineColumn({ holes, variant, holeNumberOffset = 0 }) {
           <Text style={[styles.holeNumber, variant === 'wide9' && styles.holeNumberWide9]}>
             {h.hole + holeNumberOffset}
           </Text>
-          <ScoreCell score={h.score} par={h.par} variant={variant} />
+          <ScoreCell score={h.score} par={h.par} variant={variant} parsKnown={parsKnown} />
         </View>
       ))}
     </View>
@@ -391,8 +393,15 @@ export default function ScorecardCard({
       <View style={styles.divider} />
 
       <View style={styles.ninesRow}>
-        <NineColumn holes={scorecard.front} variant={nineVariant} holeNumberOffset={holeNumberOffset} />
-        {!isNineHoleRound && <NineColumn holes={scorecard.back} variant={nineVariant} />}
+        <NineColumn
+          holes={scorecard.front}
+          variant={nineVariant}
+          holeNumberOffset={holeNumberOffset}
+          parsKnown={scorecard.parsKnown}
+        />
+        {!isNineHoleRound && (
+          <NineColumn holes={scorecard.back} variant={nineVariant} parsKnown={scorecard.parsKnown} />
+        )}
       </View>
 
       <NineTotalsRow

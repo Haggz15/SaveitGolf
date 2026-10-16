@@ -57,9 +57,10 @@ export function NameSection({ fullName, courseName, style }) {
 // inside red so it reads as worse than a double. The extra ring is
 // absolutely positioned outside the cell, so the cell keeps its 20pt
 // footprint and stays centered on the score column; ringed cells just get
-// a little vertical margin so stacked rings don't collide.
-function ScoreCell({ score, par }) {
-  const diff = score - par;
+// a little vertical margin so stacked rings don't collide. When `parsKnown`
+// is false (course not in the API) every score is a plain white number.
+function ScoreCell({ score, par, parsKnown = true }) {
+  const diff = parsKnown ? score - par : 0;
   const isUnder = diff <= -1;
   const isOver = diff >= 1;
   const hasOuterRing = diff <= -2 || diff >= 2;
@@ -98,13 +99,13 @@ function ScoreCell({ score, par }) {
 // under the score column with "FRONT"/"BACK" inline to its left; both texts
 // are wider than their slots, so they use fixed widths with negative
 // margins that keep the slot footprint identical to the hole rows.
-export function ExportNineColumn({ holes, label, style }) {
+export function ExportNineColumn({ holes, label, style, parsKnown }) {
   return (
     <View style={style}>
       {holes.map((h) => (
         <View key={h.hole} style={styles.holeRow}>
           <Text style={styles.holeNumber}>{h.hole}</Text>
-          <ScoreCell score={h.score} par={h.par} />
+          <ScoreCell score={h.score} par={h.par} parsKnown={parsKnown} />
         </View>
       ))}
       <View style={styles.nineDivider} />

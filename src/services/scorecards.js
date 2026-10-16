@@ -38,6 +38,11 @@ function mapRow(row) {
     compositeFront: row.composite_front ?? null,
     compositeBack: row.composite_back ?? null,
     pars: row.pars ? JSON.parse(row.pars) : null,
+    // False when the course wasn't in the Golf Course API and `pars` is just
+    // the default fallback pattern — the card then renders every hole score
+    // as a plain number. Rows saved before the column existed fall back to
+    // "had an API course id", since only those could have fetched real pars.
+    parsKnown: row.pars_known ?? row.course_id != null,
     createdAt: row.created_at,
     // Which nine a 9-hole round was played on ('front' or 'back') — drives
     // whether the card labels its holes 1-9 or 10-18 and the single total
@@ -109,6 +114,7 @@ export async function saveScorecard(userId, scorecard) {
       composite_front: scorecard.compositeFront ?? null,
       composite_back: scorecard.compositeBack ?? null,
       nine_side: scorecard.nineSide ?? 'front',
+      pars_known: scorecard.parsKnown ?? scorecard.course?.id != null,
       photo_layout: 'behind',
     })
     .select()
