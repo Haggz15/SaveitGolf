@@ -713,7 +713,7 @@ const styles = StyleSheet.create({
     marginLeft: -36,
     textAlign: 'right',
     color: 'rgba(255,255,255,0.9)',
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
