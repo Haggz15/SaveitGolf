@@ -1,4 +1,5 @@
 import { getCourseById } from '../services/golfCourseApi';
+import { findCourseIdByName } from '../services/posts';
 
 // Course rows sourced from course_rankings carry no city/state/lat/lng (see
 // courseRankings.js's mapRow) — enrich via golfcourseapi.com when a courseId
@@ -9,6 +10,12 @@ import { getCourseById } from '../services/golfCourseApi';
 // courseId at all is returned unchanged too — the map flow degrades to a
 // state-less popup with no pin, same as any other course it can't locate.
 async function resolveCourseLocation(course) {
+  if (!course.courseId) {
+    // Hand-typed entry for a course others logged via search — borrow that
+    // id so the map lands on the same course (see findCourseIdByName).
+    const courseId = await findCourseIdByName(course.courseName, course.state).catch(() => null);
+    if (courseId) course = { ...course, courseId };
+  }
   if (course.city && course.state) return course;
   if (!course.courseId) return course;
   try {

@@ -143,6 +143,8 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
                 right: inset,
                 fontSize: wordmarkSize,
                 lineHeight: wordmarkSize * 1.3,
+                // Room for the trailing 'f' swash, which overhangs the glyph box.
+                paddingRight: 16 * scale,
               },
             ]}
           >

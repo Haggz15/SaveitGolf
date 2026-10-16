@@ -80,16 +80,21 @@ const FEED_FOCUS_ICON_SIZE = Math.round(NORMAL_MARKER_ICON_SIZE * 1.5);
 // The pin dropped when a course name is tapped from the feed (see
 // useCourseMapData's routeZoomToState handling) — a red flag, 1.5x the size
 // of a normal course pin, with the course name shown as a permanently
-// visible label underneath rather than a tap-to-reveal callout.
-function FeedFocusMarker({ pin }) {
+// visible label underneath rather than a tap-to-reveal callout. Tapping it
+// opens Course Detail when `onPress` is given (the feed pin, not the
+// pin-drop candidate). zIndex 15 keeps it above every CourseMarker
+// (1, or 10 highlighted) so it wins the tap where they overlap, and the
+// inner View passes touches through to the Marker.
+function FeedFocusMarker({ pin, onPress }) {
   return (
     <Marker
       coordinate={{ latitude: pin.lat, longitude: pin.lng }}
       anchor={{ x: 0.5, y: 1 }}
+      onPress={onPress ? () => onPress(pin) : undefined}
       tracksViewChanges={false}
       zIndex={15}
     >
-      <View style={styles.feedFocusMarker}>
+      <View style={styles.feedFocusMarker} pointerEvents="none">
         <Ionicons name="flag" size={FEED_FOCUS_ICON_SIZE} color={colors.red} />
         <View style={styles.feedFocusLabel}>
           <Text style={styles.feedFocusLabelText} numberOfLines={1}>
@@ -151,6 +156,7 @@ export default function MapScreen({ navigation, route }) {
     feedCoursePopup,
     dismissFeedCoursePopup,
     goToCourseDetailFromFeedPopup,
+    goToCourseDetailFromFeedPin,
     filter,
     setFilter,
     selectNearMe,
@@ -398,7 +404,7 @@ export default function MapScreen({ navigation, route }) {
 
             {feedFocusPin && (
               <SilentMarkerBoundary>
-                <FeedFocusMarker pin={feedFocusPin} />
+                <FeedFocusMarker pin={feedFocusPin} onPress={guard(goToCourseDetailFromFeedPin)} />
               </SilentMarkerBoundary>
             )}
 

@@ -227,12 +227,12 @@ const styles = StyleSheet.create({
   nineTotalRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     gap: 5,
   },
   nineTotalLabel: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 9,
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',

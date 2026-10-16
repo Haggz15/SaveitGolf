@@ -49,7 +49,7 @@ function GolferRow({ golfer, isFollowing, followerCount, onToggleFollow, onOpen 
       </View>
       <View style={styles.rowTextWrap}>
         <Text style={styles.username} numberOfLines={1}>
-          {golfer.username ? `@${golfer.username}` : golfer.fullName || 'Golfer'}
+          {golfer.username || golfer.fullName || 'Golfer'}
         </Text>
         <Text style={styles.followerCount}>{followerLabel(followerCount)}</Text>
       </View>

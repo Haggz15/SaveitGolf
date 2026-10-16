@@ -152,10 +152,11 @@ function NineColumn({ holes, variant, holeNumberOffset = 0 }) {
 }
 
 // Sits directly below the hole-scores row: "Front <n>" / "Back <n>" as two
-// flex:1 items spread across the full width of the card, centered within
-// their half, each with its own top border echoing the hole rows' divider.
-// Back is omitted for a 9-hole round. The green "add photo" plus sits to
-// the right of this row, outside the flex:1 spread, and always stays
+// flex:1 items with the same gap as ninesRow, so each total centers under
+// its own nine, each with its own top border echoing the hole rows' divider.
+// Back is omitted for a 9-hole round. The green "add photo" plus is
+// absolutely positioned at the row's right edge, so it doesn't narrow the
+// halves and push the totals out of line with the nines above, and always stays
 // visible — even once a photo is showing, where it just dims and stops
 // doing anything (the remove button in the card's top-right corner handles
 // undoing it instead). `hideShareExtras` (set true for the duration of a
@@ -166,13 +167,11 @@ function NineTotalsRow({ frontTotal, backTotal, isNineHoleRound, frontLabel, onA
     <View style={styles.nineTotalsRowWrap}>
       <View style={styles.nineTotalsRow}>
         <View style={styles.nineTotalsItem}>
-          <View style={styles.nineTotalsSpacer} />
           <Text style={styles.nineTotalsLabel}>{frontLabel}</Text>
           <Text style={styles.nineTotalsScore}>{frontTotal}</Text>
         </View>
         {!isNineHoleRound && (
           <View style={styles.nineTotalsItem}>
-            <View style={styles.nineTotalsSpacer} />
             <Text style={styles.nineTotalsLabel}>Back</Text>
             <Text style={styles.nineTotalsScore}>{backTotal}</Text>
           </View>
@@ -423,7 +422,7 @@ export default function ScorecardCard({
 
           {hasPhoto && (
             <LinearGradient
-              colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.35)']}
+              colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0.4)']}
               locations={[0, 1]}
               style={styles.photoGradient}
               pointerEvents="none"
@@ -620,28 +619,26 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   // Front/back totals row — one shared row below the hole scores, not
-  // nested per-column, so both items line up on flex:1 and spread across
-  // the full width of the card. Wrapped in nineTotalsRowWrap so the
-  // add-photo plus can sit to its right as a fixed-width sibling outside
-  // the flex:1 spread.
+  // nested per-column. Mirrors ninesRow's full width and 12px gap so each
+  // flex:1 half sits exactly under its nine. Wrapped in nineTotalsRowWrap
+  // so the add-photo plus can be pinned to the right edge out of the flow.
   nineTotalsRowWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+    position: 'relative',
+    justifyContent: 'center',
   },
   nineTotalsRow: {
-    flex: 1,
     flexDirection: 'row',
-    gap: 4,
+    gap: 12,
   },
   addPhotoPlusButton: {
+    position: 'absolute',
+    right: 0,
     width: 24,
     height: 24,
     borderRadius: 12,
     backgroundColor: colors.brightGreen,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 6,
   },
   // Once a photo is showing the plus stops doing anything — the top-right
   // remove button undoes it instead — so it dims to read as inert rather
@@ -663,10 +660,8 @@ const styles = StyleSheet.create({
   invisible: {
     opacity: 0,
   },
-  // Each item gets a 13px leading spacer — matching the hole-number
-  // column's width — so its score digit lands directly under the hole
-  // scores above, plus its own top border echoing the divider above the
-  // hole rows, centered under the centered hole scores above it.
+  // Centered within its half, the same way holeRow centers each nine's
+  // hole rows, with its own top border echoing the divider above them.
   nineTotalsItem: {
     flex: 1,
     flexDirection: 'row',
@@ -678,12 +673,9 @@ const styles = StyleSheet.create({
     paddingTop: 3,
     marginTop: 3,
   },
-  nineTotalsSpacer: {
-    width: 13,
-  },
   nineTotalsLabel: {
-    color: '#6a8ab0',
-    fontSize: 7,
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
   },

@@ -522,7 +522,17 @@ export function useCourseMapData({
       if (cancelled) return;
 
       if (courseHasValidCoordinates({ lat, lng })) {
-        setFeedFocusPin({ name: routeZoomToState.courseName, lat, lng });
+        // Carries the course identity too, so tapping the flag itself can
+        // open Course Detail (goToCourseDetailFromFeedPin) without waiting
+        // for the popup.
+        setFeedFocusPin({
+          name: routeZoomToState.courseName,
+          lat,
+          lng,
+          courseId: routeZoomToState.courseId ?? null,
+          city: routeZoomToState.city ?? null,
+          state: routeZoomToState.state ?? null,
+        });
         if (!hadStoredCoordinates && routeZoomToState.postId) {
           updatePostCoordinates(routeZoomToState.postId, lat, lng);
         }
@@ -558,8 +568,10 @@ export function useCourseMapData({
     setFeedCoursePopup(null);
   }, []);
 
-  // The popup's own "View Holes and Shots" button — the only way this flow
-  // ever navigates to Course Detail now that there's no auto-navigate timer.
+  // The popup's own "View Holes and Shots" button — one of two ways this
+  // flow navigates to Course Detail (the other is tapping the flag pin
+  // itself, see goToCourseDetailFromFeedPin) now that there's no
+  // auto-navigate timer.
   const goToCourseDetailFromFeedPopup = useCallback(() => {
     if (!navigation || !feedCoursePopup) return;
     const info = feedCoursePopup;
@@ -573,6 +585,21 @@ export function useCourseMapData({
       lng: info.lng,
     });
   }, [navigation, feedCoursePopup]);
+
+  // Tapping the feed's red flag pin — same destination as the popup's
+  // button, but available as soon as the flag drops, before the popup shows.
+  const goToCourseDetailFromFeedPin = useCallback(() => {
+    if (!navigation || !feedFocusPin) return;
+    setFeedCoursePopup(null);
+    navigation.navigate('CourseDetail', {
+      courseId: feedFocusPin.courseId ?? null,
+      courseName: feedFocusPin.name,
+      city: feedFocusPin.city ?? null,
+      state: feedFocusPin.state ?? null,
+      lat: feedFocusPin.lat,
+      lng: feedFocusPin.lng,
+    });
+  }, [navigation, feedFocusPin]);
 
   // Under PLAYED, the visible set is just My Courses. Under NEAR, it's My
   // Courses plus every known course in the surrounding states (see
@@ -876,6 +903,7 @@ export function useCourseMapData({
     feedCoursePopup,
     dismissFeedCoursePopup,
     goToCourseDetailFromFeedPopup,
+    goToCourseDetailFromFeedPin,
     filter,
     setFilter,
     selectNearMe,

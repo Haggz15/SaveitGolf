@@ -129,7 +129,7 @@ export default function UserSearchModal({ visible, onClose, currentUserId, navig
                     {item.full_name || item.username || 'Golfer'}
                   </Text>
                   <Text style={styles.resultUsername} numberOfLines={1}>
-                    {item.username ? `@${item.username}` : ''}
+                    {item.username || ''}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />

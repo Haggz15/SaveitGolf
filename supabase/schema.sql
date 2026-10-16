@@ -609,6 +609,38 @@ create policy "Users can unsave their own saved posts"
   on public.saved_posts for delete
   using (auth.uid() = user_id);
 
+-- posts.saves_count backs the count under the feed's Save button. RLS hides
+-- other users' saved_posts rows, so the client can't count them itself —
+-- same denormalized-counter pattern as likes_count/comments_count.
+alter table public.posts add column if not exists saves_count integer not null default 0;
+
+update public.posts p
+set saves_count = (select count(*) from public.saved_posts s where s.post_id = p.id);
+
+create or replace function public.handle_saved_posts_count_change()
+returns trigger as $$
+begin
+  if (tg_op = 'INSERT') then
+    update public.posts set saves_count = saves_count + 1 where id = new.post_id;
+    return new;
+  elsif (tg_op = 'DELETE') then
+    update public.posts set saves_count = greatest(saves_count - 1, 0) where id = old.post_id;
+    return old;
+  end if;
+  return null;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists saved_posts_count_after_insert on public.saved_posts;
+create trigger saved_posts_count_after_insert
+  after insert on public.saved_posts
+  for each row execute function public.handle_saved_posts_count_change();
+
+drop trigger if exists saved_posts_count_after_delete on public.saved_posts;
+create trigger saved_posts_count_after_delete
+  after delete on public.saved_posts
+  for each row execute function public.handle_saved_posts_count_change();
+
 -- Shot of the Week: posts.shares_count tracks the third engagement signal
 -- (likes_count and comments_count already exist) via an RPC instead of a
 -- trigger, since shares aren't rows in their own table — just a counter

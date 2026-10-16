@@ -64,13 +64,28 @@ function PostSlide({
   const [liked, setLiked] = useState(initiallyLiked);
   const [likeCount, setLikeCount] = useState(post.likes);
   const [saved, setSaved] = useState(initiallySaved);
+  const [saveCount, setSaveCount] = useState(post.saves ?? 0);
+  // Whether a saved_posts row actually exists. `saved` can't tell us: it
+  // flashes back to false after a save, and re-saving then is a no-op
+  // insert that mustn't bump the count again.
+  const savedInDb = useRef(initiallySaved);
   const [savingMedia, setSavingMedia] = useState(false);
+  // A successful save flashes the button green, then reverts it to white.
+  const savedFlashTimer = useRef(null);
   // Tap-to-pause lives here rather than in VideoPost because expo-video's
   // native VideoView swallows touches, so handlers inside it never fire.
   // VideoPost assigns its pause/play icon animation to videoTapFeedback.
   const [userPaused, setUserPaused] = useState(false);
   const videoTapFeedback = useRef(null);
   const isVideo = post.isVideo ?? Boolean(post.video);
+
+  useEffect(() => () => clearTimeout(savedFlashTimer.current), []);
+
+  function flashSaved() {
+    clearTimeout(savedFlashTimer.current);
+    setSaved(true);
+    savedFlashTimer.current = setTimeout(() => setSaved(false), 1500);
+  }
 
   // Scrolling away clears a manual pause so the video autoplays on return.
   useEffect(() => {
@@ -123,6 +138,7 @@ function PostSlide({
     }
 
     const next = !saved;
+    clearTimeout(savedFlashTimer.current);
     setSaved(next);
 
     // Demo/mock posts (see the report/block guard above) have no real row in
@@ -136,6 +152,7 @@ function PostSlide({
         try {
           await saveMediaForPost(post.mediaUrl);
           onToast?.('Saved to Camera Roll', 'success');
+          flashSaved();
         } catch (mediaErr) {
           console.error('Failed to save demo post media to camera roll:', mediaErr);
           setSaved(!next);
@@ -155,6 +172,10 @@ function PostSlide({
     try {
       if (next) {
         await savePost(currentUserId, post.id);
+        if (!savedInDb.current) {
+          savedInDb.current = true;
+          setSaveCount((prev) => prev + 1);
+        }
         // Best-effort — a failed notification shouldn't roll back the save
         // itself (createNotification skips saving your own post).
         createNotification({ userId: post.userId, actorId: currentUserId, type: 'save', postId: post.id }).catch(
@@ -176,8 +197,13 @@ function PostSlide({
             setSavingMedia(false);
           }
         }
+        flashSaved();
       } else {
         await unsavePost(currentUserId, post.id);
+        if (savedInDb.current) {
+          savedInDb.current = false;
+          setSaveCount((prev) => Math.max(prev - 1, 0));
+        }
       }
     } catch (err) {
       console.error('Failed to save post:', post.id, err);
@@ -220,6 +246,7 @@ function PostSlide({
           <TouchableOpacity
             onPress={() => onCoursePress(post)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.topLeftCourseNameWrap}
           >
             <Text style={styles.topLeftCourseName}>{post.course}</Text>
           </TouchableOpacity>
@@ -276,6 +303,7 @@ function PostSlide({
                 <Text style={styles.saveButtonAve}>ave</Text>
               </Text>
             )}
+            <Text style={styles.railCountText}>{saveCount}</Text>
           </TouchableOpacity>
           {/* Demo/mock posts have no real userId — nothing in the database to
               report or block, so the option doesn't render for them. */}
@@ -312,13 +340,17 @@ function PostSlide({
           />
         </View>
 
-        <TouchableOpacity
-          style={styles.stateBadge}
-          onPress={() => onStatePress(post)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.stateBadgeText}>{post.state}</Text>
-        </TouchableOpacity>
+        {/* No state on the post (none entered, none from the API) → no
+            badge, rather than an empty gray square. */}
+        {post.state ? (
+          <TouchableOpacity
+            style={styles.stateBadge}
+            onPress={() => onStatePress(post)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.stateBadgeText}>{post.state}</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </TouchableWithoutFeedback>
   );
@@ -1382,13 +1414,22 @@ const styles = StyleSheet.create({
     left: 14,
     maxWidth: 175,
   },
+  // Faint backing plate so the course name stays legible over bright
+  // photos and video frames; alignSelf keeps it hugging the text.
+  topLeftCourseNameWrap: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 3,
+  },
   topLeftCourseName: {
     fontFamily: 'Cinzel_700Bold',
     fontSize: 15,
     color: colors.white,
-    textShadowColor: 'rgba(0, 0, 0, 0.7)',
+    textShadowColor: 'rgba(0,0,0,0.9)',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    textShadowRadius: 6,
   },
   topLeftCompositeName: {
     fontFamily: 'Cinzel_700Bold',

@@ -164,6 +164,7 @@ export function mapRow(row) {
     caption: row.caption ?? '',
     likes: row.likes_count ?? 0,
     comments: row.comments_count ?? 0,
+    saves: row.saves_count ?? 0,
     timeAgo: timeAgo(row.created_at),
     isVideo: row.media_type === 'video',
     mediaUrl: row.media_url,
@@ -219,7 +220,7 @@ export async function getFeedPosts({ userIds, excludeUserIds, offset = 0, limit 
 // moderation/share counters, which nothing showing a post needs.
 const POST_CARD_COLUMNS =
   'id, user_id, course_id, course_name, city, state, lat, lng, hole, caption, media_url, media_type, ' +
-  'likes_count, comments_count, created_at, composite_name, sub_course_name, hidden';
+  'likes_count, comments_count, saves_count, created_at, composite_name, sub_course_name, hidden';
 
 // Not paginated on purpose: the profile uploads grid renders every tile, its
 // Posts stat is this list's length, and PostScreen tallies most-posted
@@ -296,6 +297,31 @@ async function fetchCourseRows(select, match, refine) {
   return data ?? [];
 }
 
+
+// The same physical course can be logged both ways — hand-typed (no
+// course_id) by one golfer and picked from search (real id) by another, as
+// with Jeffersonville Golf Club. Screens reached with only the name (a
+// hand-typed Courses Played row, an id-less post) use this to recover the
+// real golfcourseapi.com id from posts that carry it, so they show the same
+// course (tees, pars, every post) as the id'd entry instead of the
+// name-only one. Exact name match only, narrowed by state when known, and
+// null unless exactly one id is left — two different courses that happen
+// to share a name are never merged.
+export async function findCourseIdByName(courseName, state = null) {
+  const name = courseName?.trim();
+  if (!name) return null;
+  const { data, error } = await supabase
+    .from('posts')
+    .select('course_id, state')
+    .not('course_id', 'is', null)
+    .ilike('course_name', escapeIlike(name))
+    .limit(50);
+  if (error) throw error;
+  const wantedState = state?.trim().toUpperCase();
+  const rows = (data ?? []).filter((row) => !wantedState || !row.state || row.state.toUpperCase() === wantedState);
+  const ids = new Set(rows.map((row) => row.course_id));
+  return ids.size === 1 ? [...ids][0] : null;
+}
 
 // All posts at a given course, most-liked first — used by the map's course
 // popup, which only reads each post's nine (compositeName) and the count,

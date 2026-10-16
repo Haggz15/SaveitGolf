@@ -1,11 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Share,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
 import { getCourseById, getClubNines } from '../services/golfCourseApi';
-import { getCourseHoleStats, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
+import { findCourseIdByName, getCourseHoleStats, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
 import { getScorecardsForCourse } from '../services/scorecards';
 import { getCourseLocation, saveCourseLocation, CourseAlreadyPinnedError } from '../services/courseLocations';
 import { reverseGeocodeCityState } from '../services/geocoding';
@@ -241,7 +251,25 @@ function BottomNavButton({ icon, iconFocused, label, focused, onPress }) {
 }
 
 export default function CourseDetailScreen({ route, navigation }) {
-  const { courseId, courseName, city, state, lat, lng, autoOpenAllPosts } = route.params ?? {};
+  const { courseId: paramCourseId, courseName, city, state, lat, lng, autoOpenAllPosts } = route.params ?? {};
+  // Arriving with only a name (a hand-typed entry for a course others logged
+  // via search) — adopt the real id if posts agree on exactly one, so this
+  // shows the API course rather than the name-only duplicate. See
+  // findCourseIdByName.
+  const [courseId, setCourseId] = useState(paramCourseId ?? null);
+  useEffect(() => {
+    setCourseId(paramCourseId ?? null);
+    if (paramCourseId || !courseName) return undefined;
+    let cancelled = false;
+    findCourseIdByName(courseName, state)
+      .then((id) => {
+        if (!cancelled && id) setCourseId(id);
+      })
+      .catch((err) => console.error('Failed to resolve course id by name:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [paramCourseId, courseName, state]);
   const insets = useSafeAreaInsets();
   const { user, profile } = useAuth();
   const [tees, setTees] = useState(null);
@@ -513,6 +541,22 @@ export default function CourseDetailScreen({ route, navigation }) {
 
   const goToTab = (screen) => navigation.navigate('Tabs', { screen });
 
+  // Hand-typed courses have no id (even after findCourseIdByName), so they
+  // share the message alone rather than a dead /course/undefined link.
+  // Share's `url` is iOS-only — Android only sends `message`, so the link
+  // rides along in the text there.
+  async function handleShareCourse() {
+    const message = `Check out ${courseName} on SaveitGolf!`;
+    const url = courseId ? `https://saveitgolf.com/course/${courseId}` : null;
+    try {
+      await Share.share(
+        Platform.OS === 'ios' || !url ? { message, ...(url && { url }) } : { message: `${message} ${url}` }
+      );
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
   function handleViewOnMap() {
     navigation.navigate('Tabs', {
       screen: 'Map',
@@ -589,7 +633,11 @@ export default function CourseDetailScreen({ route, navigation }) {
               </Text>
             </TouchableOpacity>
           </View>
-          <TouchableOpacity style={styles.headerRight} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity
+            style={styles.headerRight}
+            onPress={handleShareCourse}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
             <Ionicons name="share-outline" size={21} color={colors.white} />
           </TouchableOpacity>
         </View>
