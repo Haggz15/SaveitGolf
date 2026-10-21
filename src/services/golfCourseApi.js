@@ -171,6 +171,7 @@ export async function searchCourses(query) {
 // Also drops routing-only entries (see isRoutingOnlyName). Kept separate from
 // searchCourses because getClubNines needs the siblings.
 export function dedupeCourseResults(results) {
+  console.log('RAW results for query:', results.map(r => r.name + ' | ' + r.city));
   const groups = new Map();
   for (const course of results) {
     if (isRoutingOnlyName(course.name)) continue;
@@ -178,7 +179,9 @@ export function dedupeCourseResults(results) {
     const current = groups.get(key);
     if (!current || course.id < current.id) groups.set(key, course);
   }
-  return Array.from(groups.values());
+  const deduped = Array.from(groups.values());
+  console.log('DEDUPED results:', deduped.map(r => r.name + ' | ' + r.city));
+  return deduped;
 }
 
 // Nine names that only show up as routings of a club's standard 18 (e.g.
