@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Modal,
   Platform,
   Share,
 } from 'react-native';
@@ -14,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
-import { getCourseById, getClubNines } from '../services/golfCourseApi';
+import { getCourseById, getClubNines, getMainEighteenNines } from '../services/golfCourseApi';
 import { findCourseIdByName, getCourseHoleStats, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
 import { getScorecardsForCourse } from '../services/scorecards';
 import { getCourseLocation, saveCourseLocation, CourseAlreadyPinnedError } from '../services/courseLocations';
@@ -24,6 +25,7 @@ import { US_INITIAL_REGION } from '../hooks/useCourseMapData';
 import { useAuth } from '../context/AuthContext';
 import { PinPreviewMap } from '../components/map/CoursePinMaps';
 import CoursePinPlacementModal from '../components/map/CoursePinPlacementModal';
+import ScorecardCard from '../components/scorecard/ScorecardCard';
 
 const TABS = ['All Posts', 'Hole by Hole', 'Scorecards'];
 
@@ -215,11 +217,11 @@ function HoleByHoleGrid({ posts, holeShells, onSelectHole }) {
   );
 }
 
-function ScorecardRow({ entry }) {
+function ScorecardRow({ entry, onPress }) {
   const diff = entry.score - entry.par;
   const diffColor = diff < 0 ? colors.green : diff > 0 ? colors.red : colors.offWhite;
   return (
-    <View style={styles.scorecardRow}>
+    <TouchableOpacity style={styles.scorecardRow} onPress={onPress} activeOpacity={0.8}>
       <View style={styles.scorecardAvatar}>
         <Text style={styles.scorecardAvatarText}>{entry.initials}</Text>
       </View>
@@ -233,7 +235,26 @@ function ScorecardRow({ entry }) {
           {scoreDiffLabel(entry.score, entry.par)}
         </Text>
       </View>
-    </View>
+    </TouchableOpacity>
+  );
+}
+
+// A leaderboard entry's round, read-only: just the player's name, course and
+// scores — never its photo, and none of the owner's edit/photo controls.
+function ScorecardViewer({ entry, onClose }) {
+  return (
+    <Modal visible={!!entry} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.scorecardViewerBackdrop} activeOpacity={1} onPress={onClose}>
+        {entry && (
+          <View style={styles.scorecardViewerCard} onStartShouldSetResponder={() => true}>
+            <ScorecardCard scorecard={entry.scorecard} fullName={entry.name} />
+            <TouchableOpacity style={styles.scorecardViewerClose} onPress={onClose} activeOpacity={0.8}>
+              <Text style={styles.scorecardViewerCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </TouchableOpacity>
+    </Modal>
   );
 }
 
@@ -288,6 +309,7 @@ export default function CourseDetailScreen({ route, navigation }) {
   // so the screen never looks blank while this is in flight.
   const [postsLoading, setPostsLoading] = useState(true);
   const [scorecards, setScorecards] = useState([]);
+  const [viewingScorecard, setViewingScorecard] = useState(null);
   const [courseCoords, setCourseCoords] = useState({ lat: lat ?? null, lng: lng ?? null });
   // A hand-typed course's shared pin (see courseLocations.js) — null until
   // someone places one. pinLoaded gates the Place/Move pin button so it
@@ -463,11 +485,17 @@ export default function CourseDetailScreen({ route, navigation }) {
   // a sub-course is a whole course, not a nine. With no tagged nines, an
   // ordinary 18 keeps the classic layout below.
   const ninesFromApi = clubNines.length > 0;
-  const nineTag = (p) => (ninesFromApi ? p.compositeName || p.subCourseName || '' : p.compositeName || '').toLowerCase();
+  // A post tagged with one of the standard 18's nines (Scranton's Pines or
+  // Willows) counts as an 18-hole post — those nines get no option of their own.
+  const mainEighteen = getMainEighteenNines(courseName);
+  const nineTag = (p) => {
+    const tag = (ninesFromApi ? p.compositeName || p.subCourseName || '' : p.compositeName || '').toLowerCase();
+    return mainEighteen.includes(tag) ? '' : tag;
+  };
 
   const layoutOptions = useMemo(() => {
     const options = clubNines.map((nine) => ({ name: nine.name, apiHoles: nine.holes }));
-    const known = new Set(options.map((o) => o.name.toLowerCase()));
+    const known = new Set([...options.map((o) => o.name.toLowerCase()), ...mainEighteen]);
     const tagged = [];
     coursePosts.forEach((p) => {
       const tag = ninesFromApi ? p.compositeName || p.subCourseName : p.compositeName;
@@ -478,7 +506,7 @@ export default function CourseDetailScreen({ route, navigation }) {
     });
     if (!ninesFromApi) tagged.sort((a, b) => a.name.localeCompare(b.name));
     return [...options, ...tagged];
-  }, [clubNines, coursePosts, ninesFromApi]);
+  }, [clubNines, coursePosts, ninesFromApi, courseName]);
 
   const selectedNine = layoutOptions.find((o) => o.name === layout) ?? null;
 
@@ -499,7 +527,7 @@ export default function CourseDetailScreen({ route, navigation }) {
       };
     });
     return { posts, holeShells: shells };
-  }, [layoutOptions, selectedNine, coursePosts, holeShells, ninesFromApi]);
+  }, [layoutOptions, selectedNine, coursePosts, holeShells, ninesFromApi, courseName]);
 
   function handleSelectLayoutHole(number) {
     if (selectedNine) {
@@ -773,13 +801,17 @@ export default function CourseDetailScreen({ route, navigation }) {
                 {scorecards.length === 0 ? (
                   <Text style={styles.helperText}>No scorecards logged at this course yet.</Text>
                 ) : (
-                  scorecards.map((entry) => <ScorecardRow key={entry.id} entry={entry} />)
+                  scorecards.map((entry) => (
+                    <ScorecardRow key={entry.id} entry={entry} onPress={() => setViewingScorecard(entry)} />
+                  ))
                 )}
               </View>
             )}
           </>
         )}
       </ScrollView>
+
+      <ScorecardViewer entry={viewingScorecard} onClose={() => setViewingScorecard(null)} />
 
       {isCustomCourse && (
         <CoursePinPlacementModal
@@ -1151,6 +1183,32 @@ const styles = StyleSheet.create({
   scorecardDiff: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  scorecardViewerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  scorecardViewerCard: {
+    width: '100%',
+    maxWidth: 520,
+    alignSelf: 'center',
+  },
+  scorecardViewerClose: {
+    alignSelf: 'center',
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 28,
+    borderRadius: 20,
+    backgroundColor: colors.navyCard,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+  },
+  scorecardViewerCloseText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '600',
   },
   bottomNav: {
     flexDirection: 'row',

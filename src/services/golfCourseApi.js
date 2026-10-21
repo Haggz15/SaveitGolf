@@ -287,13 +287,27 @@ function addCourseNines(byName, course) {
 }
 
 // Clubs whose nines read better in course order than alphabetically —
-// matched by club name containing `match` (lowercase).
+// matched by club name containing `match` (lowercase). `mainEighteen` lists
+// the nines that make up the club's standard 18: they're played as "18
+// Holes", so they're never offered as a separate nine.
 const FIXED_NINE_ORDER = [
   // Pines is the front nine, Willows the back, Falls the additional nine.
-  { match: 'country club of scranton', order: ['pines', 'willows', 'falls'] },
+  { match: 'country club of scranton', order: ['pines', 'willows', 'falls'], mainEighteen: ['pines', 'willows'] },
 ];
 
-// Every named nine at a course's club, alphabetically (or in FIXED_NINE_ORDER), each with its own
+function fixedNineConfig(clubName) {
+  const name = clubName?.trim().toLowerCase();
+  return FIXED_NINE_ORDER.find(({ match }) => name?.includes(match)) ?? null;
+}
+
+// Lowercase names of the nines that form a club's standard 18 (see
+// FIXED_NINE_ORDER) — empty for every other club.
+export function getMainEighteenNines(clubName) {
+  return fixedNineConfig(clubName)?.mainEighteen ?? [];
+}
+
+// Every named nine at a course's club, alphabetically (or in FIXED_NINE_ORDER,
+// minus its mainEighteen nines), each with its own
 // holes 1-9 (par/yardage) — e.g. Falls only appears in the club's other
 // pairings, so those are looked up too, but only until every nine is known.
 // Empty for an ordinary course, without spending any extra requests.
@@ -312,8 +326,11 @@ export async function getClubNines(course) {
     const detail = await getCourseById(sibling.id).catch(() => null);
     if (detail) addCourseNines(byName, detail);
   }
-  const nines = Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
-  const fixedOrder = FIXED_NINE_ORDER.find(({ match }) => clubName?.includes(match))?.order;
+  const mainEighteen = getMainEighteenNines(clubName);
+  const nines = Array.from(byName.values())
+    .filter((nine) => !mainEighteen.includes(nine.name.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const fixedOrder = fixedNineConfig(clubName)?.order;
   if (!fixedOrder) return nines;
   const rank = (nine) => {
     const index = fixedOrder.indexOf(nine.name.toLowerCase());

@@ -231,8 +231,9 @@ export async function getScorecardsForCourse({ courseId, courseName }) {
   request = courseId
     ? request.eq('course_id', courseId)
     : request.is('course_id', null).ilike('course_name', escapeIlike((courseName ?? '').trim()));
-  // A leaderboard — the top 50 is all anyone scrolls.
-  request = request.order('total_score', { ascending: true }).limit(50);
+  // A leaderboard — the top 50 is all anyone scrolls. Ranked below on score
+  // to par, which the query can't order by, so this fetches a wider pool.
+  request = request.order('total_score', { ascending: true }).limit(200);
 
   const { data, error } = await request;
   if (error) throw error;
@@ -267,11 +268,17 @@ export async function getScorecardsForCourse({ courseId, courseName }) {
       date: formatDate(row.played_at ?? row.created_at),
       score: row.manual_total ?? row.total_score,
       par: row.manual_par ?? row.total_par,
+      // The full round, for CourseDetailScreen's tap-to-view scorecard.
+      scorecard: mapRow(row),
     };
   });
-  // Manual overrides (Edit Score) can change a row's score, so re-rank on
-  // the score actually shown rather than trusting total_score's order.
-  return entries.sort((a, b) => a.score - b.score);
+  // Best first: lowest score to par, so a 9-hole round doesn't outrank a
+  // better 18 just for having fewer strokes; then lowest score. Manual
+  // overrides (Edit Score) can change a row's score, so this ranks on the
+  // score actually shown rather than trusting total_score's order.
+  return entries
+    .sort((a, b) => a.score - a.par - (b.score - b.par) || a.score - b.score)
+    .slice(0, 50);
 }
 
 // Best (lowest) score per course, top 5 lowest scores. No longer used by
