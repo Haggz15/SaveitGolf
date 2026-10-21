@@ -61,21 +61,25 @@ const NAME_MIN_SCALE = 0.5;
 // background, not a side column narrowing the text), so a name fits
 // comfortably up to this many characters before it needs to scale down.
 const NAME_COMFORTABLE_LENGTH = 17;
+// No-photo cards (see `plain` below) set the name this much larger, so it
+// needs to start shrinking proportionally sooner.
+const NAME_PLAIN_BOOST = 26 / 22;
 
 // react-native-web has no adjustsFontSizeToFit, and this card is captured
 // as a share image on both native and web, so the name can't rely on
 // platform auto-shrink — it has to be sized up front from the text itself.
-function nameFontScale(fullName) {
+function nameFontScale(fullName, comfortableLength = NAME_COMFORTABLE_LENGTH) {
   const length = (fullName || '').trim().length;
-  if (length <= NAME_COMFORTABLE_LENGTH) return 1;
-  return Math.max(NAME_MIN_SCALE, NAME_COMFORTABLE_LENGTH / length);
+  if (length <= comfortableLength) return 1;
+  return Math.max(NAME_MIN_SCALE, comfortableLength / length);
 }
 
 // "OWEN HAGGERTY" -> O and H rendered larger than the rest of their words.
 // A single-word name collapses first-word/last-word onto the same letter.
-function StyledPlayerName({ fullName }) {
+function StyledPlayerName({ fullName, plain }) {
   const words = splitNameWords(fullName);
-  const scale = nameFontScale(fullName);
+  const boost = plain ? NAME_PLAIN_BOOST : 1;
+  const scale = boost * nameFontScale(fullName, NAME_COMFORTABLE_LENGTH / boost);
   const bigStyle = [
     styles.nameBig,
     scale !== 1 && { fontSize: NAME_BIG_BASE * scale, letterSpacing: NAME_BIG_BASE * scale * 0.05 },
@@ -114,22 +118,31 @@ function StyledPlayerName({ fullName }) {
 // sizes (9-hole rounds get the bigger one, since a single nine has more
 // room to spare than a front+back pair). When `parsKnown` is false (course
 // not in the API, so par is only a guess) every score is a plain white
-// number — no shapes, rings or tint.
-function ScoreCell({ score, par, variant, parsKnown = true }) {
+// number — no shapes, rings or tint. `plain` (no-photo card) swaps in the
+// larger cell/digit sizes.
+function ScoreCell({ score, par, variant, parsKnown = true, plain }) {
   const diff = parsKnown ? score - par : 0;
   const isUnder = diff <= -1;
   const isOver = diff >= 1;
   const hasOuterRing = diff <= -2 || diff >= 2;
   const isTriplePlus = diff >= 3;
   const color = isUnder ? colors.brightGreen : isOver ? colors.red : colors.white;
-  const cellStyle = variant === 'wide9' ? styles.scoreCellWide9 : styles.scoreCellWide18;
-  const digitStyle = variant === 'wide9' ? styles.scoreDigitWide9 : styles.scoreDigitWide18;
+  const isWide9 = variant === 'wide9';
+  const cellStyle = [
+    isWide9 ? styles.scoreCellWide9 : styles.scoreCellWide18,
+    plain && (isWide9 ? styles.scoreCellWide9Plain : styles.scoreCellWide18Plain),
+  ];
+  const digitStyle = [
+    isWide9 ? styles.scoreDigitWide9 : styles.scoreDigitWide18,
+    plain && (isWide9 ? styles.scoreDigitWide9Plain : styles.scoreDigitWide18Plain),
+  ];
 
   return (
     <View
       style={[
         cellStyle,
         isUnder && styles.scoreCellCircle,
+        isUnder && plain && styles.scoreCellCirclePlain,
         isOver && styles.scoreCellSquare,
         (isUnder || isOver) && { borderColor: color },
         hasOuterRing && styles.scoreCellRinged,
@@ -141,12 +154,13 @@ function ScoreCell({ score, par, variant, parsKnown = true }) {
           pointerEvents="none"
           style={[
             isUnder ? styles.scoreOuterCircle : styles.scoreOuterSquare,
+            isUnder && plain && styles.scoreOuterCirclePlain,
             isTriplePlus && styles.scoreOuterTriple,
             { borderColor: color },
           ]}
         />
       )}
-      <Text style={[digitStyle, { color }]}>{score}</Text>
+      <Text style={[...digitStyle, { color }]}>{score}</Text>
     </View>
   );
 }
@@ -158,15 +172,22 @@ function ScoreCell({ score, par, variant, parsKnown = true }) {
 // totals live in the separate NineTotalsRow below, not nested in here.
 // `holeNumberOffset` shifts the displayed hole numbers (e.g. +9 so a
 // back-nine round reads 10-18) without touching the underlying holes data.
-function NineColumn({ holes, variant, holeNumberOffset = 0, parsKnown }) {
+function NineColumn({ holes, variant, holeNumberOffset = 0, parsKnown, plain }) {
+  const isWide9 = variant === 'wide9';
   return (
     <View style={styles.nineColumn}>
       {holes.map((h) => (
-        <View key={h.hole} style={styles.holeRow}>
-          <Text style={[styles.holeNumber, variant === 'wide9' && styles.holeNumberWide9]}>
+        <View key={h.hole} style={[styles.holeRow, plain && styles.holeRowPlain]}>
+          <Text
+            style={[
+              styles.holeNumber,
+              isWide9 && styles.holeNumberWide9,
+              plain && (isWide9 ? styles.holeNumberWide9Plain : styles.holeNumberPlain),
+            ]}
+          >
             {h.hole + holeNumberOffset}
           </Text>
-          <ScoreCell score={h.score} par={h.par} variant={variant} parsKnown={parsKnown} />
+          <ScoreCell score={h.score} par={h.par} variant={variant} parsKnown={parsKnown} plain={plain} />
         </View>
       ))}
     </View>
@@ -180,18 +201,44 @@ function NineColumn({ holes, variant, holeNumberOffset = 0, parsKnown }) {
 // Both texts are wider than their slots, so they get a fixed wider width
 // with negative margins that keep the slot's footprint (and so the row's
 // centering) identical to the hole rows above.
-function NineTotalsItem({ label, total, variant }) {
+// `plain` (no-photo card) widens the slots to match the larger hole numbers
+// and score cells.
+function NineTotalsItem({ label, total, variant, plain }) {
   const isWide9 = variant === 'wide9';
   return (
     <View style={styles.nineTotalsItem}>
       <View style={styles.nineTotalsItemInner}>
-        <View style={isWide9 ? styles.nineTotalsLabelSlotWide9 : styles.nineTotalsLabelSlot}>
-          <Text style={[styles.nineTotalsLabel, isWide9 && styles.nineTotalsLabelWide9]} numberOfLines={1}>
+        <View
+          style={[
+            isWide9 ? styles.nineTotalsLabelSlotWide9 : styles.nineTotalsLabelSlot,
+            plain && (isWide9 ? styles.nineTotalsLabelSlotWide9Plain : styles.nineTotalsLabelSlotPlain),
+          ]}
+        >
+          <Text
+            style={[
+              styles.nineTotalsLabel,
+              isWide9 && styles.nineTotalsLabelWide9,
+              plain && (isWide9 ? styles.nineTotalsLabelWide9Plain : styles.nineTotalsLabelPlain),
+            ]}
+            numberOfLines={1}
+          >
             {label}
           </Text>
         </View>
-        <View style={isWide9 ? styles.nineTotalsScoreSlotWide9 : styles.nineTotalsScoreSlot}>
-          <Text style={[styles.nineTotalsScore, isWide9 && styles.nineTotalsScoreWide9]} numberOfLines={1}>
+        <View
+          style={[
+            isWide9 ? styles.nineTotalsScoreSlotWide9 : styles.nineTotalsScoreSlot,
+            plain && (isWide9 ? styles.nineTotalsScoreSlotWide9Plain : styles.nineTotalsScoreSlotPlain),
+          ]}
+        >
+          <Text
+            style={[
+              styles.nineTotalsScore,
+              isWide9 && styles.nineTotalsScoreWide9,
+              plain && (isWide9 ? styles.nineTotalsScoreWide9Plain : styles.nineTotalsScorePlain),
+            ]}
+            numberOfLines={1}
+          >
             {total}
           </Text>
         </View>
@@ -213,11 +260,12 @@ function NineTotalsItem({ label, total, variant }) {
 // capture) hides it from the exported image since it lives inside the
 // captured subtree.
 function NineTotalsRow({ frontTotal, backTotal, isNineHoleRound, frontLabel, variant, onAddPhoto, hasPhoto, hideShareExtras }) {
+  const plain = !hasPhoto;
   return (
     <View style={styles.nineTotalsRowWrap}>
       <View style={styles.nineTotalsRow}>
-        <NineTotalsItem label={frontLabel} total={frontTotal} variant={variant} />
-        {!isNineHoleRound && <NineTotalsItem label="Back" total={backTotal} variant={variant} />}
+        <NineTotalsItem label={frontLabel} total={frontTotal} variant={variant} plain={plain} />
+        {!isNineHoleRound && <NineTotalsItem label="Back" total={backTotal} variant={variant} plain={plain} />}
       </View>
       {onAddPhoto && (
         <TouchableOpacity
@@ -272,11 +320,13 @@ function ExportWatermark({ visible, username, showLogo, style }) {
 // totals row — never floating between or beside the nines.
 // `onEditScore`, when passed (owner only), adds a pencil that opens
 // EditScoreModal — hidden during a share capture like the other controls.
-function TotalBlock({ totalScore, diffLabel, diffTextColor, onEditScore, hideShareExtras }) {
+function TotalBlock({ totalScore, diffLabel, diffTextColor, onEditScore, hideShareExtras, plain }) {
   return (
-    <View style={styles.totalBlock}>
-      <Text style={styles.totalBlockScore}>{totalScore}</Text>
-      <Text style={[styles.totalBlockDiff, { color: diffTextColor }]}> ({diffLabel})</Text>
+    <View style={[styles.totalBlock, plain && styles.totalBlockPlain]}>
+      <Text style={[styles.totalBlockScore, plain && styles.totalBlockScorePlain]}>{totalScore}</Text>
+      <Text style={[styles.totalBlockDiff, plain && styles.totalBlockDiffPlain, { color: diffTextColor }]}>
+        {' '}({diffLabel})
+      </Text>
       {onEditScore && (
         <TouchableOpacity
           onPress={onEditScore}
@@ -320,7 +370,10 @@ function RemovePhotoButton({ onPress, hideShareExtras, style }) {
 //   sitting flush against it — no border, line or shadow at the seam.
 //
 // With no photo the card is just its usual solid navy regardless of
-// `photoLayout`. `onRequestPhoto` re-opens the picker when the visible
+// `photoLayout`, and every piece of type steps up a size (`plain`) since
+// there's no photo competing with the scores — the card's height still just
+// follows its content, so the bigger type fills it rather than leaving
+// navy around a small block of numbers. `onRequestPhoto` re-opens the picker when the visible
 // photo itself is tapped, and is only passed by the live "new scorecard"
 // view — past scorecards fetched from Supabase render read-only unless
 // `onAddPhoto` is passed too (see ScorecardDetailModal, owner-only).
@@ -367,6 +420,7 @@ export default function ScorecardCard({
   const compositeName = compositeNameFor(scorecard, isNineHoleRound);
   const hasPhoto = Boolean(photoUri);
   const isSideLayout = hasPhoto && photoLayout === 'side';
+  const plain = !hasPhoto;
   const nineVariant = isNineHoleRound ? 'wide9' : 'wide18';
   const frontTotal = sumScore(scorecard.front);
   const backTotal = isNineHoleRound ? null : sumScore(scorecard.back);
@@ -381,12 +435,12 @@ export default function ScorecardCard({
 
   const cardBody = (
     <View style={styles.cardBody}>
-      <StyledPlayerName fullName={fullName} />
-      <Text style={styles.courseNameText} numberOfLines={2}>
+      <StyledPlayerName fullName={fullName} plain={plain} />
+      <Text style={[styles.courseNameText, plain && styles.courseNameTextPlain]} numberOfLines={2}>
         {scorecard.courseName}
       </Text>
       {compositeName ? (
-        <Text style={styles.compositeNameText} numberOfLines={1}>
+        <Text style={[styles.compositeNameText, plain && styles.compositeNameTextPlain]} numberOfLines={1}>
           {compositeName}
         </Text>
       ) : null}
@@ -398,9 +452,10 @@ export default function ScorecardCard({
           variant={nineVariant}
           holeNumberOffset={holeNumberOffset}
           parsKnown={scorecard.parsKnown}
+          plain={plain}
         />
         {!isNineHoleRound && (
-          <NineColumn holes={scorecard.back} variant={nineVariant} parsKnown={scorecard.parsKnown} />
+          <NineColumn holes={scorecard.back} variant={nineVariant} parsKnown={scorecard.parsKnown} plain={plain} />
         )}
       </View>
 
@@ -422,6 +477,7 @@ export default function ScorecardCard({
         diffTextColor={diffTextColor}
         onEditScore={onEditScore}
         hideShareExtras={hideShareExtras}
+        plain={plain}
       />
     </View>
   );
@@ -599,12 +655,18 @@ const styles = StyleSheet.create({
     color: colors.lightBlue,
     marginTop: 5,
   },
+  courseNameTextPlain: {
+    fontSize: 14,
+  },
   compositeNameText: {
     fontFamily: 'Cinzel_700Bold',
     fontStyle: 'italic',
     fontSize: 10,
     color: '#6a8ab0',
     marginTop: 2,
+  },
+  compositeNameTextPlain: {
+    fontSize: 11,
   },
   divider: {
     height: 1,
@@ -627,6 +689,11 @@ const styles = StyleSheet.create({
     gap: 3,
     paddingVertical: 1,
   },
+  // No-photo card (`plain`): every size below steps up ~20% so the scores
+  // fill the card instead of sitting small in the middle of it.
+  holeRowPlain: {
+    gap: 4,
+  },
   holeNumber: {
     width: 14,
     textAlign: 'right',
@@ -637,6 +704,14 @@ const styles = StyleSheet.create({
     width: 18,
     fontSize: 11,
     color: colors.muted,
+  },
+  holeNumberPlain: {
+    width: 16,
+    fontSize: 10,
+  },
+  holeNumberWide9Plain: {
+    width: 20,
+    fontSize: 13,
   },
   scoreCellWide18: {
     width: 20,
@@ -650,6 +725,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  scoreCellWide18Plain: {
+    width: 24,
+    height: 24,
+  },
+  scoreCellWide9Plain: {
+    width: 32,
+    height: 32,
+  },
   scoreDigitWide18: {
     fontSize: 14,
     fontWeight: '700',
@@ -660,9 +743,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
+  scoreDigitWide18Plain: {
+    fontSize: 17,
+  },
+  scoreDigitWide9Plain: {
+    fontSize: 21,
+  },
   scoreCellCircle: {
     borderWidth: 1,
     borderRadius: 8,
+  },
+  scoreCellCirclePlain: {
+    borderRadius: 10,
   },
   scoreCellSquare: {
     borderWidth: 1,
@@ -681,6 +773,9 @@ const styles = StyleSheet.create({
     bottom: -4,
     borderWidth: 1,
     borderRadius: 11,
+  },
+  scoreOuterCirclePlain: {
+    borderRadius: 13,
   },
   scoreOuterSquare: {
     position: 'absolute',
@@ -766,6 +861,12 @@ const styles = StyleSheet.create({
     width: 18,
     alignItems: 'flex-end',
   },
+  nineTotalsLabelSlotPlain: {
+    width: 16,
+  },
+  nineTotalsLabelSlotWide9Plain: {
+    width: 20,
+  },
   nineTotalsLabel: {
     width: 50,
     marginLeft: -36,
@@ -783,6 +884,16 @@ const styles = StyleSheet.create({
     marginLeft: -38,
     fontSize: 11,
   },
+  nineTotalsLabelPlain: {
+    width: 56,
+    marginLeft: -40,
+    fontSize: 10,
+  },
+  nineTotalsLabelWide9Plain: {
+    width: 62,
+    marginLeft: -42,
+    fontSize: 13,
+  },
   // Score slot = scoreCell width (20 / 28); the two-digit total gets a
   // wider centered box with negative side margins so it stays centered on
   // the score column without changing the slot's footprint.
@@ -793,6 +904,12 @@ const styles = StyleSheet.create({
   nineTotalsScoreSlotWide9: {
     width: 28,
     alignItems: 'center',
+  },
+  nineTotalsScoreSlotPlain: {
+    width: 24,
+  },
+  nineTotalsScoreSlotWide9Plain: {
+    width: 32,
   },
   nineTotalsScore: {
     width: 36,
@@ -806,6 +923,14 @@ const styles = StyleSheet.create({
     width: 44,
     marginHorizontal: -8,
     fontSize: 20,
+  },
+  nineTotalsScorePlain: {
+    width: 40,
+    fontSize: 21,
+  },
+  nineTotalsScoreWide9Plain: {
+    width: 48,
+    fontSize: 24,
   },
   // Grand total block: sits directly below the front/back (or single) nine
   // totals row, spanning the full card width — never floating between or
@@ -829,6 +954,15 @@ const styles = StyleSheet.create({
   totalBlockDiff: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  totalBlockPlain: {
+    paddingVertical: 6,
+  },
+  totalBlockScorePlain: {
+    fontSize: 52,
+  },
+  totalBlockDiffPlain: {
+    fontSize: 16,
   },
   // Pinned to the right edge so the score stays centered.
   editScoreButton: {
