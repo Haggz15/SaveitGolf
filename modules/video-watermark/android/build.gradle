@@ -1,0 +1,24 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.videowatermark'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.videowatermark"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // Keep in sync with expo-video's androidxMedia3Version so Gradle doesn't
+  // mix Media3 releases in one app.
+  def androidxMedia3Version = "1.9.0"
+  implementation "androidx.media3:media3-common:${androidxMedia3Version}"
+  implementation "androidx.media3:media3-effect:${androidxMedia3Version}"
+  implementation "androidx.media3:media3-transformer:${androidxMedia3Version}"
+}

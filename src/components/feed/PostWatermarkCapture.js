@@ -1,12 +1,16 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
 import { Image, PixelRatio, Platform, StyleSheet, Text, View } from 'react-native';
 import ViewShot from 'react-native-view-shot';
+import VideoWatermark from '../../../modules/video-watermark';
 import colors from '../../theme/colors';
 
 // Exported image size in pixels: 4:5 portrait, Instagram's preferred feed
 // format, so it posts without being cropped. The photo is cover-fitted into it.
 const EXPORT_WIDTH = 1080;
 const EXPORT_HEIGHT = 1350;
+// Video overlays keep the video's own aspect ratio; their short side is
+// capped here (the native side scales the PNG up to the full frame).
+const VIDEO_OVERLAY_MAX_SHORT_SIDE = 1080;
 // Watermark is authored at these sizes for a phone-width (390pt) image and
 // scaled up with the export, so it looks the same relative size on any photo.
 const REFERENCE_WIDTH = 390;
@@ -36,9 +40,14 @@ function nextFrames() {
 // bottom-right (no backgrounds — drop shadows keep the white text legible on
 // any photo), waits for both the photo and the icon to load, captures it with ViewShot and resolves with the local file URI of
 // the watermarked JPEG.
+//
+// overlay({ width, height, username, location }) draws the same watermark
+// with no photo underneath and resolves with a transparent PNG of that pixel
+// size, which the VideoWatermark native module burns into each video frame.
 const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, ref) {
   const viewShotRef = useRef(null);
-  const [job, setJob] = useState(null); // { id, uri, username, location, width, height }
+  // { id, uri, username, location, width, height, pixelWidth, pixelHeight, overlayOnly }
+  const [job, setJob] = useState(null);
   const pendingRef = useRef(null); // { id, resolve, reject, timer }
   // Serialises stamp() calls — there's only one off-screen canvas.
   const queueRef = useRef(Promise.resolve());
@@ -56,10 +65,10 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
     else pending.resolve(result);
   }, []);
 
-  const runStamp = useCallback(async (uri, { username, location } = {}) => {
+  const runJob = useCallback(async ({ uri = null, username, location, pixelWidth, pixelHeight, overlayOnly }) => {
     const pixelRatio = PixelRatio.get();
-    const width = EXPORT_WIDTH / pixelRatio;
-    const height = EXPORT_HEIGHT / pixelRatio;
+    const width = pixelWidth / pixelRatio;
+    const height = pixelHeight / pixelRatio;
     const id = ++jobIdRef.current;
 
     return new Promise((resolve, reject) => {
@@ -68,22 +77,46 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
         LOAD_TIMEOUT_MS
       );
       pendingRef.current = { id, resolve, reject, timer };
-      setJob({ id, uri, username, location, width, height });
+      setJob({ id, uri, username, location, width, height, pixelWidth, pixelHeight, overlayOnly });
     });
   }, [finish]);
 
-  useImperativeHandle(ref, () => ({
-    stamp(uri, details) {
-      const result = queueRef.current.then(() => runStamp(uri, details));
+  useImperativeHandle(ref, () => {
+    function enqueue(job) {
+      const result = queueRef.current.then(() => runJob(job));
       queueRef.current = result.catch(() => {});
       return result;
-    },
-  }), [runStamp]);
+    }
+    return {
+      stamp(uri, { username, location } = {}) {
+        return enqueue({
+          uri,
+          username,
+          location,
+          pixelWidth: EXPORT_WIDTH,
+          pixelHeight: EXPORT_HEIGHT,
+          overlayOnly: false,
+        });
+      },
+      overlay({ width, height, username, location }) {
+        const fit = Math.min(1, VIDEO_OVERLAY_MAX_SHORT_SIDE / Math.min(width, height));
+        return enqueue({
+          username,
+          location,
+          pixelWidth: Math.round(width * fit),
+          pixelHeight: Math.round(height * fit),
+          overlayOnly: true,
+        });
+      },
+    };
+  }, [runJob]);
 
-  async function handleLoad(id) {
+  // Capture once every image in the job has loaded: the photo and the logo,
+  // or just the logo for a video overlay.
+  async function handleLoad(id, needed) {
     if (loadedRef.current.id !== id) loadedRef.current = { id, count: 0 };
     loadedRef.current.count += 1;
-    if (loadedRef.current.count < 2) return;
+    if (loadedRef.current.count < needed) return;
     try {
       await nextFrames();
       const capturedUri = await viewShotRef.current.capture();
@@ -96,7 +129,9 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
 
   if (!job) return null;
 
-  const scale = job.width / REFERENCE_WIDTH;
+  const needed = job.overlayOnly ? 1 : 2;
+  // Sized off the short side so landscape videos don't get an oversized mark.
+  const scale = Math.min(job.width, job.height) / REFERENCE_WIDTH;
   const fontSize = USERNAME_FONT_SIZE * scale;
   const locationSize = LOCATION_FONT_SIZE * scale;
   const logoSize = LOGO_SIZE * scale;
@@ -108,23 +143,32 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
     <View style={styles.offscreen} pointerEvents="none">
       <ViewShot
         ref={viewShotRef}
-        options={{ format: 'jpg', quality: 0.92, result: 'tmpfile', width: EXPORT_WIDTH, height: EXPORT_HEIGHT }}
+        options={{
+          // PNG keeps the video overlay's background transparent.
+          format: job.overlayOnly ? 'png' : 'jpg',
+          quality: 0.92,
+          result: 'tmpfile',
+          width: job.pixelWidth,
+          height: job.pixelHeight,
+        }}
       >
         <View collapsable={false} style={{ width: job.width, height: job.height }}>
-          <Image
-            key={job.id}
-            source={{ uri: job.uri }}
-            style={{ width: job.width, height: job.height }}
-            resizeMode="cover"
-            onLoad={() => handleLoad(job.id)}
-            onError={(e) => finish(job.id, new Error(e?.nativeEvent?.error || 'Could not load image'))}
-          />
+          {job.overlayOnly ? null : (
+            <Image
+              key={job.id}
+              source={{ uri: job.uri }}
+              style={{ width: job.width, height: job.height }}
+              resizeMode="cover"
+              onLoad={() => handleLoad(job.id, needed)}
+              onError={(e) => finish(job.id, new Error(e?.nativeEvent?.error || 'Could not load image'))}
+            />
+          )}
           <View style={[styles.byline, { top: inset, left: inset, gap: 6 * scale }]}>
             <Image
               key={`logo-${job.id}`}
               source={LOGO}
               style={{ width: logoSize, height: logoSize }}
-              onLoad={() => handleLoad(job.id)}
+              onLoad={() => handleLoad(job.id, needed)}
               onError={() => finish(job.id, new Error('Could not load watermark logo'))}
             />
             {/* Width-capped so a long course name truncates instead of running off the photo. */}
@@ -169,11 +213,6 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
 
 export default PostWatermarkCapture;
 
-// Used by the feed's Save button. Resolves with the
-// local URI of a watermarked copy when the post is someone else's photo, or
-// null when the original file should be used as-is: videos, the user's own
-// posts, web (no ViewShot there), or a failed stamp — a watermark problem
-// shouldn't block the save/share itself.
 // "Hole 7 · Scranton Country Club", or whichever half the post has.
 function formatPostLocation(post) {
   const parts = [];
@@ -182,16 +221,37 @@ function formatPostLocation(post) {
   return parts.join(' · ');
 }
 
-export async function stampPostPhoto({ post, currentUserId, captureRef }) {
+// Downloads the video, draws a transparent overlay at its exact aspect
+// ratio and has the native module burn it into every frame.
+async function stampPostVideo(mediaUrl, capture, details) {
+  if (!VideoWatermark) return null;
+  // Required lazily: this native module throws at import time on web.
+  const { File, Paths, Directory } = require('expo-file-system');
+  const video = await File.downloadFileAsync(mediaUrl, new Directory(Paths.cache), { idempotent: true });
+  const { width, height } = await VideoWatermark.getVideoSize(video.uri);
+  const overlayUri = await capture.overlay({ ...details, width, height });
+  return VideoWatermark.stamp(video.uri, overlayUri);
+}
+
+// Used by the feed's Save button. Every post — photo or video, the user's
+// own or someone else's — gets the identical watermark. Resolves with the
+// local URI of the watermarked copy, or null when the original file should
+// be used as-is: web (no ViewShot there), builds without the VideoWatermark
+// module, or a failed stamp — a watermark problem shouldn't block the
+// save/share itself.
+export async function stampPostMedia({ post, captureRef }) {
   const capture = captureRef?.current;
-  const isVideo = post.isVideo ?? Boolean(post.video);
-  if (Platform.OS === 'web' || isVideo || !post.mediaUrl || post.userId === currentUserId || !capture) {
+  if (Platform.OS === 'web' || !post.mediaUrl || !capture) {
     return null;
   }
+  const details = { username: post.user, location: formatPostLocation(post) };
+  const isVideo = post.isVideo ?? Boolean(post.video);
   try {
-    return await capture.stamp(post.mediaUrl, { username: post.user, location: formatPostLocation(post) });
+    return isVideo
+      ? await stampPostVideo(post.mediaUrl, capture, details)
+      : await capture.stamp(post.mediaUrl, details);
   } catch (err) {
-    console.error('Failed to watermark photo, using original instead:', err);
+    console.error('Failed to watermark post media, using original instead:', err);
     return null;
   }
 }

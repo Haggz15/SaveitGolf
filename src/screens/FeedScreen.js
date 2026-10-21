@@ -24,7 +24,7 @@ import NotificationPanel from '../components/feed/NotificationPanel';
 import PostActionsSheet from '../components/feed/PostActionsSheet';
 import ShotOfWeekBanner from '../components/feed/ShotOfWeekBanner';
 import MentionText from '../components/social/MentionText';
-import PostWatermarkCapture, { stampPostPhoto } from '../components/feed/PostWatermarkCapture';
+import PostWatermarkCapture, { stampPostMedia } from '../components/feed/PostWatermarkCapture';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
 import {
@@ -97,11 +97,11 @@ function PostSlide({
     if (videoTapFeedback.current) videoTapFeedback.current();
   }
 
-  // Someone else's photo gets the GolfBallMark + @author stamped onto its
-  // middle-right edge (see PostWatermarkCapture). Videos, the user's own posts,
-  // and web always save the original uploaded file straight from media_url.
+  // Every photo and video — own or someone else's — gets the same logo,
+  // @author, hole/course and SaveitGolf wordmark (see PostWatermarkCapture).
+  // Web saves the original uploaded file straight from media_url.
   async function saveMediaForPost(mediaUrl) {
-    const stampedUri = await stampPostPhoto({ post, currentUserId, captureRef: watermarkCaptureRef });
+    const stampedUri = await stampPostMedia({ post, captureRef: watermarkCaptureRef });
     return stampedUri ? saveLocalUriToLibrary(stampedUri) : saveMediaToDevice(mediaUrl);
   }
 
