@@ -13,6 +13,7 @@ import EditScoreModal from './EditScoreModal';
 import ShareOptionsModal from './ShareOptionsModal';
 import Toast from '../Toast';
 import { saveScorecardPhoto, setScorecardPhotoUrl, updateScorecardPhotoLayout } from '../../services/scorecards';
+import { compressImage } from '../../utils/imageCompression';
 import { useAuth } from '../../context/AuthContext';
 import { saveLocalUriToLibrary } from '../../utils/saveMedia';
 
@@ -96,7 +97,10 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
     if (!user?.id || !scorecard?.id) return;
     try {
       setUploadingPhoto(true);
-      const { photoUrl: uploadedUrl, originalPhotoUrl } = await saveScorecardPhoto(user.id, scorecard.id, uri, {
+      // Same downsize/recompress as ScorecardScreen — the picker hands back
+      // the full-quality original.
+      const compressedUri = await compressImage(uri);
+      const { photoUrl: uploadedUrl, originalPhotoUrl } = await saveScorecardPhoto(user.id, scorecard.id, compressedUri, {
         crop,
         originalPhotoUrl: cropSourceUri,
       });

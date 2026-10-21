@@ -1,25 +1,23 @@
 import { supabase } from './supabase';
 import { uploadToR2 } from './r2Storage';
+import { compressImage } from '../utils/imageCompression';
 
-const EXT_TO_CONTENT_TYPE = {
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  heic: 'image/heic',
-};
+// Avatars only ever show as small circles, so 512px is plenty even on a
+// 3x screen — a full-size crop was uploading at 1-2 MB.
+const AVATAR_MAX_DIMENSION = 512;
 
 // Uploads a local file uri (from expo-image-picker) into the public
 // `avatars` R2 bucket at a fixed per-user path, overwriting any
-// previous photo, then returns its public URL.
+// previous photo, then returns its public URL. Always re-encoded as JPEG,
+// so the path no longer depends on the picked file's extension.
 export async function uploadAvatar(userId, uri) {
-  const ext = uri.split('.').pop()?.split('?')[0]?.toLowerCase() || 'jpg';
-  const path = `${userId}/avatar.${ext}`;
-  const contentType = EXT_TO_CONTENT_TYPE[ext] || 'image/jpeg';
+  const path = `${userId}/avatar.jpg`;
+  const compressedUri = await compressImage(uri, { maxDimension: AVATAR_MAX_DIMENSION, quality: 0.8 });
 
-  const response = await fetch(uri);
+  const response = await fetch(compressedUri);
   const arrayBuffer = await response.arrayBuffer();
 
-  const publicUrl = await uploadToR2('avatars', path, arrayBuffer, contentType);
+  const publicUrl = await uploadToR2('avatars', path, arrayBuffer, 'image/jpeg');
   // Cache-bust so re-uploading a photo at the same path shows immediately
   // instead of the previous image cached under the same URL.
   return `${publicUrl}?t=${Date.now()}`;

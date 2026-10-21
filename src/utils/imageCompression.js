@@ -14,8 +14,9 @@ function getImageSize(uri) {
 // share export) and re-encodes as JPEG at 85% quality, which in practice
 // looks identical to the original while cutting file size by 40-90%. Falls
 // back to the original uri if manipulation fails for any reason, so a
-// compression hiccup never blocks the upload itself.
-export async function compressImage(uri) {
+// compression hiccup never blocks the upload itself. `maxDimension` and
+// `quality` override the defaults for smaller targets like avatars.
+export async function compressImage(uri, { maxDimension = MAX_DIMENSION, quality = 0.85 } = {}) {
   try {
     // Resize by whichever side is the long edge — most phone photos are
     // portrait, so a bare `resize: { width: 1920 }` would actually upscale
@@ -25,17 +26,17 @@ export async function compressImage(uri) {
     try {
       const { width, height } = await getImageSize(uri);
       const longEdge = Math.max(width, height);
-      if (longEdge > MAX_DIMENSION) {
-        actions = width >= height ? [{ resize: { width: MAX_DIMENSION } }] : [{ resize: { height: MAX_DIMENSION } }];
+      if (longEdge > maxDimension) {
+        actions = width >= height ? [{ resize: { width: maxDimension } }] : [{ resize: { height: maxDimension } }];
       }
     } catch (sizeErr) {
       // Couldn't read dimensions up front — fall back to a width-based
       // resize rather than skipping compression outright.
-      actions = [{ resize: { width: MAX_DIMENSION } }];
+      actions = [{ resize: { width: maxDimension } }];
     }
 
     const result = await ImageManipulator.manipulateAsync(uri, actions, {
-      compress: 0.85,
+      compress: quality,
       format: ImageManipulator.SaveFormat.JPEG,
     });
     return result.uri;
