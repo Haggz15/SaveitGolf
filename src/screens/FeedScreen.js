@@ -770,9 +770,6 @@ export default function FeedScreen({ navigation, route }) {
     navigation.navigate('UserProfile', { username });
   };
 
-  // Notifications panel lives inside this screen, so a postId notification
-  // just has to scroll the already-mounted posts list — no cross-screen
-  // navigation needed. Only "follow" goes to a different screen.
   const handleNotificationActorPress = (notification) => {
     if (!notification.actorUsername) return;
     if (!notification.read) {
@@ -782,6 +779,9 @@ export default function FeedScreen({ navigation, route }) {
     navigation.navigate('UserProfile', { username: notification.actorUsername });
   };
 
+  // Notifications panel lives inside this screen, so a postId notification
+  // just has to scroll the already-mounted posts list — no cross-screen
+  // navigation needed. Only "follow" goes to a different screen.
   const handleNotificationPress = (notification) => {
     if (!notification.read) {
       decrementUnread(notification.type === 'follow');
