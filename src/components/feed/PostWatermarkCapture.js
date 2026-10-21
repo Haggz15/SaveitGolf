@@ -3,9 +3,10 @@ import { Image, PixelRatio, Platform, StyleSheet, Text, View } from 'react-nativ
 import ViewShot from 'react-native-view-shot';
 import colors from '../../theme/colors';
 
-// Longest edge of the exported image, in device pixels. Big enough to look
-// sharp in the camera roll without making ViewShot rasterise a huge view.
-const MAX_EXPORT_EDGE = 2048;
+// Exported image size in pixels: 4:5 portrait, Instagram's preferred feed
+// format, so it posts without being cropped. The photo is cover-fitted into it.
+const EXPORT_WIDTH = 1080;
+const EXPORT_HEIGHT = 1350;
 // Watermark is authored at these sizes for a phone-width (390pt) image and
 // scaled up with the export, so it looks the same relative size on any photo.
 const REFERENCE_WIDTH = 390;
@@ -14,18 +15,13 @@ const REFERENCE_WIDTH = 390;
 const LOGO = require('../../../assets/watermark-logo.png');
 const LOGO_SIZE = 36;
 const USERNAME_FONT_SIZE = 14;
+const LOCATION_FONT_SIZE = 12;
 const WORDMARK_FONT_SIZE = 28;
 // Inset of both watermark elements from the photo's edges.
 const EDGE_INSET = 12;
 // Bail out if the photo never loads (bad URL, offline) instead of leaving
 // the Save button spinning forever.
 const LOAD_TIMEOUT_MS = 15000;
-
-function getImageSize(uri) {
-  return new Promise((resolve, reject) => {
-    Image.getSize(uri, (width, height) => resolve({ width, height }), reject);
-  });
-}
 
 // Two frames: one for the onLoad state to commit, one for the native image
 // layer to actually draw the decoded bitmap before ViewShot reads the view.
@@ -34,14 +30,15 @@ function nextFrames() {
 }
 
 // Mounted once per FeedScreen (never inside FlatList cells) and kept
-// off-screen. stamp(uri, username) renders the photo with the app logo and
-// "@username" in the top-left corner and a "SaveitGolf" script wordmark in the
+// off-screen. stamp(uri, { username, location }) renders the photo on a 4:5
+// canvas with the app logo, "@username" and the location line (e.g.
+// "Hole 7 · Scranton Country Club") in the top-left corner and a "SaveitGolf" script wordmark in the
 // bottom-right (no backgrounds — drop shadows keep the white text legible on
 // any photo), waits for both the photo and the icon to load, captures it with ViewShot and resolves with the local file URI of
 // the watermarked JPEG.
 const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, ref) {
   const viewShotRef = useRef(null);
-  const [job, setJob] = useState(null); // { id, uri, username, width, height }
+  const [job, setJob] = useState(null); // { id, uri, username, location, width, height }
   const pendingRef = useRef(null); // { id, resolve, reject, timer }
   // Serialises stamp() calls — there's only one off-screen canvas.
   const queueRef = useRef(Promise.resolve());
@@ -59,12 +56,10 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
     else pending.resolve(result);
   }, []);
 
-  const runStamp = useCallback(async (uri, username) => {
-    const natural = await getImageSize(uri);
-    const scale = Math.min(1, MAX_EXPORT_EDGE / Math.max(natural.width, natural.height));
+  const runStamp = useCallback(async (uri, { username, location } = {}) => {
     const pixelRatio = PixelRatio.get();
-    const width = Math.round(natural.width * scale) / pixelRatio;
-    const height = Math.round(natural.height * scale) / pixelRatio;
+    const width = EXPORT_WIDTH / pixelRatio;
+    const height = EXPORT_HEIGHT / pixelRatio;
     const id = ++jobIdRef.current;
 
     return new Promise((resolve, reject) => {
@@ -73,13 +68,13 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
         LOAD_TIMEOUT_MS
       );
       pendingRef.current = { id, resolve, reject, timer };
-      setJob({ id, uri, username, width, height });
+      setJob({ id, uri, username, location, width, height });
     });
   }, [finish]);
 
   useImperativeHandle(ref, () => ({
-    stamp(uri, username) {
-      const result = queueRef.current.then(() => runStamp(uri, username));
+    stamp(uri, details) {
+      const result = queueRef.current.then(() => runStamp(uri, details));
       queueRef.current = result.catch(() => {});
       return result;
     },
@@ -103,13 +98,18 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
 
   const scale = job.width / REFERENCE_WIDTH;
   const fontSize = USERNAME_FONT_SIZE * scale;
+  const locationSize = LOCATION_FONT_SIZE * scale;
+  const logoSize = LOGO_SIZE * scale;
   const wordmarkSize = WORDMARK_FONT_SIZE * scale;
   const inset = EDGE_INSET * scale;
   const shadow = { textShadowRadius: 3 * scale, textShadowOffset: { width: 0, height: scale } };
 
   return (
     <View style={styles.offscreen} pointerEvents="none">
-      <ViewShot ref={viewShotRef} options={{ format: 'jpg', quality: 0.92, result: 'tmpfile' }}>
+      <ViewShot
+        ref={viewShotRef}
+        options={{ format: 'jpg', quality: 0.92, result: 'tmpfile', width: EXPORT_WIDTH, height: EXPORT_HEIGHT }}
+      >
         <View collapsable={false} style={{ width: job.width, height: job.height }}>
           <Image
             key={job.id}
@@ -123,15 +123,26 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
             <Image
               key={`logo-${job.id}`}
               source={LOGO}
-              style={{ width: LOGO_SIZE * scale, height: LOGO_SIZE * scale }}
+              style={{ width: logoSize, height: logoSize }}
               onLoad={() => handleLoad(job.id)}
               onError={() => finish(job.id, new Error('Could not load watermark logo'))}
             />
-            {job.username ? (
-              <Text style={[styles.username, styles.shadow, shadow, { fontSize, lineHeight: fontSize * 1.3 }]}>
-                @{job.username}
-              </Text>
-            ) : null}
+            {/* Width-capped so a long course name truncates instead of running off the photo. */}
+            <View style={{ maxWidth: job.width - inset * 2 - logoSize - 6 * scale }}>
+              {job.username ? (
+                <Text style={[styles.username, styles.shadow, shadow, { fontSize, lineHeight: fontSize * 1.3 }]}>
+                  @{job.username}
+                </Text>
+              ) : null}
+              {job.location ? (
+                <Text
+                  numberOfLines={1}
+                  style={[styles.location, styles.shadow, shadow, { fontSize: locationSize, lineHeight: locationSize * 1.3 }]}
+                >
+                  {job.location}
+                </Text>
+              ) : null}
+            </View>
           </View>
           <Text
             style={[
@@ -163,6 +174,14 @@ export default PostWatermarkCapture;
 // null when the original file should be used as-is: videos, the user's own
 // posts, web (no ViewShot there), or a failed stamp — a watermark problem
 // shouldn't block the save/share itself.
+// "Hole 7 · Scranton Country Club", or whichever half the post has.
+function formatPostLocation(post) {
+  const parts = [];
+  if (post.hole != null) parts.push(`Hole ${post.hole}`);
+  if (post.course) parts.push(post.course);
+  return parts.join(' · ');
+}
+
 export async function stampPostPhoto({ post, currentUserId, captureRef }) {
   const capture = captureRef?.current;
   const isVideo = post.isVideo ?? Boolean(post.video);
@@ -170,7 +189,7 @@ export async function stampPostPhoto({ post, currentUserId, captureRef }) {
     return null;
   }
   try {
-    return await capture.stamp(post.mediaUrl, post.user);
+    return await capture.stamp(post.mediaUrl, { username: post.user, location: formatPostLocation(post) });
   } catch (err) {
     console.error('Failed to watermark photo, using original instead:', err);
     return null;
@@ -192,6 +211,10 @@ const styles = StyleSheet.create({
   },
   username: {
     fontWeight: '600',
+    color: colors.white,
+  },
+  location: {
+    fontWeight: '500',
     color: colors.white,
   },
   // Font is loaded app-wide in App.js, so it's ready before any capture.
