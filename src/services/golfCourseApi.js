@@ -168,15 +168,35 @@ export async function searchCourses(query) {
 // "vd09jtqh"), not the first one returned: the API's ordering
 // changes with the search text ("scranton" vs "country club of scranton"), and
 // keeping whichever came first would split one club across several ids again.
-// Kept separate from searchCourses because getClubNines needs the siblings.
+// Also drops routing-only entries (see isRoutingOnlyName). Kept separate from
+// searchCourses because getClubNines needs the siblings.
 export function dedupeCourseResults(results) {
   const groups = new Map();
   for (const course of results) {
+    if (isRoutingOnlyName(course.name)) continue;
     const key = `${course.name?.toLowerCase().trim()}|${course.city?.toLowerCase().trim()}`;
     const current = groups.get(key);
     if (!current || course.id < current.id) groups.set(key, course);
   }
   return Array.from(groups.values());
+}
+
+// Nine names that only show up as routings of a club's standard 18 (e.g.
+// Country Club Of Scranton's Pines and Willows), lowercase. Falls is left out
+// on purpose: it's a real playable layout there.
+const ROUTING_NINE_NAMES = ['pines', 'willows'];
+
+// True when a result's whole name is just routing nines — "Willows",
+// "Pines/Willows", "The Pines Course" — which the API returns when an entry
+// has no club_name. Matches whole parts rather than any name containing
+// "pines", so real courses like Torrey Pines or Whispering Pines still show.
+function isRoutingOnlyName(name) {
+  const parts = (name ?? '')
+    .toLowerCase()
+    .split(/\s*(?:\/|&|\s[-–—]\s|\sand\s)\s*/)
+    .map((part) => part.replace(/^the\s+/, '').replace(/\s+(?:course|nine|9)$/, '').trim())
+    .filter(Boolean);
+  return parts.length > 0 && parts.every((part) => ROUTING_NINE_NAMES.includes(part));
 }
 
 // Submits a course golfcourseapi.com doesn't know about yet (added manually
