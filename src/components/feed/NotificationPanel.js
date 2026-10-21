@@ -35,7 +35,7 @@ function NotificationAvatar({ avatarUrl, name }) {
   );
 }
 
-export default function NotificationPanel({ visible, onClose, userId, onPressNotification }) {
+export default function NotificationPanel({ visible, onClose, userId, onPressNotification, onPressActor }) {
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
   const panelHeight = Math.round(screenHeight * 0.75);
@@ -78,12 +78,23 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
   // Marks just this one notification read (optimistically, then persisted)
   // and hands it to the parent to decide where tapping it should navigate —
   // the panel only knows about notifications, not the feed's post list.
-  function handlePressNotification(item) {
+  function markItemRead(item) {
     if (!item.read) {
       setNotifications((prev) => prev.map((n) => (n.id === item.id ? { ...n, read: true } : n)));
       markNotificationRead(item.id).catch((err) => console.error('Failed to mark notification read:', err));
     }
+  }
+
+  function handlePressNotification(item) {
+    markItemRead(item);
     onPressNotification?.(item);
+  }
+
+  // Tapping the actor's name goes to their profile instead of the
+  // notification's usual target (e.g. the post that was liked).
+  function handlePressActor(item) {
+    markItemRead(item);
+    onPressActor?.(item);
   }
 
   if (!mounted) return null;
@@ -136,7 +147,9 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
                   </View>
                   <View style={styles.rowBody}>
                     <Text style={styles.rowText} numberOfLines={3}>
-                      <Text style={styles.rowUsername}>{item.actorUsername}</Text>
+                      <Text style={styles.rowUsername} onPress={() => handlePressActor(item)} suppressHighlighting>
+                        {item.actorUsername}
+                      </Text>
                       <Text style={styles.rowMessage}> {item.actionText}</Text>
                     </Text>
                   </View>

@@ -773,6 +773,15 @@ export default function FeedScreen({ navigation, route }) {
   // Notifications panel lives inside this screen, so a postId notification
   // just has to scroll the already-mounted posts list — no cross-screen
   // navigation needed. Only "follow" goes to a different screen.
+  const handleNotificationActorPress = (notification) => {
+    if (!notification.actorUsername) return;
+    if (!notification.read) {
+      decrementUnread(notification.type === 'follow');
+    }
+    setNotificationsVisible(false);
+    navigation.navigate('UserProfile', { username: notification.actorUsername });
+  };
+
   const handleNotificationPress = (notification) => {
     if (!notification.read) {
       decrementUnread(notification.type === 'follow');
@@ -1090,6 +1099,7 @@ export default function FeedScreen({ navigation, route }) {
         onClose={() => setNotificationsVisible(false)}
         userId={user?.id}
         onPressNotification={handleNotificationPress}
+        onPressActor={handleNotificationActorPress}
       />
 
       <CommentSheet
