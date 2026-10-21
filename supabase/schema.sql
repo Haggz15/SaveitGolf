@@ -1208,3 +1208,13 @@ alter table public.scorecards add column if not exists pars_known boolean;
 update public.posts
 set course_id = 'vd09jtqh'
 where course_id in ('ymtw3rar', 'yxemnkyt');
+
+-- Course leaderboard paging (getScorecardsForCourse): the score shown and its
+-- +/- par, honoring Edit Score's manual overrides, so the course page can
+-- rank and page in the database instead of fetching every round.
+alter table public.scorecards add column if not exists display_score integer
+  generated always as (coalesce(manual_total, total_score)) stored;
+alter table public.scorecards add column if not exists score_to_par integer
+  generated always as (coalesce(manual_total, total_score) - coalesce(manual_par, total_par, 72)) stored;
+create index if not exists scorecards_course_leaderboard_idx
+  on public.scorecards (course_id, score_to_par, display_score, id);

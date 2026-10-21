@@ -309,6 +309,8 @@ export default function CourseDetailScreen({ route, navigation }) {
   // so the screen never looks blank while this is in flight.
   const [postsLoading, setPostsLoading] = useState(true);
   const [scorecards, setScorecards] = useState([]);
+  const [hasMoreScorecards, setHasMoreScorecards] = useState(false);
+  const [loadingMoreScorecards, setLoadingMoreScorecards] = useState(false);
   const [viewingScorecard, setViewingScorecard] = useState(null);
   const [courseCoords, setCourseCoords] = useState({ lat: lat ?? null, lng: lng ?? null });
   // A hand-typed course's shared pin (see courseLocations.js) — null until
@@ -396,9 +398,12 @@ export default function CourseDetailScreen({ route, navigation }) {
         if (!cancelled) setPostsLoading(false);
       });
 
+    setHasMoreScorecards(false);
     getScorecardsForCourse({ courseId, courseName })
-      .then((rows) => {
-        if (!cancelled) setScorecards(rows);
+      .then(({ entries, hasMore }) => {
+        if (cancelled) return;
+        setScorecards(entries);
+        setHasMoreScorecards(hasMore);
       })
       .catch((err) => console.error('Failed to load course scorecards:', err));
 
@@ -553,6 +558,29 @@ export default function CourseDetailScreen({ route, navigation }) {
     navigation.navigate('CourseFeed', {
       filter: { courseId, courseName, hole, compositeName, subCourseName, nineName },
     });
+  }
+
+  async function handleLoadMoreScorecards() {
+    if (loadingMoreScorecards) return;
+    setLoadingMoreScorecards(true);
+    try {
+      const { entries, hasMore } = await getScorecardsForCourse({
+        courseId,
+        courseName,
+        offset: scorecards.length,
+      });
+      // A score edited between pages can shift a row across the boundary —
+      // skip any already shown rather than listing it twice.
+      setScorecards((prev) => {
+        const seen = new Set(prev.map((e) => e.id));
+        return [...prev, ...entries.filter((e) => !seen.has(e.id))];
+      });
+      setHasMoreScorecards(hasMore);
+    } catch (err) {
+      console.error('Failed to load more course scorecards:', err);
+    } finally {
+      setLoadingMoreScorecards(false);
+    }
   }
 
   function handleSelectTab(tab) {
@@ -801,9 +829,25 @@ export default function CourseDetailScreen({ route, navigation }) {
                 {scorecards.length === 0 ? (
                   <Text style={styles.helperText}>No scorecards logged at this course yet.</Text>
                 ) : (
-                  scorecards.map((entry) => (
-                    <ScorecardRow key={entry.id} entry={entry} onPress={() => setViewingScorecard(entry)} />
-                  ))
+                  <>
+                    {scorecards.map((entry) => (
+                      <ScorecardRow key={entry.id} entry={entry} onPress={() => setViewingScorecard(entry)} />
+                    ))}
+                    {hasMoreScorecards && (
+                      <TouchableOpacity
+                        style={styles.loadMoreButton}
+                        onPress={handleLoadMoreScorecards}
+                        disabled={loadingMoreScorecards}
+                        activeOpacity={0.85}
+                      >
+                        {loadingMoreScorecards ? (
+                          <ActivityIndicator color={colors.white} size="small" />
+                        ) : (
+                          <Text style={styles.loadMoreButtonText}>Load more</Text>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </>
                 )}
               </View>
             )}
@@ -1129,6 +1173,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     marginLeft: 4,
+  },
+  loadMoreButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.navyBorder,
+    backgroundColor: colors.navyCard,
+  },
+  loadMoreButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '700',
   },
   scorecardRow: {
     flexDirection: 'row',

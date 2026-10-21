@@ -218,12 +218,16 @@ export async function setScorecardPhotoUrl(scorecardId, photoUrl) {
   if (error) throw error;
 }
 
-// All scorecards logged at a given course, across every user, sorted lowest
-// score first — used by the Course Detail screen's Scorecards tab. Matches
+export const COURSE_SCORECARDS_PAGE_SIZE = 50;
+
+// Scorecards logged at a given course, across every user, a page at a time,
+// best score first — used by the Course Detail screen's Scorecards tab. Matches
 // by course_id when available, otherwise a case-insensitive course_name
 // match (scorecards.user_id has no FK to profiles, so names/avatars are
-// fetched in a second query and merged in client-side).
-export async function getScorecardsForCourse({ courseId, courseName }) {
+// fetched in a second query and merged in client-side). Returns
+// { entries, hasMore }; the screen's Load more button asks for the next page
+// with offset = entries shown so far.
+export async function getScorecardsForCourse({ courseId, courseName, offset = 0, limit = COURSE_SCORECARDS_PAGE_SIZE }) {
   let request = supabase.from('scorecards').select('*');
   // Same identity rule as posts.js's fetchCourseRows: by course_id when
   // known, otherwise only id-less (hand-typed) scorecards with the exact
@@ -231,13 +235,21 @@ export async function getScorecardsForCourse({ courseId, courseName }) {
   request = courseId
     ? request.eq('course_id', courseId)
     : request.is('course_id', null).ilike('course_name', escapeIlike((courseName ?? '').trim()));
-  // A leaderboard — the top 50 is all anyone scrolls. Ranked below on score
-  // to par, which the query can't order by, so this fetches a wider pool.
-  request = request.order('total_score', { ascending: true }).limit(200);
+  // Best first: lowest score to par, so a 9-hole round doesn't outrank a
+  // better 18 just for having fewer strokes; then lowest score. Both are
+  // generated columns (schema.sql) that honor Edit Score's manual
+  // overrides, so the database can rank and page. id keeps ties in a
+  // stable order across pages. One extra row tells us whether there's more.
+  request = request
+    .order('score_to_par', { ascending: true })
+    .order('display_score', { ascending: true })
+    .order('id', { ascending: true })
+    .range(offset, offset + limit);
 
   const { data, error } = await request;
   if (error) throw error;
-  const rows = data ?? [];
+  const hasMore = (data ?? []).length > limit;
+  const rows = (data ?? []).slice(0, limit);
 
   const userIds = [...new Set(rows.map((r) => r.user_id))];
   let profilesById = {};
@@ -272,13 +284,7 @@ export async function getScorecardsForCourse({ courseId, courseName }) {
       scorecard: mapRow(row),
     };
   });
-  // Best first: lowest score to par, so a 9-hole round doesn't outrank a
-  // better 18 just for having fewer strokes; then lowest score. Manual
-  // overrides (Edit Score) can change a row's score, so this ranks on the
-  // score actually shown rather than trusting total_score's order.
-  return entries
-    .sort((a, b) => a.score - a.par - (b.score - b.par) || a.score - b.score)
-    .slice(0, 50);
+  return { entries, hasMore };
 }
 
 // Best (lowest) score per course, top 5 lowest scores. No longer used by
