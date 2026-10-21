@@ -20,6 +20,7 @@
       }
     },
     "production": {
+      "channel": "production",
       "environment": "production",
       "env": {
         "GOLF_COURSE_API_KEY": "YFLVNLXAT3GXCYCBS64LDXZXOY"
