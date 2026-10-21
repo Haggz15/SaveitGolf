@@ -1,5 +1,4 @@
-import { View, Text, StyleSheet } from 'react-native';
-import GolfBallMark, { useGolfBallFont } from '../common/GolfBallMark';
+import { View, Text, Image, StyleSheet } from 'react-native';
 import { sumScore } from './ScorecardCard';
 import colors from '../../theme/colors';
 
@@ -142,14 +141,13 @@ export function ExportGrandTotal({ totalScore, diffLabel, diff, style, children 
   );
 }
 
-// Dimmed (0.45 opacity) ball mark plus "SaveitGolf" script text, meant to
+// Dimmed (0.45 opacity) app logo plus "SaveitGolf" script text, meant to
 // sit inside the grand-total block's bottom-right corner — used whether or
 // not the card has a photo background.
 export function BallWatermark({ style }) {
-  const fontFamily = useGolfBallFont();
   return (
     <View style={[styles.ballWatermarkRow, style]}>
-      <GolfBallMark fontFamily={fontFamily} displayWidth={22} />
+      <Image source={require('../../../assets/icon.png')} style={styles.ballWatermarkLogo} />
       <Text style={styles.ballWatermarkText}>SaveitGolf</Text>
     </View>
   );
@@ -312,6 +310,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     opacity: 0.45,
+  },
+  ballWatermarkLogo: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
   },
   ballWatermarkText: {
     fontFamily: 'DancingScript_700Bold',

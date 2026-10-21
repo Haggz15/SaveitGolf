@@ -23,7 +23,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Header from '../components/Header';
 import MentionTextInput from '../components/social/MentionTextInput';
-import GolfBallMark, { useGolfBallFont } from '../components/common/GolfBallMark';
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { createPost, getUserPosts } from '../services/posts';
@@ -50,7 +49,6 @@ const BANNER_CONTENT_HEIGHT = 56;
 // animations, driven purely by the `visible`/`phase` props the parent sets.
 function UploadBanner({ visible, phase, retryAttempt, onRetry }) {
   const insets = useSafeAreaInsets();
-  const ballFont = useGolfBallFont();
   const bannerHeight = BANNER_CONTENT_HEIGHT + insets.top;
   const bannerY = useRef(new Animated.Value(-bannerHeight)).current;
   const progress = useRef(new Animated.Value(0)).current;
@@ -131,7 +129,7 @@ function UploadBanner({ visible, phase, retryAttempt, onRetry }) {
         onPress={onRetry}
       >
         <View style={[styles.uploadBannerRow, { paddingTop: insets.top }]}>
-          <GolfBallMark fontFamily={ballFont} displayWidth={24} />
+          <Image source={require('../../assets/icon.png')} style={styles.uploadBannerLogo} />
           {!isSuccess && !isError && <ActivityIndicator size="small" color={colors.white} />}
           <Text
             style={[
@@ -1114,6 +1112,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     gap: 12,
+  },
+  uploadBannerLogo: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
   },
   uploadBannerText: {
     flex: 1,
