@@ -34,6 +34,7 @@ import { notifyFollowersOfPost } from '../services/notifications';
 import { geocodeCourseCoordinates } from '../services/geocoding';
 import { courseHasValidCoordinates } from '../utils/mapCoords';
 import { compressImage } from '../utils/imageCompression';
+import { compressVideo, isVideoCompressionAvailable } from '../utils/videoCompression';
 import { confirmVideoUploadOnNetwork } from '../utils/networkCheck';
 
 // Nominal content height of the upload progress banner — the actual
@@ -229,10 +230,11 @@ function alertVideoTooLong() {
 
 // Resolves to false only when the user explicitly backs out of a
 // large-video warning — every other case (no known size, size under the
-// threshold, or the user confirming) resolves true so the picker flow can
-// proceed unchanged.
+// threshold, the video about to be compressed, or the user confirming)
+// resolves true so the picker flow can proceed unchanged.
 function confirmLargeVideo(fileSize) {
   if (!fileSize || fileSize <= LARGE_VIDEO_WARNING_BYTES) return Promise.resolve(true);
+  if (isVideoCompressionAvailable()) return Promise.resolve(true);
 
   const message = 'This video is large and may take a while to upload. Make sure you have a good connection.';
   if (Platform.OS === 'web') {
@@ -447,10 +449,10 @@ export default function PostScreen({ navigation }) {
   }
 
   // Fix 1: every photo gets downsized/recompressed before it's used
-  // anywhere further (preview or upload) — videos are left untouched (Fix
-  // 2 handles those via the picker's own quality/bitrate setting instead).
-  // Briefly flips the upload banner to 'optimizing' for the duration, same
-  // as the 'uploading'/'processing' phases handleSharePost drives later.
+  // anywhere further (preview or upload), and every video re-encoded to
+  // 720p (see videoCompression.js — a no-op on web and older builds).
+  // Flips the upload banner to 'optimizing' for the duration, same as the
+  // 'uploading'/'processing' phases handleSharePost drives later.
   //
   // `size` is the picker's reported { width, height } (null if unknown) and
   // sizes the preview to the media's real aspect ratio. Photos are measured
@@ -458,7 +460,19 @@ export default function PostScreen({ navigation }) {
   // is exactly what gets uploaded.
   async function setMediaFromPick(uri, type, size = null) {
     if (type !== 'photo') {
-      setMedia({ uri, type, width: size?.width ?? null, height: size?.height ?? null });
+      if (!isVideoCompressionAvailable()) {
+        setMedia({ uri, type, width: size?.width ?? null, height: size?.height ?? null });
+        return;
+      }
+      // Width/height stay the picker's: compression keeps the aspect ratio,
+      // which is all the preview sizes off.
+      setUploadPhase('optimizing');
+      try {
+        const compressedUri = await compressVideo(uri);
+        setMedia({ uri: compressedUri, type, width: size?.width ?? null, height: size?.height ?? null });
+      } finally {
+        setUploadPhase(null);
+      }
       return;
     }
     setUploadPhase('optimizing');
@@ -519,7 +533,7 @@ export default function PostScreen({ navigation }) {
       }
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
-        quality: 0.8, // for photos this is JPEG quality; for videos it controls bitrate, not resolution
+        quality: 0.8, // JPEG quality for photos; doesn't affect video
         videoMaxDuration: MAX_VIDEO_DURATION_SECONDS,
         exif: false,
       });
@@ -552,7 +566,14 @@ export default function PostScreen({ navigation }) {
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
-        quality: 0.8, // for photos this is JPEG quality; for videos it controls bitrate, not resolution
+        quality: 0.8, // JPEG quality for photos; doesn't affect video
+        // iOS otherwise hands back the original file untouched (often a 4K
+        // HEVC .mov, 50-80 MB for 30s). Builds with react-native-compressor
+        // take the original and compress it in setMediaFromPick; older ones
+        // fall back to iOS transcoding it to a 720p H.264 .mp4 here.
+        videoExportPreset: isVideoCompressionAvailable()
+          ? ImagePicker.VideoExportPreset.Passthrough
+          : ImagePicker.VideoExportPreset.H264_1280x720,
         videoMaxDuration: MAX_VIDEO_DURATION_SECONDS,
         exif: false,
       });

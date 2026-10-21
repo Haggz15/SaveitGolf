@@ -12,7 +12,7 @@ module.exports = {
     name: 'SaveitGolf',
     slug: 'SaveitGolf',
     owner: 'saveitgolf',
-    version: '1.0.8',
+    version: '1.0.9',
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'dark',
@@ -29,7 +29,7 @@ module.exports = {
     },
     ios: {
       bundleIdentifier: 'com.saveitgolf.app',
-      buildNumber: '19',
+      buildNumber: '20',
       supportsTablet: true,
       config: {
         googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
@@ -95,6 +95,7 @@ module.exports = {
         },
       ],
       'expo-video',
+      'react-native-compressor',
       [
         'expo-notifications',
         {
