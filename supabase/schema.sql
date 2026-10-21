@@ -1198,3 +1198,13 @@ alter table public.scorecards add column if not exists original_photo_url text;
 -- as a plain number with no birdie/bogey styling. Null on older rows, which
 -- the app treats as "known" only if course_id is set.
 alter table public.scorecards add column if not exists pars_known boolean;
+
+-- One-off data fix (2026-10-21): golfcourseapi.com lists Country Club Of
+-- Scranton as three ids, one per 18-hole pairing of its nines, and posts were
+-- split across all three. The app now collapses same name + city search
+-- results to the alphabetically lowest id (see dedupeCourseResults), which for
+-- this club is vd09jtqh, so existing posts are merged onto that id. Safe to
+-- re-run.
+update public.posts
+set course_id = 'vd09jtqh'
+where course_id in ('ymtw3rar', 'yxemnkyt');

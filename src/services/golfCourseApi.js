@@ -161,6 +161,24 @@ export async function searchCourses(query) {
   return (data?.courses ?? []).map(normalizeCourse);
 }
 
+// The API often returns one entry per nine/layout of the same club, each with
+// its own id. Collapses results sharing a name + city down to one, so picking
+// the club always stores the same course_id. The canonical entry is the
+// alphabetically lowest id in the group (ids are short strings like
+// "vd09jtqh"), not the first one returned: the API's ordering
+// changes with the search text ("scranton" vs "country club of scranton"), and
+// keeping whichever came first would split one club across several ids again.
+// Kept separate from searchCourses because getClubNines needs the siblings.
+export function dedupeCourseResults(results) {
+  const groups = new Map();
+  for (const course of results) {
+    const key = `${course.name?.toLowerCase().trim()}|${course.city?.toLowerCase().trim()}`;
+    const current = groups.get(key);
+    if (!current || course.id < current.id) groups.set(key, course);
+  }
+  return Array.from(groups.values());
+}
+
 // Submits a course golfcourseapi.com doesn't know about yet (added manually
 // from My Courses because search came up empty) so it becomes findable for
 // everyone, not just the user who added it. Mirrors the club_name/location

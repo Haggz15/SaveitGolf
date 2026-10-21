@@ -15,7 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
-import { searchCourses } from '../../services/golfCourseApi';
+import { dedupeCourseResults, searchCourses } from '../../services/golfCourseApi';
 
 const SEARCH_DEBOUNCE_MS = 400;
 
@@ -61,7 +61,7 @@ export default function CourseRankingModal({ visible, initialRanking, onClose, o
     searchTimer.current = setTimeout(async () => {
       try {
         const results = await searchCourses(text.trim());
-        setCourseResults(results);
+        setCourseResults(dedupeCourseResults(results));
       } catch (err) {
         setCourseResults([]);
       } finally {

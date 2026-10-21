@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Keyboard, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { stateCenters, allStateAbbreviations } from '../data/courses';
-import { getCourseById, searchCourses, RateLimitError, ApiKeyError } from '../services/golfCourseApi';
+import { dedupeCourseResults, getCourseById, searchCourses, RateLimitError, ApiKeyError } from '../services/golfCourseApi';
 import { getPostsForCourse, updatePostCoordinates } from '../services/posts';
 import { geocodeCourseCoordinates, reverseGeocode } from '../services/geocoding';
 import { saveCourseLocation, CourseAlreadyPinnedError } from '../services/courseLocations';
@@ -760,7 +760,7 @@ export function useCourseMapData({
       try {
         const results = await searchCourses(trimmed);
         if (requestId === searchRequestIdRef.current) {
-          setSearchResults(results);
+          setSearchResults(dedupeCourseResults(results));
           setQuotaExceeded(false);
           setApiKeyError(false);
           setSearchUnavailable(false);

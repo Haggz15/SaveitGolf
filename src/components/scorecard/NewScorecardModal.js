@@ -17,7 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
-import { searchCourses, getCourseById } from '../../services/golfCourseApi';
+import { dedupeCourseResults, searchCourses, getCourseById } from '../../services/golfCourseApi';
 
 // Typical 18-hole par distribution, used as a fallback whenever the selected
 // course has no live tee/par data (or the user free-typed a course name).
@@ -113,7 +113,7 @@ export default function NewScorecardModal({ visible, onClose, onSaved, fullName 
     searchTimer.current = setTimeout(async () => {
       try {
         const results = await searchCourses(text.trim());
-        patch({ courseResults: results, searching: false });
+        patch({ courseResults: dedupeCourseResults(results), searching: false });
       } catch (err) {
         patch({ courseResults: [], searching: false });
       }

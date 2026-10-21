@@ -27,7 +27,7 @@ import GolfBallMark, { useGolfBallFont } from '../components/common/GolfBallMark
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { createPost, getUserPosts } from '../services/posts';
-import { searchCourses, submitNewCourse } from '../services/golfCourseApi';
+import { dedupeCourseResults, searchCourses, submitNewCourse } from '../services/golfCourseApi';
 import { addCourseFromPost } from '../services/myCourses';
 import { searchProfiles } from '../services/social';
 import { MENTION_RE } from '../services/mentions';
@@ -402,7 +402,7 @@ export default function PostScreen({ navigation }) {
     searchTimer.current = setTimeout(async () => {
       try {
         const results = await searchCourses(text.trim());
-        setCourseResults(results);
+        setCourseResults(dedupeCourseResults(results));
       } catch (err) {
         console.error('Course search failed:', err);
         setCourseResults([]);
