@@ -37,8 +37,9 @@ function nextFrames() {
 // off-screen. stamp(uri, { username, location }) renders the photo on a 4:5
 // canvas with the app logo and "@username" in the top-left corner and, stacked
 // in the bottom-right, a "SaveitGolf" script wordmark over the location line
-// (e.g. "Scranton Country Club · Hole 7") — no backgrounds, drop shadows
-// keep the text legible on any photo. It waits for both the photo and
+// (e.g. "Scranton Country Club · Hole 7") — no backgrounds; every line gets
+// the same heavy drop shadow as the feed's course name so it stays legible
+// on any photo. It waits for both the photo and
 // the icon to load, captures it with ViewShot and resolves with the local
 // file URI of the watermarked JPEG.
 //
@@ -137,7 +138,8 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
   const logoSize = LOGO_SIZE * scale;
   const wordmarkSize = WORDMARK_FONT_SIZE * scale;
   const inset = EDGE_INSET * scale;
-  const shadow = { textShadowRadius: 3 * scale, textShadowOffset: { width: 0, height: scale } };
+  // Matches FeedScreen's topLeftCourseName shadow, scaled with the export.
+  const shadow = { textShadowRadius: 8 * scale, textShadowOffset: { width: 0, height: 2 * scale } };
 
   return (
     <View style={styles.offscreen} pointerEvents="none">
@@ -285,14 +287,14 @@ const styles = StyleSheet.create({
   },
   location: {
     fontWeight: '500',
-    color: colors.red,
+    color: colors.white,
   },
   // Font is loaded app-wide in App.js, so it's ready before any capture.
   wordmark: {
     fontFamily: 'DancingScript_700Bold',
-    color: colors.white,
+    color: colors.red,
   },
   shadow: {
-    textShadowColor: 'rgba(0, 0, 0, 0.55)',
+    textShadowColor: 'rgba(0, 0, 0, 0.95)',
   },
 });
