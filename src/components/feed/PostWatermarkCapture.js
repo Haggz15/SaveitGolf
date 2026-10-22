@@ -5,11 +5,18 @@ import VideoWatermark from '../../../modules/video-watermark';
 import colors from '../../theme/colors';
 
 // Exported image size in pixels: 4:5 portrait, Instagram's preferred feed
-// format, so it posts without being cropped. The photo is cover-fitted into it.
+// format, so it posts without being cropped, and a story shows it whole
+// (letterboxed) below the story header. The photo is cover-fitted into it.
 const EXPORT_WIDTH = 1080;
 const EXPORT_HEIGHT = 1350;
 // Video overlays keep the video's own aspect ratio; their short side is
 // capped here (the native side scales the PNG up to the full frame).
+// The watermark itself is kept inside the frame's centred band of at most
+// 4:5 (tall) / 1.91:1 (wide): Instagram crops feed posts to those limits,
+// and on a full-screen 9:16 story that band also clears the header and
+// reply bar, so nothing gets cut off or covered either way.
+const SAFE_MAX_TALL = 5 / 4;
+const SAFE_MAX_WIDE = 1.91;
 const VIDEO_OVERLAY_MAX_SHORT_SIDE = 1080;
 // Watermark is authored at these sizes for a phone-width (390pt) image and
 // scaled up with the export, so it looks the same relative size on any photo.
@@ -21,7 +28,7 @@ const LOGO_SIZE = 36;
 // Also used for the course/hole line under the wordmark.
 const USERNAME_FONT_SIZE = 14;
 const WORDMARK_FONT_SIZE = 28;
-// Inset of both watermark elements from the photo's edges.
+// Inset of both watermark elements from the edges of the safe band.
 const EDGE_INSET = 12;
 // Bail out if the photo never loads (bad URL, offline) instead of leaving
 // the Save button spinning forever.
@@ -37,8 +44,8 @@ function nextFrames() {
 // off-screen. stamp(uri, { username, location }) renders the photo on a 4:5
 // canvas with the app logo and "@username" in the top-left corner and, stacked
 // in the bottom-right, a "SaveitGolf" script wordmark over the location line
-// (e.g. "Scranton Country Club · Hole 7") — no backgrounds; every line gets
-// the same heavy drop shadow as the feed's course name so it stays legible
+// (e.g. "Scranton Country Club · Hole 7") — all white, no backgrounds; every
+// line gets the same heavy drop shadow as the feed's course name so it stays legible
 // on any photo. It waits for both the photo and
 // the icon to load, captures it with ViewShot and resolves with the local
 // file URI of the watermarked JPEG.
@@ -138,6 +145,10 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
   const logoSize = LOGO_SIZE * scale;
   const wordmarkSize = WORDMARK_FONT_SIZE * scale;
   const inset = EDGE_INSET * scale;
+  const safeWidth = Math.min(job.width, job.height * SAFE_MAX_WIDE);
+  const safeHeight = Math.min(job.height, job.width * SAFE_MAX_TALL);
+  const insetX = (job.width - safeWidth) / 2 + inset;
+  const insetY = (job.height - safeHeight) / 2 + inset;
   // Matches FeedScreen's topLeftCourseName shadow, scaled with the export.
   const shadow = { textShadowRadius: 8 * scale, textShadowOffset: { width: 0, height: 2 * scale } };
 
@@ -165,7 +176,7 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
               onError={(e) => finish(job.id, new Error(e?.nativeEvent?.error || 'Could not load image'))}
             />
           )}
-          <View style={[styles.byline, { top: inset, left: inset, gap: 6 * scale }]}>
+          <View style={[styles.byline, { top: insetY, left: insetX, gap: 6 * scale }]}>
             <Image
               key={`logo-${job.id}`}
               source={LOGO}
@@ -180,7 +191,7 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
                   styles.username,
                   styles.shadow,
                   shadow,
-                  { fontSize, lineHeight: fontSize * 1.3, maxWidth: job.width - inset * 2 - logoSize - 6 * scale },
+                  { fontSize, lineHeight: fontSize * 1.3, maxWidth: safeWidth - inset * 2 - logoSize - 6 * scale },
                 ]}
               >
                 @{job.username}
@@ -188,7 +199,7 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
             ) : null}
           </View>
           {/* Width-capped so a long course name truncates instead of running off the photo. */}
-          <View style={[styles.signature, { bottom: inset, right: inset, maxWidth: job.width - inset * 2 }]}>
+          <View style={[styles.signature, { bottom: insetY, right: insetX, maxWidth: safeWidth - inset * 2 }]}>
             <Text
               style={[
                 styles.wordmark,
@@ -292,7 +303,7 @@ const styles = StyleSheet.create({
   // Font is loaded app-wide in App.js, so it's ready before any capture.
   wordmark: {
     fontFamily: 'DancingScript_700Bold',
-    color: colors.red,
+    color: colors.white,
   },
   shadow: {
     textShadowColor: 'rgba(0, 0, 0, 0.95)',
