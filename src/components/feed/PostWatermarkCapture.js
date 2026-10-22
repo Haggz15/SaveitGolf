@@ -38,7 +38,7 @@ function nextFrames() {
 // canvas with the app logo and "@username" in the top-left corner and, stacked
 // in the bottom-right, a "SaveitGolf" script wordmark over the location line
 // (e.g. "Scranton Country Club · Hole 7") — no backgrounds, drop shadows
-// keep the white text legible on any photo. It waits for both the photo and
+// keep the text legible on any photo. It waits for both the photo and
 // the icon to load, captures it with ViewShot and resolves with the local
 // file URI of the watermarked JPEG.
 //
@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
   },
   location: {
     fontWeight: '500',
-    color: colors.white,
+    color: colors.red,
   },
   // Font is loaded app-wide in App.js, so it's ready before any capture.
   wordmark: {
