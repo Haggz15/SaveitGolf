@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Linking, Platform, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -15,13 +15,16 @@ import RootNavigator from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
 import { NotificationsProvider } from './src/context/NotificationsContext';
 import ErrorBoundary from './src/components/ErrorBoundary';
+import ForceUpdateModal from './src/components/ForceUpdateModal';
 import colors from './src/theme/colors';
-import { getStoreUpdate } from './src/services/appVersion';
+import { getAppStoreUpdate, getStoreUpdate } from './src/services/appVersion';
 import { version as appVersion } from './package.json';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function App() {
+  const [forceUpdateUrl, setForceUpdateUrl] = useState(null);
+
   useEffect(() => {
     if (Platform.OS === 'web') {
       const lastVersion = localStorage.getItem('appVersion');
@@ -39,8 +42,22 @@ export default function App() {
     // since OTA updates only target the currently installed runtime version.
     const checkForUpdates = async () => {
       if (__DEV__) return;
+
+      // iOS: a newer App Store release is mandatory — block the app until updated.
+      if (Platform.OS === 'ios') {
+        try {
+          const appStoreUpdate = await getAppStoreUpdate();
+          if (appStoreUpdate) {
+            setForceUpdateUrl(appStoreUpdate.storeUrl);
+            return;
+          }
+        } catch (err) {
+          console.log('App Store version check error:', err);
+        }
+      }
+
       try {
-        const storeUpdate = await getStoreUpdate();
+        const storeUpdate = Platform.OS === 'ios' ? null : await getStoreUpdate();
         if (storeUpdate) {
           Alert.alert(
             'Update Available',
@@ -116,6 +133,7 @@ export default function App() {
               <RootNavigator />
             </NotificationsProvider>
           </AuthProvider>
+          <ForceUpdateModal storeUrl={forceUpdateUrl} />
         </View>
       </SafeAreaProvider>
     </ErrorBoundary>

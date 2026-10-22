@@ -1,6 +1,9 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import { supabase } from './supabase';
+
+const APP_STORE_LOOKUP_URL = 'https://itunes.apple.com/lookup?bundleId=com.saveitgolf.app';
 
 // Compares dotted version strings numerically ("1.0.10" > "1.0.9").
 // Returns true when `latest` is strictly newer than `current`.
@@ -31,4 +34,23 @@ export async function getStoreUpdate() {
   if (!data || !isNewerVersion(data.latest_version, currentVersion)) return null;
 
   return { latestVersion: data.latest_version, storeUrl: data.store_url };
+}
+
+// Asks the App Store for the live version of this app. Resolves to
+// { latestVersion, storeUrl } when the running build is older, otherwise null.
+export async function getAppStoreUpdate() {
+  const currentVersion = Application.nativeApplicationVersion;
+  if (!currentVersion || Platform.OS !== 'ios') return null;
+
+  const res = await fetch(APP_STORE_LOOKUP_URL);
+  if (!res.ok) throw new Error(`App Store lookup failed: ${res.status}`);
+  const json = await res.json();
+  const listing = json.results?.[0];
+  if (!listing?.version || !isNewerVersion(listing.version, currentVersion)) return null;
+
+  // itms-apps:// opens the App Store app directly instead of Safari
+  const storeUrl = listing.trackId
+    ? `itms-apps://apps.apple.com/app/id${listing.trackId}`
+    : listing.trackViewUrl;
+  return { latestVersion: listing.version, storeUrl };
 }
