@@ -1218,3 +1218,33 @@ alter table public.scorecards add column if not exists score_to_par integer
   generated always as (coalesce(manual_total, total_score) - coalesce(manual_par, total_par, 72)) stored;
 create index if not exists scorecards_course_leaderboard_idx
   on public.scorecards (course_id, score_to_par, display_score, id);
+
+-- Courses golfcourseapi.com doesn't have, added through the post screen's
+-- "My course isn't listed" form (src/services/customCourses.js). Its id is
+-- saved as posts.course_id like an API id, and the post screen's course
+-- search lists these alongside API results, so everyone who posts at the
+-- same unlisted course links to one id. One row per name + state + city,
+-- ignoring case.
+create table if not exists public.custom_courses (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  city text,
+  state text not null,
+  created_at timestamptz not null default now(),
+  created_by uuid references auth.users (id) on delete set null
+);
+
+create unique index if not exists custom_courses_name_state_city_idx
+  on public.custom_courses (lower(name), state, lower(coalesce(city, '')));
+
+alter table public.custom_courses enable row level security;
+
+drop policy if exists "Custom courses are viewable by everyone" on public.custom_courses;
+create policy "Custom courses are viewable by everyone"
+  on public.custom_courses for select
+  using (true);
+
+drop policy if exists "Signed-in users can add a custom course" on public.custom_courses;
+create policy "Signed-in users can add a custom course"
+  on public.custom_courses for insert
+  with check (auth.uid() = created_by);

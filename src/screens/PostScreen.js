@@ -23,11 +23,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Header from '../components/Header';
 import MentionTextInput from '../components/social/MentionTextInput';
+import StateSelect from '../components/auth/StateSelect';
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { createPost, getUserPosts } from '../services/posts';
 import { dedupeCourseResults, searchCourses, submitNewCourse } from '../services/golfCourseApi';
 import { addCourseFromPost } from '../services/myCourses';
+import { findOrCreateCustomCourse, searchCustomCourses } from '../services/customCourses';
 import { searchProfiles } from '../services/social';
 import { MENTION_RE } from '../services/mentions';
 import { notifyFollowersOfPost } from '../services/notifications';
@@ -267,6 +269,13 @@ export default function PostScreen({ navigation }) {
   const [courseResults, setCourseResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
+  // "My course isn't listed" swaps the search field for a manual form. Only
+  // that path posts with course_id: null — the search path always posts the
+  // tapped result's id.
+  const [manualCourseMode, setManualCourseMode] = useState(false);
+  const [manualCourseName, setManualCourseName] = useState('');
+  const [manualCourseState, setManualCourseState] = useState('');
+  const [manualCourseCity, setManualCourseCity] = useState('');
   const [frequentCourses, setFrequentCourses] = useState([]);
   const [hasMultipleNines, setHasMultipleNines] = useState(false);
   const [compositeName, setCompositeName] = useState('');
@@ -400,12 +409,21 @@ export default function PostScreen({ navigation }) {
 
     setSearching(true);
     searchTimer.current = setTimeout(async () => {
+      // Courses added by other users through "My course isn't listed" are
+      // listed after the API's, so the next person picks the same course_id
+      // instead of typing it in again. Either source failing (e.g. the API's
+      // daily limit) still shows whatever the other one found.
       try {
-        const results = await searchCourses(text.trim());
-        setCourseResults(dedupeCourseResults(results));
-      } catch (err) {
-        console.error('Course search failed:', err);
-        setCourseResults([]);
+        const [apiResults, customResults] = await Promise.allSettled([
+          searchCourses(text.trim()),
+          searchCustomCourses(text.trim()),
+        ]);
+        if (apiResults.status === 'rejected') console.error('Course search failed:', apiResults.reason);
+        if (customResults.status === 'rejected') console.error('Custom course search failed:', customResults.reason);
+        setCourseResults([
+          ...(apiResults.status === 'fulfilled' ? dedupeCourseResults(apiResults.value) : []),
+          ...(customResults.status === 'fulfilled' ? customResults.value : []),
+        ]);
       } finally {
         setSearching(false);
       }
@@ -419,19 +437,36 @@ export default function PostScreen({ navigation }) {
     Keyboard.dismiss();
   };
 
-  // Course search came up empty and the user wants to post anyway — treated
-  // the same as picking a real search result (closes the dropdown, shows the
-  // typed name as "selected"), except with no id, so createPost stamps
-  // manual_entry: true and this course also gets submitted to
-  // golfcourseapi.com in handleSharePost below so it's findable for everyone
-  // once it's added for real.
-  const handleUseManualCourse = () => {
-    const name = courseQuery.trim();
-    if (!name) return;
-    setSelectedCourse({ id: null, name, city: null, state: null });
+  // The search didn't have the course — switches to the manual form, carrying
+  // over whatever was typed as a starting name. Posting from there sends no
+  // id, so createPost stamps manual_entry: true and handleSharePost submits
+  // the course to golfcourseapi.com so it's findable for everyone once it's
+  // added for real.
+  const handleEnterManualCourse = () => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    setManualCourseName(courseQuery.trim());
+    setManualCourseMode(true);
+    setSelectedCourse(null);
+    setCourseQuery('');
     setCourseResults([]);
-    Keyboard.dismiss();
+    setSearching(false);
   };
+
+  const handleExitManualCourse = () => {
+    setManualCourseMode(false);
+    setManualCourseName('');
+    setManualCourseState('');
+    setManualCourseCity('');
+  };
+
+  function resetCourseFields() {
+    setCourseQuery('');
+    setSelectedCourse(null);
+    setCourseResults([]);
+    handleExitManualCourse();
+  }
+
+  const hasCourseInput = manualCourseMode ? manualCourseName.trim().length > 0 : courseQuery.trim().length > 0;
 
   // Toggling on narrows the hole picker from 1-18 down to 1-9 (see the Hole
   // label below) — if a hole beyond 9 was already picked it no longer fits
@@ -635,11 +670,28 @@ export default function PostScreen({ navigation }) {
       Alert.alert('Add a photo or video', 'Pick a photo or video to share first.');
       return;
     }
-    const courseName = selectedCourse?.name ?? courseQuery.trim();
-    if (!courseName) {
-      Alert.alert('Add a course', 'Enter or search for the course you played.');
-      return;
+    // Typed search text is never a course on its own — only a tapped result
+    // (real course_id) or the explicit manual form counts. Otherwise users
+    // who type a name without tapping create unlinked posts that show up as
+    // a separate course from everyone who picked the real one.
+    let pickedCourse;
+    if (manualCourseMode) {
+      const name = manualCourseName.trim();
+      if (!name || !manualCourseState) {
+        Alert.alert('Add your course', 'Enter the course name and pick its state.');
+        return;
+      }
+      pickedCourse = { id: null, name, city: manualCourseCity.trim() || null, state: manualCourseState };
+    } else {
+      // Editing the query clears selectedCourse, so the name check is a
+      // belt-and-braces guard against the field and the selection drifting.
+      if (!selectedCourse || selectedCourse.name !== courseQuery) {
+        Alert.alert('Pick your course', 'Tap your course in the search results, or tap "My course isn\'t listed".');
+        return;
+      }
+      pickedCourse = selectedCourse;
     }
+    const courseName = pickedCourse.name;
 
     const canUpload = await confirmVideoUploadOnNetwork(media.type);
     if (!canUpload) return;
@@ -653,16 +705,18 @@ export default function PostScreen({ navigation }) {
     processingTimerRef.current = setTimeout(() => setUploadPhase('processing'), 2200);
 
     try {
-      const course = await resolveCourseCoordinates(selectedCourse ?? { id: null, name: courseName });
+      // The manual form's course becomes (or reuses) a custom_courses row, and
+      // that row's id is what the post saves as course_id — so the next
+      // person finds it in search and links to the same course.
+      if (manualCourseMode) {
+        pickedCourse = await findOrCreateCustomCourse({ ...pickedCourse, userId: user.id });
+      }
+      const course = await resolveCourseCoordinates(pickedCourse);
 
-      // No golfcourseapi.com id means this course was typed by hand (search
-      // came up empty — see the "Post to..." button above) rather than
-      // picked from a result. The post itself never waits on this: it's
-      // submitted to golfcourseapi.com fire-and-forget, same as
-      // ProfileScreen.handleAddManualCourse, so the course becomes findable
-      // for everyone once it's added for real — a failure here is only ever
-      // logged.
-      if (!course.id) {
+      // Also submitted to golfcourseapi.com, fire-and-forget like
+      // ProfileScreen.handleAddManualCourse, in case it gets added there for
+      // real — a failure here is only ever logged and never holds up the post.
+      if (manualCourseMode) {
         submitNewCourse({ name: course.name, city: course.city, state: course.state, lat: course.lat, lng: course.lng })
           .then((result) => console.log('[golfcourseapi] submitted manually-typed course from post:', result))
           .catch((err) => console.error('[golfcourseapi] failed to submit manually-typed course from post:', err.message));
@@ -689,8 +743,7 @@ export default function PostScreen({ navigation }) {
         console.error('Failed to add course to Courses Played:', err)
       );
 
-      setCourseQuery('');
-      setSelectedCourse(null);
+      resetCourseFields();
       setHasMultipleNines(false);
       setCompositeName('');
       setSubCourseName('');
@@ -729,7 +782,7 @@ export default function PostScreen({ navigation }) {
         if (!window.confirm('Discard this post? Your selected media will not be saved.')) return;
         setMedia(null);
         setCaption('');
-        setSelectedCourse(null);
+        resetCourseFields();
         setHole('');
         navigation.navigate('Following');
       } else {
@@ -744,7 +797,7 @@ export default function PostScreen({ navigation }) {
               onPress: () => {
                 setMedia(null);
                 setCaption('');
-                setSelectedCourse(null);
+                resetCourseFields();
                 setHole('');
                 navigation.navigate('Following');
               },
@@ -845,15 +898,55 @@ export default function PostScreen({ navigation }) {
         <Text style={styles.mediaLimitText}>Photos and videos up to {MAX_VIDEO_DURATION_SECONDS} seconds</Text>
 
         <Text style={styles.label}>Course</Text>
-        <TextInput
-          style={styles.input}
-          value={courseQuery}
-          onChangeText={handleChangeCourseQuery}
-          placeholder="e.g. Pebble Beach Golf Links"
-          placeholderTextColor={colors.muted}
-          autoCorrect={false}
-        />
-        {frequentCourses.length > 0 && courseQuery.trim().length === 0 && !selectedCourse && (
+        {manualCourseMode ? (
+          <View style={styles.manualCourseBox}>
+            <TextInput
+              style={styles.input}
+              value={manualCourseName}
+              onChangeText={setManualCourseName}
+              placeholder="Course name"
+              placeholderTextColor={colors.muted}
+              autoCorrect={false}
+            />
+            <StateSelect
+              value={manualCourseState}
+              onChange={setManualCourseState}
+              placeholder="State"
+              title="State"
+            />
+            <TextInput
+              style={styles.input}
+              value={manualCourseCity}
+              onChangeText={setManualCourseCity}
+              placeholder="City (optional)"
+              placeholderTextColor={colors.muted}
+              autoCorrect={false}
+            />
+            <TouchableOpacity onPress={handleExitManualCourse} style={styles.courseLinkButton}>
+              <Text style={styles.courseLinkText}>Search courses instead</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <TextInput
+              style={[styles.input, selectedCourse && styles.inputConfirmed]}
+              value={courseQuery}
+              onChangeText={handleChangeCourseQuery}
+              placeholder="Search for your course"
+              placeholderTextColor={colors.muted}
+              autoCorrect={false}
+            />
+            {selectedCourse && (
+              <View style={styles.confirmedCourseRow}>
+                <Ionicons name="checkmark-circle" size={16} color={colors.red} />
+                <Text style={styles.confirmedCourseText} numberOfLines={1}>
+                  {[selectedCourse.city, selectedCourse.state].filter(Boolean).join(', ') || 'Course selected'}
+                </Text>
+              </View>
+            )}
+          </>
+        )}
+        {!manualCourseMode && frequentCourses.length > 0 && courseQuery.trim().length === 0 && !selectedCourse && (
           <View style={styles.frequentCourses}>
             <Text style={styles.frequentCoursesLabel}>Your Courses</Text>
             {frequentCourses.map((course) => (
@@ -874,45 +967,49 @@ export default function PostScreen({ navigation }) {
             ))}
           </View>
         )}
-        {courseQuery.trim().length >= 2 && !selectedCourse && (
+        {!manualCourseMode && courseQuery.trim().length >= 2 && !selectedCourse && (
           <View style={styles.dropdown}>
             {searching ? (
               <View style={styles.statusRow}>
                 <ActivityIndicator size="small" color={colors.red} />
                 <Text style={styles.statusText}>Searching…</Text>
               </View>
-            ) : courseResults.length === 0 ? (
-              <View style={styles.noMatchBox}>
-                <Text style={styles.statusText}>
-                  Course not found in our database — post anyway and we will add it
-                </Text>
-                <TouchableOpacity style={styles.noMatchButton} onPress={handleUseManualCourse} activeOpacity={0.85}>
-                  <Text style={styles.noMatchButtonText}>Post to {courseQuery.trim()}</Text>
-                </TouchableOpacity>
-              </View>
             ) : (
-              <FlatList
-                data={courseResults}
-                keyExtractor={(item) => item.id}
-                keyboardShouldPersistTaps="handled"
-                style={{ maxHeight: 220 }}
-                renderItem={({ item }) => (
-                  <TouchableOpacity style={styles.resultRow} onPress={() => handleSelectCourse(item)}>
-                    <Ionicons name="flag-outline" size={16} color={colors.red} />
-                    <View style={{ flex: 1, marginLeft: 10 }}>
-                      <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
-                      <Text style={styles.resultLocation} numberOfLines={1}>
-                        {[item.city, item.state].filter(Boolean).join(', ') || 'Location unknown'}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
+              <>
+                {courseResults.length === 0 ? (
+                  <View style={styles.statusRow}>
+                    <Text style={styles.statusText}>No courses found</Text>
+                  </View>
+                ) : (
+                  <FlatList
+                    data={courseResults}
+                    keyExtractor={(item) => item.id ?? item.name}
+                    keyboardShouldPersistTaps="handled"
+                    style={{ maxHeight: 220 }}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity style={styles.resultRow} onPress={() => handleSelectCourse(item)}>
+                        <Ionicons name="flag-outline" size={16} color={colors.red} />
+                        <View style={{ flex: 1, marginLeft: 10 }}>
+                          <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
+                          <Text style={styles.resultLocation} numberOfLines={1}>
+                            {[item.city, item.state].filter(Boolean).join(', ') || 'Location unknown'}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    )}
+                  />
                 )}
-              />
+                <View style={styles.noMatchBox}>
+                  <TouchableOpacity style={styles.noMatchButton} onPress={handleEnterManualCourse} activeOpacity={0.85}>
+                    <Text style={styles.noMatchButtonText}>My course isn't listed</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
             )}
           </View>
         )}
 
-        {courseQuery.trim().length > 0 && (
+        {hasCourseInput && (
           <TouchableOpacity
             style={styles.compositeToggleRow}
             onPress={handleToggleMultipleNines}
@@ -941,7 +1038,7 @@ export default function PostScreen({ navigation }) {
           </>
         )}
 
-        {courseQuery.trim().length > 0 && (
+        {hasCourseInput && (
           <>
             <Text style={styles.label}>Specific Course (optional)</Text>
             <TextInput
@@ -1317,6 +1414,34 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     textAlign: 'center',
+  },
+  inputConfirmed: {
+    borderColor: colors.red,
+    marginBottom: 6,
+  },
+  confirmedCourseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 16,
+  },
+  confirmedCourseText: {
+    color: colors.muted,
+    fontSize: 12,
+    flex: 1,
+  },
+  manualCourseBox: {
+    marginBottom: 4,
+  },
+  courseLinkButton: {
+    alignSelf: 'flex-start',
+    marginTop: -6,
+    marginBottom: 16,
+  },
+  courseLinkText: {
+    color: colors.red,
+    fontSize: 13,
+    fontWeight: '600',
   },
   noMatchBox: {
     paddingHorizontal: 14,

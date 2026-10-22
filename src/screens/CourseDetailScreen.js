@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
 import { getCourseById, getClubNines, getMainEighteenNines } from '../services/golfCourseApi';
+import { isCustomCourseId } from '../services/customCourses';
 import { findCourseIdByName, getCourseHoleStats, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
 import { getScorecardsForCourse } from '../services/scorecards';
 import { getCourseLocation, saveCourseLocation, CourseAlreadyPinnedError } from '../services/courseLocations';
@@ -444,10 +445,11 @@ export default function CourseDetailScreen({ route, navigation }) {
   const locationLabel = coursePin?.locationDisplay || [displayCity, displayState].filter(Boolean).join(', ');
   const hasPin = courseCoords.lat != null && courseCoords.lng != null;
 
-  // Hand-typed course (no golfcourseapi.com id): its location comes only
-  // from a user-placed pin. The first signed-in user to place one owns it;
-  // after that only they can move it.
-  const isCustomCourse = !courseId;
+  // Hand-typed course (no id, or a custom_courses id — either way not on
+  // golfcourseapi.com): its location comes only from a user-placed pin. The
+  // first signed-in user to place one owns it; after that only they can
+  // move it.
+  const isCustomCourse = !courseId || isCustomCourseId(courseId);
   const pinOwner = coursePin?.pinPlacedBy ?? null;
   const canPlacePin = isCustomCourse && pinLoaded && !!user && (!pinOwner || pinOwner === user.id);
   const pinCenter = coursePin ? { lat: coursePin.lat, lng: coursePin.lng } : null;

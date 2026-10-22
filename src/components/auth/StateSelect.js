@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import colors from '../../theme/colors';
 import { US_STATES } from '../../data/usStates';
 
-export default function StateSelect({ value, onChange, placeholder = 'Select home state' }) {
+export default function StateSelect({ value, onChange, placeholder = 'Select home state', title = 'Home State' }) {
   const [visible, setVisible] = useState(false);
 
   return (
@@ -24,7 +24,7 @@ export default function StateSelect({ value, onChange, placeholder = 'Select hom
         <SafeAreaView style={styles.modalRoot}>
           <View style={styles.sheet}>
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Home State</Text>
+              <Text style={styles.sheetTitle}>{title}</Text>
               <TouchableOpacity onPress={() => setVisible(false)} hitSlop={10}>
                 <Ionicons name="close" size={22} color={colors.white} />
               </TouchableOpacity>

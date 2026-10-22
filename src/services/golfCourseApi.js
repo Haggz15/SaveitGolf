@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { hasValidCoordinates } from '../utils/mapCoords';
+import { isCustomCourseId } from './customCourses';
 
 // app.config.js already bakes a hardcoded fallback into extra.golfCourseApiKey
 // at build time, but that only reaches native builds where Constants.expoConfig
@@ -249,6 +250,11 @@ const courseDetailCache = new Map();
 
 export async function getCourseById(id) {
   const key = String(id);
+  // A custom_courses uuid was never on golfcourseapi.com — fail the same way
+  // an unknown id does, without spending a request on it.
+  if (isCustomCourseId(key)) {
+    throw new Error(`${key} is a custom course, not a golfcourseapi.com id`);
+  }
   if (courseDetailCache.has(key)) {
     return courseDetailCache.get(key);
   }
@@ -370,7 +376,9 @@ function normalizeCourse(course) {
   }
 
   return {
-    id: String(course?.id),
+    // String(undefined) would be the literal "undefined" and get saved as a
+    // post's course_id — null keeps it a manual entry instead.
+    id: course?.id != null ? String(course.id) : null,
     name: course?.club_name || course?.course_name,
     // The API's own course_name — for a club built from named nines it's the
     // 18-hole pairing, e.g. "Old Course - Pines/Willows" (see getClubNines).

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { isCustomCourseId } from './customCourses';
 import { resolveMentionedUserIds } from './mentions';
 import { createNotification } from './notifications';
 import { uploadToR2 } from './r2Storage';
@@ -108,7 +109,8 @@ export async function createPost({
       media_type: mediaType,
       composite_name: compositeName || null,
       sub_course_name: subCourseName || null,
-      manual_entry: !course?.id,
+      // A custom_courses id still means the course isn't on golfcourseapi.com.
+      manual_entry: !course?.id || isCustomCourseId(course.id),
     })
     .select()
     .single();
