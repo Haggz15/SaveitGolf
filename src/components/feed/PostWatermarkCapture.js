@@ -18,7 +18,7 @@ const REFERENCE_WIDTH = 390;
 // in), so only the ball and tee float over the photo.
 const LOGO = require('../../../assets/watermark-logo.png');
 const LOGO_SIZE = 36;
-// Also used for the course/hole line beneath it.
+// Also used for the course/hole line under the wordmark.
 const USERNAME_FONT_SIZE = 14;
 const WORDMARK_FONT_SIZE = 28;
 // Inset of both watermark elements from the photo's edges.
@@ -35,9 +35,9 @@ function nextFrames() {
 
 // Mounted once per FeedScreen (never inside FlatList cells) and kept
 // off-screen. stamp(uri, { username, location }) renders the photo on a 4:5
-// canvas with the app logo in the top-left corner and, stacked in the
-// bottom-right, a "SaveitGolf" script wordmark, "@username" and the location
-// line (e.g. "Scranton Country Club · Hole 7") — no backgrounds, drop shadows
+// canvas with the app logo and "@username" in the top-left corner and, stacked
+// in the bottom-right, a "SaveitGolf" script wordmark over the location line
+// (e.g. "Scranton Country Club · Hole 7") — no backgrounds, drop shadows
 // keep the white text legible on any photo. It waits for both the photo and
 // the icon to load, captures it with ViewShot and resolves with the local
 // file URI of the watermarked JPEG.
@@ -163,13 +163,28 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
               onError={(e) => finish(job.id, new Error(e?.nativeEvent?.error || 'Could not load image'))}
             />
           )}
-          <Image
-            key={`logo-${job.id}`}
-            source={LOGO}
-            style={{ position: 'absolute', top: inset, left: inset, width: logoSize, height: logoSize }}
-            onLoad={() => handleLoad(job.id, needed)}
-            onError={() => finish(job.id, new Error('Could not load watermark logo'))}
-          />
+          <View style={[styles.byline, { top: inset, left: inset, gap: 6 * scale }]}>
+            <Image
+              key={`logo-${job.id}`}
+              source={LOGO}
+              style={{ width: logoSize, height: logoSize }}
+              onLoad={() => handleLoad(job.id, needed)}
+              onError={() => finish(job.id, new Error('Could not load watermark logo'))}
+            />
+            {job.username ? (
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.username,
+                  styles.shadow,
+                  shadow,
+                  { fontSize, lineHeight: fontSize * 1.3, maxWidth: job.width - inset * 2 - logoSize - 6 * scale },
+                ]}
+              >
+                @{job.username}
+              </Text>
+            ) : null}
+          </View>
           {/* Width-capped so a long course name truncates instead of running off the photo. */}
           <View style={[styles.signature, { bottom: inset, right: inset, maxWidth: job.width - inset * 2 }]}>
             <Text
@@ -187,14 +202,6 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
             >
               SaveitGolf
             </Text>
-            {job.username ? (
-              <Text
-                numberOfLines={1}
-                style={[styles.username, styles.shadow, shadow, { fontSize, lineHeight: fontSize * 1.3 }]}
-              >
-                @{job.username}
-              </Text>
-            ) : null}
             {job.location ? (
               <Text
                 numberOfLines={1}
@@ -262,6 +269,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: -10000,
     top: 0,
+  },
+  byline: {
+    position: 'absolute',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   signature: {
     position: 'absolute',
