@@ -18,8 +18,8 @@ const REFERENCE_WIDTH = 390;
 // in), so only the ball and tee float over the photo.
 const LOGO = require('../../../assets/watermark-logo.png');
 const LOGO_SIZE = 36;
+// Also used for the course/hole line beneath it.
 const USERNAME_FONT_SIZE = 14;
-const LOCATION_FONT_SIZE = 12;
 const WORDMARK_FONT_SIZE = 28;
 // Inset of both watermark elements from the photo's edges.
 const EDGE_INSET = 12;
@@ -35,11 +35,12 @@ function nextFrames() {
 
 // Mounted once per FeedScreen (never inside FlatList cells) and kept
 // off-screen. stamp(uri, { username, location }) renders the photo on a 4:5
-// canvas with the app logo, "@username" and the location line (e.g.
-// "Hole 7 · Scranton Country Club") in the top-left corner and a "SaveitGolf" script wordmark in the
-// bottom-right (no backgrounds — drop shadows keep the white text legible on
-// any photo), waits for both the photo and the icon to load, captures it with ViewShot and resolves with the local file URI of
-// the watermarked JPEG.
+// canvas with the app logo in the top-left corner and, stacked in the
+// bottom-right, a "SaveitGolf" script wordmark, "@username" and the location
+// line (e.g. "Scranton Country Club · Hole 7") — no backgrounds, drop shadows
+// keep the white text legible on any photo. It waits for both the photo and
+// the icon to load, captures it with ViewShot and resolves with the local
+// file URI of the watermarked JPEG.
 //
 // overlay({ width, height, username, location }) draws the same watermark
 // with no photo underneath and resolves with a transparent PNG of that pixel
@@ -133,7 +134,6 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
   // Sized off the short side so landscape videos don't get an oversized mark.
   const scale = Math.min(job.width, job.height) / REFERENCE_WIDTH;
   const fontSize = USERNAME_FONT_SIZE * scale;
-  const locationSize = LOCATION_FONT_SIZE * scale;
   const logoSize = LOGO_SIZE * scale;
   const wordmarkSize = WORDMARK_FONT_SIZE * scale;
   const inset = EDGE_INSET * scale;
@@ -163,48 +163,47 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
               onError={(e) => finish(job.id, new Error(e?.nativeEvent?.error || 'Could not load image'))}
             />
           )}
-          <View style={[styles.byline, { top: inset, left: inset, gap: 6 * scale }]}>
-            <Image
-              key={`logo-${job.id}`}
-              source={LOGO}
-              style={{ width: logoSize, height: logoSize }}
-              onLoad={() => handleLoad(job.id, needed)}
-              onError={() => finish(job.id, new Error('Could not load watermark logo'))}
-            />
-            {/* Width-capped so a long course name truncates instead of running off the photo. */}
-            <View style={{ maxWidth: job.width - inset * 2 - logoSize - 6 * scale }}>
-              {job.username ? (
-                <Text style={[styles.username, styles.shadow, shadow, { fontSize, lineHeight: fontSize * 1.3 }]}>
-                  @{job.username}
-                </Text>
-              ) : null}
-              {job.location ? (
-                <Text
-                  numberOfLines={1}
-                  style={[styles.location, styles.shadow, shadow, { fontSize: locationSize, lineHeight: locationSize * 1.3 }]}
-                >
-                  {job.location}
-                </Text>
-              ) : null}
-            </View>
+          <Image
+            key={`logo-${job.id}`}
+            source={LOGO}
+            style={{ position: 'absolute', top: inset, left: inset, width: logoSize, height: logoSize }}
+            onLoad={() => handleLoad(job.id, needed)}
+            onError={() => finish(job.id, new Error('Could not load watermark logo'))}
+          />
+          {/* Width-capped so a long course name truncates instead of running off the photo. */}
+          <View style={[styles.signature, { bottom: inset, right: inset, maxWidth: job.width - inset * 2 }]}>
+            <Text
+              style={[
+                styles.wordmark,
+                styles.shadow,
+                shadow,
+                {
+                  fontSize: wordmarkSize,
+                  lineHeight: wordmarkSize * 1.3,
+                  // Room for the trailing 'f' swash, which overhangs the glyph box.
+                  paddingRight: 16 * scale,
+                },
+              ]}
+            >
+              SaveitGolf
+            </Text>
+            {job.username ? (
+              <Text
+                numberOfLines={1}
+                style={[styles.username, styles.shadow, shadow, { fontSize, lineHeight: fontSize * 1.3 }]}
+              >
+                @{job.username}
+              </Text>
+            ) : null}
+            {job.location ? (
+              <Text
+                numberOfLines={1}
+                style={[styles.location, styles.shadow, shadow, { fontSize, lineHeight: fontSize * 1.3 }]}
+              >
+                {job.location}
+              </Text>
+            ) : null}
           </View>
-          <Text
-            style={[
-              styles.wordmark,
-              styles.shadow,
-              shadow,
-              {
-                bottom: inset,
-                right: inset,
-                fontSize: wordmarkSize,
-                lineHeight: wordmarkSize * 1.3,
-                // Room for the trailing 'f' swash, which overhangs the glyph box.
-                paddingRight: 16 * scale,
-              },
-            ]}
-          >
-            SaveitGolf
-          </Text>
         </View>
       </ViewShot>
     </View>
@@ -213,11 +212,11 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
 
 export default PostWatermarkCapture;
 
-// "Hole 7 · Scranton Country Club", or whichever half the post has.
+// "Scranton Country Club · Hole 7", or whichever half the post has.
 function formatPostLocation(post) {
   const parts = [];
-  if (post.hole != null) parts.push(`Hole ${post.hole}`);
   if (post.course) parts.push(post.course);
+  if (post.hole != null) parts.push(`Hole ${post.hole}`);
   return parts.join(' · ');
 }
 
@@ -264,10 +263,9 @@ const styles = StyleSheet.create({
     left: -10000,
     top: 0,
   },
-  byline: {
+  signature: {
     position: 'absolute',
-    flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
   },
   username: {
     fontWeight: '600',
@@ -279,7 +277,6 @@ const styles = StyleSheet.create({
   },
   // Font is loaded app-wide in App.js, so it's ready before any capture.
   wordmark: {
-    position: 'absolute',
     fontFamily: 'DancingScript_700Bold',
     color: colors.white,
   },
