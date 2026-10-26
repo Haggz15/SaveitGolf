@@ -3,7 +3,7 @@ import { Alert, Keyboard, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { stateCenters, allStateAbbreviations } from '../data/courses';
 import { dedupeCourseResults, getCourseById, searchCourses, RateLimitError, ApiKeyError } from '../services/golfCourseApi';
-import { getPostsForCourse, updatePostCoordinates } from '../services/posts';
+import { getPostsForCourse, isMainEighteenAlias, updatePostCoordinates } from '../services/posts';
 import { geocodeCourseCoordinates, reverseGeocode } from '../services/geocoding';
 import { saveCourseLocation, CourseAlreadyPinnedError } from '../services/courseLocations';
 import { getMyCourses, updateMyCourseCoordinates, getSavedCourseCoordinates } from '../services/myCourses';
@@ -392,7 +392,10 @@ export function useCourseMapData({
     getPostsForCourse({ courseId: course.id, courseName: course.name })
       .then((posts) => {
         if (requestId !== courseDetailRequestIdRef.current) return;
-        const nines = [...new Set(posts.map((p) => p.compositeName).filter(Boolean))];
+        // Main-18 names like "Old Course" or "Front 9" aren't nines (see isMainEighteenAlias).
+        const nines = [
+          ...new Set(posts.map((p) => p.compositeName).filter((name) => name && !isMainEighteenAlias(name))),
+        ];
         setSelectedDetail((prev) => ({ ...prev, nines, postCount: posts.length }));
       })
       .catch((err) => {

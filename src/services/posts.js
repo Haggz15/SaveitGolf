@@ -4,6 +4,7 @@ import { resolveMentionedUserIds } from './mentions';
 import { createNotification } from './notifications';
 import { uploadToR2 } from './r2Storage';
 import { escapeIlike, quoteOrValue } from '../utils/ilike';
+import { MAIN_EIGHTEEN_NINE_NAMES, EIGHTEEN_LABEL_NAMES } from '../data/mainEighteenNineNames';
 
 const EXT_TO_CONTENT_TYPE = {
   jpg: 'image/jpeg',
@@ -386,6 +387,23 @@ export async function deletePost(postId) {
 // getCourseFeedPosts below, which needs to tell the two cases apart.
 export const UNGROUPED_NINE = '__ungrouped__';
 
+// A nine name that means part or all of the standard 18 (see
+// MAIN_EIGHTEEN_NINE_NAMES) — grouped with untagged posts as UNGROUPED_NINE.
+function normalizeNineName(name) {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+export function isMainEighteenAlias(name) {
+  return !!name && MAIN_EIGHTEEN_NINE_NAMES.includes(normalizeNineName(name));
+}
+
+// The display name `name` gives the 18-hole grid (see EIGHTEEN_LABEL_NAMES),
+// or null.
+export function eighteenLabelFor(name) {
+  if (!name) return null;
+  return EIGHTEEN_LABEL_NAMES.find((label) => label.toLowerCase() === normalizeNineName(name)) ?? null;
+}
+
 // Same sentinel idea as UNGROUPED_NINE, but for "posts at this course never
 // tagged to one of its named sub-courses" (see CourseDetailScreen's
 // sub-course grouping, Fix 6) — a golf complex like PGA West where some
@@ -420,7 +438,8 @@ export async function getCourseFeedPosts({
     (q) => {
       if (hole != null) q = q.eq('hole', hole);
       if (compositeName === UNGROUPED_NINE) {
-        q = q.is('composite_name', null);
+        const aliases = MAIN_EIGHTEEN_NINE_NAMES.map((a) => `composite_name.ilike.${quoteOrValue(escapeIlike(a))}`);
+        q = q.or(['composite_name.is.null', ...aliases].join(','));
       } else if (compositeName) {
         q = q.eq('composite_name', compositeName);
       }

@@ -17,7 +17,14 @@ import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
 import { getCourseById, getClubNines, getMainEighteenNines } from '../services/golfCourseApi';
 import { isCustomCourseId } from '../services/customCourses';
-import { findCourseIdByName, getCourseHoleStats, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
+import {
+  findCourseIdByName,
+  getCourseHoleStats,
+  eighteenLabelFor,
+  isMainEighteenAlias,
+  UNGROUPED_NINE,
+  UNGROUPED_SUB_COURSE,
+} from '../services/posts';
 import { getScorecardsForCourse } from '../services/scorecards';
 import { getCourseLocation, saveCourseLocation, CourseAlreadyPinnedError } from '../services/courseLocations';
 import { reverseGeocodeCityState } from '../services/geocoding';
@@ -495,7 +502,10 @@ export default function CourseDetailScreen({ route, navigation }) {
   // A post tagged with one of the standard 18's nines (Scranton's Pines or
   // Willows) counts as an 18-hole post — those nines get no option of their own.
   const mainEighteen = getMainEighteenNines(courseName);
+  // So do composite names like "Old Course" or "Front 9" (see
+  // isMainEighteenAlias), at any course.
   const nineTag = (p) => {
+    if (isMainEighteenAlias(p.compositeName)) return '';
     const tag = (ninesFromApi ? p.compositeName || p.subCourseName || '' : p.compositeName || '').toLowerCase();
     return mainEighteen.includes(tag) ? '' : tag;
   };
@@ -506,7 +516,7 @@ export default function CourseDetailScreen({ route, navigation }) {
     const tagged = [];
     coursePosts.forEach((p) => {
       const tag = ninesFromApi ? p.compositeName || p.subCourseName : p.compositeName;
-      if (tag && !known.has(tag.toLowerCase())) {
+      if (tag && !isMainEighteenAlias(tag) && !known.has(tag.toLowerCase())) {
         known.add(tag.toLowerCase());
         tagged.push({ name: tag, apiHoles: null });
       }
@@ -515,12 +525,24 @@ export default function CourseDetailScreen({ route, navigation }) {
     return [...options, ...tagged];
   }, [clubNines, coursePosts, ninesFromApi, courseName]);
 
+  // Posts tagged with a main-18 name sit in the standard 18's grid, which
+  // takes the name "Old Course" when a post uses it. gridPosts clears those
+  // tags for the layouts below that group by compositeName.
+  const eighteenName = coursePosts.map((p) => eighteenLabelFor(p.compositeName)).find(Boolean);
+  const eighteenLabel = eighteenName ? `${eighteenName} (18 Holes)` : '18 Holes';
+  const gridPosts = useMemo(
+    () => coursePosts.map((p) => (isMainEighteenAlias(p.compositeName) ? { ...p, compositeName: null } : p)),
+    [coursePosts]
+  );
+
   const selectedNine = layoutOptions.find((o) => o.name === layout) ?? null;
 
   const layoutGrid = useMemo(() => {
     if (layoutOptions.length === 0) return null;
     if (!selectedNine) {
-      return { posts: coursePosts.filter((p) => !nineTag(p)), holeShells };
+      // compositeName cleared so main-18 tags don't become their own sections.
+      const posts = coursePosts.filter((p) => !nineTag(p)).map((p) => ({ ...p, compositeName: null }));
+      return { posts, holeShells };
     }
     const key = selectedNine.name.toLowerCase();
     // compositeName cleared so HoleByHoleGrid renders one flat grid.
@@ -778,7 +800,7 @@ export default function CourseDetailScreen({ route, navigation }) {
                           activeOpacity={0.8}
                         >
                           <Text style={[styles.layoutPillText, active && styles.layoutPillTextActive]}>
-                            {name ? `${name} (9)` : '18 Holes'}
+                            {name ? `${name} (9)` : eighteenLabel}
                           </Text>
                         </TouchableOpacity>
                       );
@@ -794,18 +816,21 @@ export default function CourseDetailScreen({ route, navigation }) {
                     onSelectHole={handleSelectLayoutHole}
                   />
                 ) : subCourseNames.length === 0 ? (
-                  <HoleByHoleGrid
-                    posts={coursePosts}
-                    holeShells={holeShells}
-                    onSelectHole={handleSelectHole}
-                  />
+                  <>
+                    {eighteenName && <Text style={styles.nineSectionHeader}>{eighteenLabel}</Text>}
+                    <HoleByHoleGrid
+                      posts={gridPosts}
+                      holeShells={holeShells}
+                      onSelectHole={handleSelectHole}
+                    />
+                  </>
                 ) : (
                   <>
                     {subCourseNames.map((subCourse) => (
                       <View key={subCourse} style={styles.subCourseSection}>
                         <Text style={styles.subCourseSectionHeader}>{subCourse}</Text>
                         <HoleByHoleGrid
-                          posts={coursePosts.filter((p) => p.subCourseName === subCourse)}
+                          posts={gridPosts.filter((p) => p.subCourseName === subCourse)}
                           holeShells={holeShells}
                           onSelectHole={(number, nine) => handleSelectHole(number, nine, subCourse)}
                         />
@@ -815,7 +840,7 @@ export default function CourseDetailScreen({ route, navigation }) {
                       <View style={styles.subCourseSection}>
                         <Text style={styles.subCourseSectionHeader}>Other Courses</Text>
                         <HoleByHoleGrid
-                          posts={coursePosts.filter((p) => !p.subCourseName)}
+                          posts={gridPosts.filter((p) => !p.subCourseName)}
                           holeShells={holeShells}
                           onSelectHole={(number, nine) => handleSelectHole(number, nine, UNGROUPED_SUB_COURSE)}
                         />
