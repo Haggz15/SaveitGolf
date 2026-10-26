@@ -998,6 +998,11 @@ grant execute on function public.delete_own_account() to authenticated;
 alter table public.posts add column if not exists manual_entry boolean not null default false;
 alter table public.posts add column if not exists sub_course_name text;
 
+-- nine_name is PostScreen's "Which 9?" pick for a club golfcourseapi.com
+-- lists as named nines: one nine ("Falls") for a 9-hole round, or two
+-- joined with " + " ("Blue + Ridge") for an 18. Null for a standard 18.
+alter table public.posts add column if not exists nine_name text;
+
 -- App versions: the latest store build per platform, checked on launch by
 -- services/appVersion.js. When the installed native version is older than
 -- latest_version the app prompts the user to update and opens store_url.

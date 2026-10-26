@@ -15,6 +15,7 @@ import {
   TextInput,
   KeyboardAvoidingView,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../components/Header';
 import colors from '../theme/colors';
@@ -29,82 +30,38 @@ import CourseActionSheet from '../components/profile/CourseActionSheet';
 import { navigateToCourseOnMap, navigateToCourseDetail } from '../utils/courseNavigation';
 import { uploadAvatar } from '../services/profiles';
 import { getCourseRankings, addCourseRanking, updateCourseRanking } from '../services/courseRankings';
-import { getMyCourses, addMyCourse, removeMyCourse, getSavedCourseCoordinates, updateMyCoursesOrder } from '../services/myCourses';
-import { geocodeCourseCoordinates } from '../services/geocoding';
-import { submitNewCourse } from '../services/golfCourseApi';
+import { getMyCourses, addSearchedCourse, addManualCourse, removeMyCourse } from '../services/myCourses';
 import { getUserPosts, updatePostCaption, deletePost } from '../services/posts';
 import { getFollowerCount, getFollowingCount } from '../services/social';
 import { deleteAccount } from '../services/auth';
 import { friendlyAuthError } from '../services/authErrors';
 import { hasValidCoordinates } from '../utils/mapCoords';
 import { formatHandicap } from '../utils/handicap';
+import { useTaggedPosts } from '../hooks/useTaggedPosts';
 
-const TABS = ['Uploads', 'Courses Played', 'Course Rankings'];
+const TABS = ['Uploads', 'Courses Played', 'Tagged Posts'];
 
-function RankingsList({ rankings, loading, onUpdate, onAdd, onPressCourse }) {
-  // Courses auto-added from Courses Played (see myCourses.js's addMyCourse)
-  // land here with rating: null — kept out of the numbered list and shown
-  // as a "Rate" prompt below it instead (Fix 4).
-  const ranked = rankings.filter((item) => item.rating != null);
-  const unranked = rankings.filter((item) => item.rating == null);
-
+// The Course Rankings row for a Courses Played course: matched by course_id
+// when both have one, else by name ignoring case (addUnrankedCourseRanking
+// keys rankings by course_name).
+function findRankingForCourse(rankings, course) {
+  const name = course.courseName?.trim().toLowerCase();
   return (
-    <View>
-      <TouchableOpacity style={styles.addRankingButton} onPress={onAdd} activeOpacity={0.8}>
-        <Ionicons name="add" size={16} color={colors.white} />
-        <Text style={styles.addRankingButtonText}>Add Courses</Text>
-      </TouchableOpacity>
-
-      {loading ? (
-        <ActivityIndicator color={colors.red} style={{ marginTop: 16 }} />
-      ) : rankings.length === 0 ? (
-        <Text style={styles.emptyText}>You haven't ranked any courses yet.</Text>
-      ) : (
-        <>
-          {ranked.map((item, index) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.listRow}
-              onPress={() => onPressCourse(item)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.rankBadge}>
-                <Text style={styles.rankBadgeText}>{index + 1}</Text>
-              </View>
-              <Text style={styles.listRowTitle} numberOfLines={1}>
-                {item.courseName}
-              </Text>
-              <Text style={styles.listRowRating}>{item.rating.toFixed(1)}</Text>
-              <TouchableOpacity style={styles.updateButton} onPress={() => onUpdate(item)} hitSlop={8}>
-                <Text style={styles.updateButtonText}>Update</Text>
-              </TouchableOpacity>
-            </TouchableOpacity>
-          ))}
-          {unranked.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.listRow}
-              onPress={() => onPressCourse(item)}
-              activeOpacity={0.8}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.listRowTitle} numberOfLines={1}>
-                  {item.courseName}
-                </Text>
-                <Text style={styles.listRowSubtitle}>Tap to add a rating</Text>
-              </View>
-              <TouchableOpacity style={styles.rateButton} onPress={() => onUpdate(item)} hitSlop={8}>
-                <Text style={styles.rateButtonText}>Rate</Text>
-              </TouchableOpacity>
-            </TouchableOpacity>
-          ))}
-        </>
-      )}
-    </View>
+    (course.courseId && rankings.find((r) => r.courseId === course.courseId)) ||
+    rankings.find((r) => r.courseName?.trim().toLowerCase() === name) ||
+    null
   );
 }
 
-function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, onRemove, onMove, onPressCourse }) {
+function CoursesPlayedList({ courses, rankings, loading, editMode, onToggleEdit, onAdd, onRemove, onRate, onPressCourse }) {
+  // Ranked courses first, highest rating first and numbered like Course
+  // Rankings; unranked ones follow in their my_courses order, unnumbered.
+  const withRankings = courses.map((course) => ({ course, ranking: findRankingForCourse(rankings, course) }));
+  const ranked = withRankings
+    .filter(({ ranking }) => ranking?.rating != null)
+    .sort((a, b) => b.ranking.rating - a.ranking.rating);
+  const unranked = withRankings.filter(({ ranking }) => ranking?.rating == null);
+
   return (
     <View>
       <View style={styles.myCoursesHeaderRow}>
@@ -126,58 +83,53 @@ function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, on
       ) : courses.length === 0 ? (
         <Text style={styles.emptyText}>You haven't added any courses yet.</Text>
       ) : (
-        courses.map((item, index) => (
-          <TouchableOpacity
-            key={item.id}
-            style={styles.listRow}
-            onPress={() => onPressCourse(item)}
-            disabled={editMode}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="flag-outline" size={18} color={colors.red} style={{ marginRight: 12 }} />
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={styles.listRowTitle}>{item.courseName}</Text>
-                {!hasValidCoordinates(item.latitude, item.longitude) && (
-                  <Text style={styles.notOnMapAsterisk}>*</Text>
-                )}
-              </View>
-              <Text style={styles.listRowSubtitle}>
-                {[item.city, item.state].filter(Boolean).join(', ') || 'Location unknown'}
-              </Text>
-            </View>
-            {editMode && (
-              <>
-                <View style={styles.reorderButtons}>
-                  <TouchableOpacity
-                    onPress={() => onMove(index, -1)}
-                    disabled={index === 0}
-                    hitSlop={8}
-                    style={styles.reorderButton}
-                  >
-                    <Ionicons name="chevron-up" size={18} color={index === 0 ? colors.muted : colors.white} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => onMove(index, 1)}
-                    disabled={index === courses.length - 1}
-                    hitSlop={8}
-                    style={styles.reorderButton}
-                  >
-                    <Ionicons
-                      name="chevron-down"
-                      size={18}
-                      color={index === courses.length - 1 ? colors.muted : colors.white}
-                    />
-                  </TouchableOpacity>
+        [...ranked, ...unranked].map(({ course: item, ranking }, index) => {
+          const isRanked = ranking?.rating != null;
+          return (
+            <TouchableOpacity
+              key={item.id}
+              style={styles.listRow}
+              onPress={() => onPressCourse(item)}
+              disabled={editMode}
+              activeOpacity={0.8}
+            >
+              {isRanked ? (
+                <View style={styles.rankBadge}>
+                  <Text style={styles.rankBadgeText}>{index + 1}</Text>
                 </View>
+              ) : (
+                <Ionicons name="flag-outline" size={18} color={colors.red} style={{ marginRight: 12 }} />
+              )}
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={styles.listRowTitle}>{item.courseName}</Text>
+                  {!hasValidCoordinates(item.latitude, item.longitude) && (
+                    <Text style={styles.notOnMapAsterisk}>*</Text>
+                  )}
+                </View>
+                <Text style={styles.listRowSubtitle}>
+                  {[item.city, item.state].filter(Boolean).join(', ') || 'Location unknown'}
+                </Text>
+              </View>
+              {editMode ? (
                 <TouchableOpacity onPress={() => onRemove(item)} hitSlop={8} style={styles.removeCourseButton}>
                   <Ionicons name="close-circle" size={22} color={colors.red} />
                 </TouchableOpacity>
-              </>
-            )}
-            {!editMode && <Ionicons name="chevron-forward" size={18} color={colors.muted} />}
-          </TouchableOpacity>
-        ))
+              ) : isRanked ? (
+                <>
+                  <Text style={styles.listRowRating}>{ranking.rating.toFixed(1)}</Text>
+                  <TouchableOpacity style={styles.updateButton} onPress={() => onRate(item, ranking)} hitSlop={8}>
+                    <Text style={styles.updateButtonText}>Update</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity style={styles.rateButton} onPress={() => onRate(item, ranking)} hitSlop={8}>
+                  <Text style={styles.rateButtonText}>Rate</Text>
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+          );
+        })
       )}
       {courses.some((item) => !hasValidCoordinates(item.latitude, item.longitude)) && (
         <Text style={styles.notOnMapNote}>* Course location not yet available on map</Text>
@@ -186,12 +138,20 @@ function CoursesPlayedList({ courses, loading, editMode, onToggleEdit, onAdd, on
   );
 }
 
-function UploadsGrid({ posts, loading, onPressPost, onLongPressPost }) {
+// Also renders the Tagged Posts tab, with its own `emptyMessage` and no
+// long-press delete (those are other people's posts).
+function UploadsGrid({
+  posts,
+  loading,
+  onPressPost,
+  onLongPressPost,
+  emptyMessage = 'No posts yet — share your first hole to see it here.',
+}) {
   if (loading) {
     return <ActivityIndicator color={colors.red} style={{ marginTop: 16 }} />;
   }
   if (posts.length === 0) {
-    return <Text style={styles.emptyText}>No posts yet — share your first hole to see it here.</Text>;
+    return <Text style={styles.emptyText}>{emptyMessage}</Text>;
   }
   return (
     <FlatList
@@ -211,7 +171,7 @@ function UploadsGrid({ posts, loading, onPressPost, onLongPressPost }) {
         <TouchableOpacity
           style={styles.uploadTile}
           onPress={() => onPressPost(item, index)}
-          onLongPress={() => onLongPressPost(item)}
+          onLongPress={onLongPressPost ? () => onLongPressPost(item) : undefined}
           delayLongPress={400}
           activeOpacity={0.85}
         >
@@ -264,6 +224,7 @@ export default function ProfileScreen({ navigation }) {
   const [editingRanking, setEditingRanking] = useState(null);
   const [uploadPosts, setUploadPosts] = useState([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
+  const { posts: taggedPosts, loading: taggedPostsLoading } = useTaggedPosts(user?.id, activeTab === 'Tagged Posts');
   const [myCourses, setMyCourses] = useState([]);
   const [myCoursesLoading, setMyCoursesLoading] = useState(true);
   const [myCoursesEditMode, setMyCoursesEditMode] = useState(false);
@@ -340,17 +301,6 @@ export default function ProfileScreen({ navigation }) {
     }
   }
 
-  function handlePressRanking(item) {
-    setActionSheetCourse({
-      courseId: item.courseId,
-      courseName: item.courseName,
-      city: null,
-      state: null,
-      lat: null,
-      lng: null,
-    });
-  }
-
   function handlePressMyCourse(item) {
     navigateToCourseDetail(navigation, {
       courseId: item.courseId,
@@ -395,6 +345,16 @@ export default function ProfileScreen({ navigation }) {
   function openFollowList(mode) {
     setFollowListMode(mode);
     setFollowListVisible(true);
+  }
+
+  // Tagged posts already carry their authors' profiles (getTaggedPosts joins
+  // them), so they go to ProfileFeed as-is.
+  function handleTaggedPostTap(post, index) {
+    navigation.navigate('ProfileFeed', {
+      posts: taggedPosts,
+      startIndex: index,
+      username: profileData?.username,
+    });
   }
 
   function handlePostTap(post, index) {
@@ -537,125 +497,28 @@ export default function ProfileScreen({ navigation }) {
     loadMyCourses();
   }, [loadMyCourses]);
 
-  // Mirrors handleSaveRanking below: session comes straight from useAuth's
-  // `user` (not a fresh supabase.auth.getSession() call), the Supabase call
-  // happens directly with no try/catch here (errors bubble to the caller,
-  // same as handleSaveRanking), and local state is updated straight from
-  // the row the insert returns, no refetch.
+  // addMyCourse also creates the course's unranked Course Rankings row, so
+  // refetch rankings too — quietly, without the list's loading spinner.
+  function refreshRankings() {
+    getCourseRankings(user.id)
+      .then(setRankings)
+      .catch((err) => console.error('Failed to refresh course rankings:', err));
+  }
+
+  // Errors bubble to CourseSearchModal, which keeps itself open and alerts.
+  // Local state is updated straight from the returned row, no refetch.
   async function handleAddMyCourse(course) {
-    console.log('[ProfileScreen] handleAddMyCourse called with course:', course);
-    if (!user?.id) {
-      console.log('[ProfileScreen] handleAddMyCourse: no signed-in user, aborting');
-      return;
-    }
-
-    // golfcourseapi.com search results frequently omit coordinates — first
-    // check whether another my_courses row already has this course geocoded
-    // (the table is world-readable, see schema.sql), and only fall back to
-    // a fresh Nominatim lookup if not, so a shared course never spends the
-    // 1 req/sec Nominatim budget twice.
-    let latitude = course.lat;
-    let longitude = course.lng;
-    console.log('[ProfileScreen] handleAddMyCourse: coordinates from search result:', latitude, longitude);
-
-    if (latitude == null || longitude == null) {
-      const saved = course.id
-        ? await getSavedCourseCoordinates(course.id).catch((err) => {
-            console.log('[ProfileScreen] handleAddMyCourse: getSavedCourseCoordinates failed:', err.message);
-            return null;
-          })
-        : null;
-
-      if (saved) {
-        console.log('[ProfileScreen] handleAddMyCourse: reusing previously-saved coordinates:', saved);
-        latitude = saved.lat;
-        longitude = saved.lng;
-      } else {
-        console.log('[ProfileScreen] handleAddMyCourse: geocoding course via Nominatim:', course.name);
-        // Geocoding failure must never block the save — geocodeCourseCoordinates
-        // resolves to null rather than throwing, but it's still wrapped here
-        // so a save can never fail because of a geocoding problem.
-        const coords = await geocodeCourseCoordinates(course).catch((err) => {
-          console.log('[ProfileScreen] handleAddMyCourse: geocoding threw, saving without coordinates:', err.message);
-          return null;
-        });
-        if (coords) {
-          console.log('[ProfileScreen] handleAddMyCourse: geocoding succeeded:', coords);
-          latitude = coords.lat;
-          longitude = coords.lng;
-        } else {
-          console.log('[ProfileScreen] handleAddMyCourse: geocoding found no match, saving with null coordinates');
-        }
-      }
-    }
-
-    console.log('[ProfileScreen] handleAddMyCourse: calling addMyCourse with userId:', user.id);
-    const created = await addMyCourse(user.id, {
-      courseId: course.id,
-      courseName: course.name,
-      city: course.city,
-      state: course.state,
-      latitude,
-      longitude,
-    });
-    console.log('[ProfileScreen] handleAddMyCourse: addMyCourse succeeded:', created);
-
+    if (!user?.id) return;
+    const created = await addSearchedCourse(user.id, course);
     setMyCourses((prev) => (prev.some((c) => c.id === created.id) ? prev : [created, ...prev]));
+    refreshRankings();
   }
 
-  // A course search came up empty in golfcourseapi.com, so the user typed
-  // it in themselves. The local my_courses save is what the UI (pin, list,
-  // toast) depends on and is awaited normally; submitting the course to
-  // golfcourseapi.com so it's findable for everyone else is fired off
-  // alongside it and never blocks or surfaces its own errors — the local
-  // save having worked is all the user needs to know.
-  async function handleAddManualCourse({ name, city, state }) {
-    console.log('[ProfileScreen] handleAddManualCourse called with:', { name, city, state });
-    if (!user?.id) {
-      console.log('[ProfileScreen] handleAddManualCourse: no signed-in user, aborting');
-      return;
-    }
-
-    console.log('[ProfileScreen] handleAddManualCourse: geocoding manual course via Nominatim:', name);
-    // Same as handleAddMyCourse: geocoding failure must never block the save.
-    const coords = await geocodeCourseCoordinates({
-      id: `manual-${name}-${city}-${state}`,
-      name,
-      city,
-      state,
-    }).catch((err) => {
-      console.log('[ProfileScreen] handleAddManualCourse: geocoding threw, saving without coordinates:', err.message);
-      return null;
-    });
-    const latitude = coords?.lat ?? null;
-    const longitude = coords?.lng ?? null;
-    console.log('[ProfileScreen] handleAddManualCourse: resolved coordinates:', { latitude, longitude });
-
-    submitNewCourse({ name, city, state, lat: latitude, lng: longitude })
-      .then((result) => console.log('[golfcourseapi] submitted manually-added course:', result))
-      .catch((err) => console.error('[golfcourseapi] failed to submit manually-added course:', err.message));
-
-    console.log('[ProfileScreen] handleAddManualCourse: calling addMyCourse with userId:', user.id);
-    const created = await addMyCourse(user.id, {
-      courseId: null,
-      courseName: name,
-      city,
-      state,
-      latitude,
-      longitude,
-    });
-    console.log('[ProfileScreen] handleAddManualCourse: addMyCourse succeeded:', created);
-
+  async function handleAddManualCourse(manualCourse) {
+    if (!user?.id) return;
+    const created = await addManualCourse(user.id, manualCourse);
     setMyCourses((prev) => (prev.some((c) => c.id === created.id) ? prev : [created, ...prev]));
-  }
-
-  function moveCourse(index, direction) {
-    const newIndex = index + direction;
-    if (newIndex < 0 || newIndex >= myCourses.length) return;
-    const reordered = [...myCourses];
-    [reordered[index], reordered[newIndex]] = [reordered[newIndex], reordered[index]];
-    setMyCourses(reordered);
-    updateMyCoursesOrder(reordered).catch((err) => console.error('Failed to save course order:', err));
+    refreshRankings();
   }
 
   function handleRemoveMyCourse(course) {
@@ -709,6 +572,21 @@ export default function ProfileScreen({ navigation }) {
     loadUploads();
   }, [loadUploads]);
 
+  // Courses get added outside this tab too (the map's Played pill, posting
+  // to a new course), and the Profile tab stays mounted — refetch both lists
+  // quietly on focus, without the loading spinners.
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.id) return;
+      getMyCourses(user.id)
+        .then(setMyCourses)
+        .catch((err) => console.error('Failed to refresh my courses:', err));
+      getCourseRankings(user.id)
+        .then(setRankings)
+        .catch((err) => console.error('Failed to refresh course rankings:', err));
+    }, [user?.id])
+  );
+
   async function handlePickAvatar() {
     try {
       const ImagePicker = require('expo-image-picker');
@@ -737,13 +615,11 @@ export default function ProfileScreen({ navigation }) {
     }
   }
 
-  function handleOpenAddRanking() {
-    setEditingRanking(null);
-    setRankingModalVisible(true);
-  }
-
-  function handleOpenUpdateRanking(ranking) {
-    setEditingRanking(ranking);
+  // A Courses Played course with no Course Rankings row yet (added before
+  // rankings were auto-created) opens the modal prefilled with its name, and
+  // saving adds the row.
+  function handleRateMyCourse(course, ranking) {
+    setEditingRanking(ranking ?? { courseId: course.courseId, courseName: course.courseName, rating: null });
     setRankingModalVisible(true);
   }
 
@@ -752,7 +628,14 @@ export default function ProfileScreen({ navigation }) {
     // Unranked rows have a null rating (Fix 4) — sort them last rather than
     // letting `null - null` / `number - null` produce NaN and scramble order.
     const byRatingDesc = (a, b) => (b.rating ?? -1) - (a.rating ?? -1);
-    if (editingRanking) {
+    if (editingRanking && !editingRanking.id) {
+      const created = await addCourseRanking(user.id, {
+        courseId: courseId ?? editingRanking.courseId,
+        courseName,
+        rating,
+      });
+      setRankings((prev) => [...prev, created].sort(byRatingDesc));
+    } else if (editingRanking) {
       const updated = await updateCourseRanking(editingRanking.id, { courseName, rating });
       setRankings((prev) => prev.map((r) => (r.id === updated.id ? updated : r)).sort(byRatingDesc));
     } else {
@@ -942,24 +825,24 @@ export default function ProfileScreen({ navigation }) {
         </View>
 
         <View style={styles.tabContent}>
-          {activeTab === 'Course Rankings' && (
-            <RankingsList
-              rankings={rankings}
-              loading={rankingsLoading}
-              onUpdate={handleOpenUpdateRanking}
-              onAdd={handleOpenAddRanking}
-              onPressCourse={handlePressRanking}
+          {activeTab === 'Tagged Posts' && (
+            <UploadsGrid
+              posts={taggedPosts}
+              loading={taggedPostsLoading}
+              onPressPost={handleTaggedPostTap}
+              emptyMessage="No tagged posts yet."
             />
           )}
           {activeTab === 'Courses Played' && (
             <CoursesPlayedList
               courses={myCourses}
-              loading={myCoursesLoading}
+              rankings={rankings}
+              loading={myCoursesLoading || rankingsLoading}
               editMode={myCoursesEditMode}
               onToggleEdit={() => setMyCoursesEditMode((prev) => !prev)}
               onAdd={() => setCourseSearchVisible(true)}
               onRemove={handleRemoveMyCourse}
-              onMove={moveCourse}
+              onRate={handleRateMyCourse}
               onPressCourse={handlePressMyCourse}
             />
           )}
@@ -1480,21 +1363,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
-  addRankingButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: colors.red,
-    borderRadius: 12,
-    paddingVertical: 12,
-    marginBottom: 14,
-  },
-  addRankingButtonText: {
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: '700',
-  },
   myCoursesHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1535,12 +1403,6 @@ const styles = StyleSheet.create({
   },
   removeCourseButton: {
     marginLeft: 8,
-  },
-  reorderButtons: {
-    marginLeft: 8,
-  },
-  reorderButton: {
-    paddingVertical: 1,
   },
   uploadRow: {
     marginBottom: 8,

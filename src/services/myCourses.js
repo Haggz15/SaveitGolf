@@ -2,6 +2,8 @@ import { supabase } from './supabase';
 import { addUnrankedCourseRanking } from './courseRankings';
 import { escapeIlike } from '../utils/ilike';
 import { getCourseLocation } from './courseLocations';
+import { geocodeCourseCoordinates } from './geocoding';
+import { submitNewCourse } from './golfCourseApi';
 
 function mapRow(row) {
   return {
@@ -17,10 +19,10 @@ function mapRow(row) {
   };
 }
 
-// Ordered by sort_order (the user's own drag/arrow-reordered position — see
-// ProfileScreen's Courses Played tab), falling back to most-recently-added
-// first among rows that still share the same default sort_order of 0 (i.e.
-// before the user has ever reordered anything).
+// Ordered by sort_order (the position the user once arrow-reordered it to,
+// before Courses Played was sorted by ranking), falling back to
+// most-recently-added first among rows that share the default sort_order of
+// 0. ProfileScreen's Courses Played lists unranked courses in this order.
 export async function getMyCourses(userId) {
   const { data, error } = await supabase
     .from('my_courses')
@@ -31,15 +33,6 @@ export async function getMyCourses(userId) {
 
   if (error) throw error;
   return (data ?? []).map(mapRow);
-}
-
-// Persists a full reordering of the user's Courses Played list — called with
-// every row (not just the two swapped) since a plain index-based swap
-// doesn't know which rows already had distinct sort_order values.
-export async function updateMyCoursesOrder(courses) {
-  await Promise.all(
-    courses.map((course, index) => supabase.from('my_courses').update({ sort_order: index }).eq('id', course.id))
-  );
 }
 
 // The user's existing my_courses row for this course, if any. A real
@@ -84,10 +77,10 @@ export async function addMyCourse(userId, { courseId, courseName, city, state, l
     throw error;
   }
 
-  // Fire-and-forget: addUnrankedCourseRanking swallows its own errors (a
-  // ranking row is a convenience, not something that should ever fail or
-  // delay the Courses Played save itself).
-  addUnrankedCourseRanking(userId, { courseId: courseId ?? null, courseName });
+  // Awaited so callers can refetch rankings straight after, but
+  // addUnrankedCourseRanking swallows its own errors (a ranking row is a
+  // convenience, never something that should fail the Courses Played save).
+  await addUnrankedCourseRanking(userId, { courseId: courseId ?? null, courseName });
 
   return mapRow(data);
 }
@@ -115,6 +108,69 @@ export async function getSavedCourseCoordinates(courseId, courseName = null) {
 
   if (error) throw error;
   return data ? { lat: data.latitude, lng: data.longitude } : null;
+}
+
+// Adds a CourseSearchModal search result to Courses Played — shared by the
+// Profile tab and the map's "Played X courses" dropdown. golfcourseapi.com
+// search results frequently omit coordinates, so this first reuses another
+// my_courses row's coordinates for the same course (the table is
+// world-readable, see schema.sql), and only falls back to a fresh Nominatim
+// lookup if there are none, so a shared course never spends the 1 req/sec
+// Nominatim budget twice. Geocoding failure never blocks the save.
+export async function addSearchedCourse(userId, course) {
+  let latitude = course.lat;
+  let longitude = course.lng;
+
+  if (latitude == null || longitude == null) {
+    const saved = course.id
+      ? await getSavedCourseCoordinates(course.id).catch((err) => {
+          console.log('[myCourses] addSearchedCourse: getSavedCourseCoordinates failed:', err.message);
+          return null;
+        })
+      : null;
+    const coords =
+      saved ??
+      (await geocodeCourseCoordinates(course).catch((err) => {
+        console.log('[myCourses] addSearchedCourse: geocoding threw, saving without coordinates:', err.message);
+        return null;
+      }));
+    latitude = coords?.lat ?? null;
+    longitude = coords?.lng ?? null;
+  }
+
+  return addMyCourse(userId, {
+    courseId: course.id,
+    courseName: course.name,
+    city: course.city,
+    state: course.state,
+    latitude,
+    longitude,
+  });
+}
+
+// A course search came up empty in golfcourseapi.com, so the user typed it
+// in themselves. The my_courses save is awaited normally; submitting the
+// course to golfcourseapi.com so it's findable for everyone else is fired
+// off alongside it and never blocks or surfaces its own errors.
+export async function addManualCourse(userId, { name, city, state }) {
+  // Same as addSearchedCourse: geocoding failure must never block the save.
+  const coords = await geocodeCourseCoordinates({
+    id: `manual-${name}-${city}-${state}`,
+    name,
+    city,
+    state,
+  }).catch((err) => {
+    console.log('[myCourses] addManualCourse: geocoding threw, saving without coordinates:', err.message);
+    return null;
+  });
+  const latitude = coords?.lat ?? null;
+  const longitude = coords?.lng ?? null;
+
+  submitNewCourse({ name, city, state, lat: latitude, lng: longitude })
+    .then((result) => console.log('[golfcourseapi] submitted manually-added course:', result))
+    .catch((err) => console.error('[golfcourseapi] failed to submit manually-added course:', err.message));
+
+  return addMyCourse(userId, { courseId: null, courseName: name, city, state, latitude, longitude });
 }
 
 // Auto-adds a course to My Courses the first time a user posts to it, so

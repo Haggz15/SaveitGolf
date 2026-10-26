@@ -3,7 +3,7 @@ import { Alert, Keyboard, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { stateCenters, allStateAbbreviations } from '../data/courses';
 import { dedupeCourseResults, getCourseById, searchCourses, RateLimitError, ApiKeyError } from '../services/golfCourseApi';
-import { getPostsForCourse, isMainEighteenAlias, updatePostCoordinates } from '../services/posts';
+import { getPostsForCourse, isMainEighteenAlias, normalizeNineName, updatePostCoordinates } from '../services/posts';
 import { geocodeCourseCoordinates, reverseGeocode } from '../services/geocoding';
 import { saveCourseLocation, CourseAlreadyPinnedError } from '../services/courseLocations';
 import { getMyCourses, updateMyCourseCoordinates, getSavedCourseCoordinates } from '../services/myCourses';
@@ -393,9 +393,14 @@ export function useCourseMapData({
       .then((posts) => {
         if (requestId !== courseDetailRequestIdRef.current) return;
         // Main-18 names like "Old Course" or "Front 9" aren't nines (see isMainEighteenAlias).
-        const nines = [
-          ...new Set(posts.map((p) => p.compositeName).filter((name) => name && !isMainEighteenAlias(name))),
-        ];
+        // Spellings of one nine ("Falls", "Falls 9") show once, under the first seen.
+        const byKey = new Map();
+        posts.forEach(({ compositeName: name }) => {
+          if (name && !isMainEighteenAlias(name) && !byKey.has(normalizeNineName(name))) {
+            byKey.set(normalizeNineName(name), name);
+          }
+        });
+        const nines = [...byKey.values()];
         setSelectedDetail((prev) => ({ ...prev, nines, postCount: posts.length }));
       })
       .catch((err) => {

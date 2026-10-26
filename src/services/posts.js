@@ -89,6 +89,7 @@ export async function createPost({
   mediaType,
   compositeName,
   subCourseName,
+  nineName,
   onUploadRetry,
 }) {
   const mediaUrl = await uploadMedia(userId, mediaUri, mediaType, onUploadRetry);
@@ -110,6 +111,7 @@ export async function createPost({
       media_type: mediaType,
       composite_name: compositeName || null,
       sub_course_name: subCourseName || null,
+      nine_name: nineName || null,
       // A custom_courses id still means the course isn't on golfcourseapi.com.
       manual_entry: !course?.id || isCustomCourseId(course.id),
     })
@@ -163,6 +165,8 @@ export function mapRow(row) {
     par: row.par,
     compositeName: row.composite_name ?? null,
     subCourseName: row.sub_course_name ?? null,
+    // The "Which 9?" pick: one nine ("Blue") or an 18 of two ("Blue + Ridge").
+    nineName: row.nine_name ?? null,
     manualEntry: row.manual_entry ?? false,
     caption: row.caption ?? '',
     likes: row.likes_count ?? 0,
@@ -223,7 +227,7 @@ export async function getFeedPosts({ userIds, excludeUserIds, offset = 0, limit 
 // moderation/share counters, which nothing showing a post needs.
 const POST_CARD_COLUMNS =
   'id, user_id, course_id, course_name, city, state, lat, lng, hole, caption, media_url, media_type, ' +
-  'likes_count, comments_count, saves_count, created_at, composite_name, sub_course_name, hidden';
+  'likes_count, comments_count, saves_count, created_at, composite_name, sub_course_name, nine_name, hidden';
 
 // Not paginated on purpose: the profile uploads grid renders every tile, its
 // Posts stat is this list's length, and PostScreen tallies most-posted
@@ -233,6 +237,25 @@ export async function getUserPosts(userId) {
     .from('posts')
     .select(POST_CARD_COLUMNS)
     .eq('user_id', userId)
+    .eq('hidden', false)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []).map(mapRow);
+}
+
+// Posts `userId` is tagged in (@mentioned in the caption — see createPost's
+// post_tags insert), newest first, for the profile Tagged Posts tab. Joins
+// the author's profile since, unlike getUserPosts, these are other people's
+// posts.
+export async function getTaggedPosts(userId) {
+  const { data, error } = await supabase
+    .from('posts')
+    .select(
+      `${POST_CARD_COLUMNS}, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url), ` +
+        'post_tags!inner(tagged_user_id)'
+    )
+    .eq('post_tags.tagged_user_id', userId)
     .eq('hidden', false)
     .order('created_at', { ascending: false });
 
@@ -389,8 +412,29 @@ export const UNGROUPED_NINE = '__ungrouped__';
 
 // A nine name that means part or all of the standard 18 (see
 // MAIN_EIGHTEEN_NINE_NAMES) — grouped with untagged posts as UNGROUPED_NINE.
-function normalizeNineName(name) {
-  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+// Lowercase, single-spaced, without a leading "the" or a trailing "9"/"nine"/
+// "holes" — so "The Old Course 9", "Pines Nine" and "Falls 9 Holes" match
+// "old course", "pines" and "falls".
+export function normalizeNineName(name) {
+  return name
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/^the /, '')
+    .replace(/ holes?$/, '')
+    .replace(/ (9|nine)$/, '');
+}
+
+// The spellings normalizeNineName folds into `name`, for ilike filters that
+// can't normalize on the database side.
+function nineNameSpellings(name) {
+  const base = normalizeNineName(name);
+  const suffixed = ['', ' 9', ' nine', ' holes', ' 9 holes'].map((suffix) => base + suffix);
+  return [...suffixed, ...suffixed.map((spelling) => `the ${spelling}`)];
+}
+
+function nineNameFilter(column, name) {
+  return nineNameSpellings(name).map((spelling) => `${column}.ilike.${quoteOrValue(escapeIlike(spelling))}`);
 }
 
 export function isMainEighteenAlias(name) {
@@ -438,7 +482,7 @@ export async function getCourseFeedPosts({
     (q) => {
       if (hole != null) q = q.eq('hole', hole);
       if (compositeName === UNGROUPED_NINE) {
-        const aliases = MAIN_EIGHTEEN_NINE_NAMES.map((a) => `composite_name.ilike.${quoteOrValue(escapeIlike(a))}`);
+        const aliases = MAIN_EIGHTEEN_NINE_NAMES.flatMap((a) => nineNameFilter('composite_name', a));
         q = q.or(['composite_name.is.null', ...aliases].join(','));
       } else if (compositeName) {
         q = q.eq('composite_name', compositeName);
@@ -449,8 +493,7 @@ export async function getCourseFeedPosts({
         q = q.eq('sub_course_name', subCourseName);
       }
       if (nineName) {
-        const nine = quoteOrValue(escapeIlike(nineName));
-        q = q.or(`composite_name.ilike.${nine},sub_course_name.ilike.${nine}`);
+        q = q.or([...nineNameFilter('composite_name', nineName), ...nineNameFilter('sub_course_name', nineName)].join(','));
       }
       if (sort !== 'recent') q = q.order('likes_count', { ascending: false });
       // created_at, then id, as tiebreakers keep pages stable — equal like

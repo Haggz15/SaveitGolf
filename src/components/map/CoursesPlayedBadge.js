@@ -8,7 +8,9 @@ import colors from '../../theme/colors';
 // so it never drifts from the Courses Played pins. Tapping the pill toggles
 // a dropdown listing those courses by name; tapping one closes the dropdown
 // and focuses that course on the map. Tapping anywhere else closes it.
-export default function CoursesPlayedBadge({ courses, onSelectCourse, rightOffset = 0 }) {
+// `onAddCourse`, passed only on the user's own map (not a friend's), adds an
+// "Add Course" button under the list.
+export default function CoursesPlayedBadge({ courses, onSelectCourse, onAddCourse, rightOffset = 0 }) {
   const [open, setOpen] = useState(false);
   const count = courses?.length ?? 0;
   if (!count) return null;
@@ -42,6 +44,19 @@ export default function CoursesPlayedBadge({ courses, onSelectCourse, rightOffse
               </TouchableOpacity>
             ))}
           </ScrollView>
+          {onAddCourse && (
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => {
+                setOpen(false);
+                onAddCourse();
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={14} color={colors.white} />
+              <Text style={styles.addButtonText}>Add Course</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </>
@@ -115,5 +130,22 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 13,
     fontWeight: '600',
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: colors.red,
+    borderRadius: 8,
+    marginHorizontal: 8,
+    marginTop: 4,
+    marginBottom: 4,
+    paddingVertical: 8,
+  },
+  addButtonText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

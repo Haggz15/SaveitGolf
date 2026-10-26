@@ -23,19 +23,20 @@ export async function searchProfiles(query, currentUserId) {
   return data ?? [];
 }
 
-// Prefix match on username only, capped at 5 — used by the Map screen's
-// Friend Search input (see FriendSearchBar), which is narrower on purpose
-// than searchProfiles above (no full_name match, no cap-20 dropdown) since
-// it's meant to resolve a single specific friend quickly, not browse.
+// Username prefix or full_name substring match, capped at 10 — used by the
+// Map screen's Friend Search input (see FriendSearchBar), which is narrower
+// on purpose than searchProfiles above (no cap-20 dropdown) since it's meant
+// to resolve a single specific friend quickly, not browse.
 export async function searchProfilesByUsernamePrefix(query, currentUserId) {
   const trimmed = query.trim();
   if (!trimmed) return [];
 
+  const escaped = escapeIlike(trimmed);
   let request = supabase
     .from('profiles')
     .select('username, full_name, avatar_url, user_id')
-    .ilike('username', `${trimmed}%`)
-    .limit(5);
+    .or(`username.ilike.${quoteOrValue(`${escaped}%`)},full_name.ilike.${quoteOrValue(`%${escaped}%`)}`)
+    .limit(10);
 
   if (currentUserId) {
     request = request.neq('user_id', currentUserId);

@@ -22,6 +22,7 @@ import {
   getCourseHoleStats,
   eighteenLabelFor,
   isMainEighteenAlias,
+  normalizeNineName,
   UNGROUPED_NINE,
   UNGROUPED_SUB_COURSE,
 } from '../services/posts';
@@ -503,22 +504,24 @@ export default function CourseDetailScreen({ route, navigation }) {
   // Willows) counts as an 18-hole post — those nines get no option of their own.
   const mainEighteen = getMainEighteenNines(courseName);
   // So do composite names like "Old Course" or "Front 9" (see
-  // isMainEighteenAlias), at any course.
+  // isMainEighteenAlias), at any course. Tags are compared normalized, so
+  // "Falls 9" lands in the Falls nine and "Old Course 9" in the 18.
   const nineTag = (p) => {
     if (isMainEighteenAlias(p.compositeName)) return '';
-    const tag = (ninesFromApi ? p.compositeName || p.subCourseName || '' : p.compositeName || '').toLowerCase();
-    return mainEighteen.includes(tag) ? '' : tag;
+    const tag = ninesFromApi ? p.compositeName || p.subCourseName : p.compositeName;
+    const key = tag ? normalizeNineName(tag) : '';
+    return mainEighteen.includes(key) || isMainEighteenAlias(key) ? '' : key;
   };
 
   const layoutOptions = useMemo(() => {
     const options = clubNines.map((nine) => ({ name: nine.name, apiHoles: nine.holes }));
-    const known = new Set([...options.map((o) => o.name.toLowerCase()), ...mainEighteen]);
+    const known = new Set(options.map((o) => normalizeNineName(o.name)));
     const tagged = [];
     coursePosts.forEach((p) => {
-      const tag = ninesFromApi ? p.compositeName || p.subCourseName : p.compositeName;
-      if (tag && !isMainEighteenAlias(tag) && !known.has(tag.toLowerCase())) {
-        known.add(tag.toLowerCase());
-        tagged.push({ name: tag, apiHoles: null });
+      const key = nineTag(p);
+      if (key && !known.has(key)) {
+        known.add(key);
+        tagged.push({ name: ninesFromApi ? p.compositeName || p.subCourseName : p.compositeName, apiHoles: null });
       }
     });
     if (!ninesFromApi) tagged.sort((a, b) => a.name.localeCompare(b.name));
@@ -544,7 +547,7 @@ export default function CourseDetailScreen({ route, navigation }) {
       const posts = coursePosts.filter((p) => !nineTag(p)).map((p) => ({ ...p, compositeName: null }));
       return { posts, holeShells };
     }
-    const key = selectedNine.name.toLowerCase();
+    const key = normalizeNineName(selectedNine.name);
     // compositeName cleared so HoleByHoleGrid renders one flat grid.
     const posts = coursePosts.filter((p) => nineTag(p) === key).map((p) => ({ ...p, compositeName: null }));
     const shells = Array.from({ length: 9 }, (_, index) => {

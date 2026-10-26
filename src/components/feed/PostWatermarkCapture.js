@@ -232,10 +232,11 @@ const PostWatermarkCapture = forwardRef(function PostWatermarkCapture(_props, re
 
 export default PostWatermarkCapture;
 
-// "Scranton Country Club · Hole 7", or whichever half the post has.
+// "Scranton Country Club · Falls · Hole 7", or whichever parts the post has.
 function formatPostLocation(post) {
   const parts = [];
   if (post.course) parts.push(post.course);
+  if (post.nineName) parts.push(post.nineName);
   if (post.hole != null) parts.push(`Hole ${post.hole}`);
   return parts.join(' · ');
 }

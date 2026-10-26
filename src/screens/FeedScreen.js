@@ -254,15 +254,29 @@ function PostSlide({
             <Text style={styles.topLeftCompositeName} numberOfLines={1}>
               {post.subCourseName}
             </Text>
-          ) : post.compositeName ? (
+          ) : post.compositeName && post.compositeName !== post.nineName ? (
             <Text style={styles.topLeftCompositeName} numberOfLines={1}>
               {post.compositeName}
             </Text>
           ) : null}
-          {post.hole != null && (
-            <View style={styles.holeWrap}>
-              <Text style={styles.holeLabel}>Hole</Text>
-              <Text style={styles.holeNumberLarge}>{post.hole}</Text>
+          {/* The "Which 9?" pick sits beside the hole number, styled like it.
+              A single nine is also the composite name, shown once here. */}
+          {(post.hole != null || post.nineName) && (
+            <View style={styles.holeRow}>
+              {post.hole != null && (
+                <View style={styles.holeWrap}>
+                  <Text style={styles.holeLabel}>Hole</Text>
+                  <Text style={styles.holeNumberLarge}>{post.hole}</Text>
+                </View>
+              )}
+              {post.nineName && (
+                <View style={styles.holeWrap}>
+                  <Text style={styles.holeLabel}>{post.nineName.includes(' + ') ? 'Nines' : 'Nine'}</Text>
+                  <Text style={styles.nineNameLarge} numberOfLines={1}>
+                    {post.nineName}
+                  </Text>
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -1447,6 +1461,11 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
+  holeRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+  },
   holeWrap: {
     marginTop: 6,
     alignSelf: 'flex-start',
@@ -1462,6 +1481,14 @@ const styles = StyleSheet.create({
   holeNumberLarge: {
     color: '#c0001a',
     fontSize: 28,
+    fontWeight: '700',
+    lineHeight: 30,
+  },
+  // Same red as the hole number, smaller since it's a word, not a digit —
+  // bottom-aligned with it via the matching lineHeight.
+  nineNameLarge: {
+    color: '#c0001a',
+    fontSize: 18,
     fontWeight: '700',
     lineHeight: 30,
   },

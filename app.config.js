@@ -12,7 +12,7 @@ module.exports = {
     name: 'SaveitGolf',
     slug: 'SaveitGolf',
     owner: 'saveitgolf',
-    version: '1.0.10',
+    version: '1.1.0',
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'dark',
@@ -24,9 +24,7 @@ module.exports = {
       checkAutomatically: 'ON_LOAD',
       fallbackToCacheTimeout: 0,
     },
-    runtimeVersion: {
-      policy: 'appVersion',
-    },
+    runtimeVersion: '1.1.0',
     ios: {
       bundleIdentifier: 'com.saveitgolf.app',
       buildNumber: '22',

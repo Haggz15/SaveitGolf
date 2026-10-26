@@ -27,9 +27,16 @@ import StateSelect from '../components/auth/StateSelect';
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { createPost, getUserPosts } from '../services/posts';
-import { dedupeCourseResults, searchCourses, submitNewCourse } from '../services/golfCourseApi';
+import {
+  dedupeCourseResults,
+  getClubNines,
+  getCourseById,
+  isRoutingOnlyName,
+  searchCourses,
+  submitNewCourse,
+} from '../services/golfCourseApi';
 import { addCourseFromPost } from '../services/myCourses';
-import { findOrCreateCustomCourse, searchCustomCourses } from '../services/customCourses';
+import { findOrCreateCustomCourse, isCustomCourseId, searchCustomCourses } from '../services/customCourses';
 import { searchProfiles } from '../services/social';
 import { MENTION_RE } from '../services/mentions';
 import { notifyFollowersOfPost } from '../services/notifications';
@@ -280,6 +287,11 @@ export default function PostScreen({ navigation }) {
   const [hasMultipleNines, setHasMultipleNines] = useState(false);
   const [compositeName, setCompositeName] = useState('');
   const [subCourseName, setSubCourseName] = useState('');
+  // The selected course's named nines from golfcourseapi.com, for the
+  // "Which 9?" picker — empty for a standard 18 (no picker shown).
+  const [clubNines, setClubNines] = useState([]);
+  const [selectedNines, setSelectedNines] = useState([]);
+  const [ninePickerOpen, setNinePickerOpen] = useState(false);
   const [hole, setHole] = useState('');
   const [par, setPar] = useState('');
   const [caption, setCaption] = useState('');
@@ -338,6 +350,55 @@ export default function PostScreen({ navigation }) {
       cancelled = true;
     };
   }, [user?.id]);
+
+  // A club built from named nines (see getClubNines) gets the "Which 9?"
+  // picker. Routing-only nines (Scranton's Pines and Willows, see
+  // isRoutingOnlyName) are its standard 18, so only real extra nines like
+  // Falls are offered — picking none means the main 18. Since the API
+  // knows the nines, the hand-typed "multiple nines" toggle is dropped.
+  useEffect(() => {
+    setClubNines([]);
+    setSelectedNines([]);
+    setNinePickerOpen(false);
+    const id = selectedCourse?.id;
+    if (!id || isCustomCourseId(id)) return;
+    let cancelled = false;
+    getCourseById(id)
+      .then(getClubNines)
+      .then((nines) => {
+        if (cancelled) return;
+        const playable = nines.filter((nine) => !isRoutingOnlyName(nine.name));
+        setClubNines(playable);
+        if (playable.length > 0) {
+          setHasMultipleNines(false);
+          setCompositeName('');
+        }
+      })
+      .catch((err) => console.error('Failed to load club nines:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCourse?.id]);
+
+  // One nine is a 9-hole round, two make an 18 — a third pick replaces the
+  // older of the two. Going down to one nine narrows the hole picker to 1-9,
+  // so a hole past 9 is cleared, same as handleToggleMultipleNines.
+  function handleToggleNine(name) {
+    setSelectedNines((prev) => {
+      const next = prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name].slice(-2);
+      if (next.length === 1 && hole && Number(hole) > 9) setHole('');
+      return next;
+    });
+  }
+
+  // Stored as posts.nine_name, in the club's own nine order: "Blue" or
+  // "Blue + Ridge".
+  const nineName =
+    clubNines
+      .filter((nine) => selectedNines.includes(nine.name))
+      .map((nine) => nine.name)
+      .join(' + ') || null;
+  const playingOneNine = hasMultipleNines || selectedNines.length === 1;
 
   function handleSelectFrequentCourse(course) {
     setCourseQuery(course.name);
@@ -730,8 +791,15 @@ export default function PostScreen({ navigation }) {
         caption: caption.trim(),
         mediaUri: media.uri,
         mediaType: media.type,
-        compositeName: hasMultipleNines ? compositeName.trim() || null : null,
+        // A single picked nine is also the post's composite name, so the
+        // course page files it under that nine like a hand-typed one.
+        compositeName: hasMultipleNines
+          ? compositeName.trim() || null
+          : selectedNines.length === 1
+            ? selectedNines[0]
+            : null,
         subCourseName: subCourseName.trim() || null,
+        nineName,
         onUploadRetry: setUploadRetryAttempt,
       });
 
@@ -1009,7 +1077,42 @@ export default function PostScreen({ navigation }) {
           </View>
         )}
 
-        {hasCourseInput && (
+        {clubNines.length > 0 && (
+          <>
+            <Text style={styles.label}>Which 9?</Text>
+            <TouchableOpacity
+              style={[styles.input, styles.ninePickerField]}
+              onPress={() => setNinePickerOpen((open) => !open)}
+              activeOpacity={0.8}
+            >
+              <Text style={nineName ? styles.ninePickerValue : styles.ninePickerPlaceholder} numberOfLines={1}>
+                {nineName || (clubNines.length === 1 ? 'Main 18' : 'Pick one 9, or two for 18 holes')}
+              </Text>
+              <Ionicons name={ninePickerOpen ? 'chevron-up' : 'chevron-down'} size={16} color={colors.muted} />
+            </TouchableOpacity>
+            {ninePickerOpen && (
+              <View style={styles.dropdown}>
+                {clubNines.map((nine) => {
+                  const checked = selectedNines.includes(nine.name);
+                  return (
+                    <TouchableOpacity key={nine.name} style={styles.resultRow} onPress={() => handleToggleNine(nine.name)}>
+                      <Ionicons
+                        name={checked ? 'checkbox' : 'square-outline'}
+                        size={18}
+                        color={checked ? colors.red : colors.muted}
+                      />
+                      <Text style={[styles.resultName, { flex: 1, marginLeft: 10 }]} numberOfLines={1}>
+                        {nine.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </>
+        )}
+
+        {hasCourseInput && clubNines.length === 0 && (
           <TouchableOpacity
             style={styles.compositeToggleRow}
             onPress={handleToggleMultipleNines}
@@ -1052,9 +1155,9 @@ export default function PostScreen({ navigation }) {
           </>
         )}
 
-        <Text style={styles.label}>{hasMultipleNines ? 'Hole (1–9)' : 'Hole'}</Text>
+        <Text style={styles.label}>{playingOneNine ? 'Hole (1–9)' : 'Hole'}</Text>
         <View style={styles.holePickerGrid}>
-          {Array.from({ length: hasMultipleNines ? 9 : 18 }, (_, i) => i + 1).map((n) => {
+          {Array.from({ length: playingOneNine ? 9 : 18 }, (_, i) => i + 1).map((n) => {
             const selected = hole === String(n);
             return (
               <TouchableOpacity
@@ -1480,6 +1583,22 @@ const styles = StyleSheet.create({
   captionInput: {
     height: 100,
     textAlignVertical: 'top',
+  },
+  ninePickerField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  ninePickerValue: {
+    color: colors.white,
+    fontSize: 14,
+    flex: 1,
+  },
+  ninePickerPlaceholder: {
+    color: colors.muted,
+    fontSize: 14,
+    flex: 1,
   },
   compositeToggleRow: {
     flexDirection: 'row',

@@ -13,7 +13,6 @@ import {
   getFollowingCount,
 } from '../services/social';
 import { getUserPosts, getPostsCount } from '../services/posts';
-import { getCourseRankings } from '../services/courseRankings';
 import { getMyCourses } from '../services/myCourses';
 import CourseActionSheet from '../components/profile/CourseActionSheet';
 import FollowListModal from '../components/profile/FollowListModal';
@@ -21,8 +20,9 @@ import { navigateToCourseOnMap, navigateToCourseDetail } from '../utils/courseNa
 import { hasValidCoordinates } from '../utils/mapCoords';
 import { formatHandicap } from '../utils/handicap';
 import UploadTileMedia from '../components/profile/UploadTileMedia';
+import { useTaggedPosts } from '../hooks/useTaggedPosts';
 
-const TABS = ['Uploads', 'Courses Played', 'Course Rankings'];
+const TABS = ['Uploads', 'Courses Played', 'Tagged Posts'];
 
 function getInitials(fullName) {
   if (!fullName) return '';
@@ -34,42 +34,6 @@ function getInitials(fullName) {
     .slice(0, 2)
     .join('')
     .toUpperCase();
-}
-
-function RankingsList({ rankings, loading, onPressCourse }) {
-  if (loading) {
-    return <ActivityIndicator color={colors.red} style={{ marginTop: 24 }} />;
-  }
-  if (rankings.length === 0) {
-    return <Text style={styles.emptyText}>No courses ranked yet.</Text>;
-  }
-  return (
-    <View>
-      {rankings.map((item, index) => (
-        <TouchableOpacity
-          key={item.id}
-          style={styles.listRow}
-          onPress={() => onPressCourse(item)}
-          activeOpacity={0.8}
-        >
-          <View style={styles.rankBadge}>
-            <Text style={styles.rankBadgeText}>{index + 1}</Text>
-          </View>
-          <Text style={styles.listRowTitle} numberOfLines={1}>
-            {item.courseName}
-          </Text>
-          {/* The owner's score is visible to everyone viewing the profile.
-              Unranked rows (rating null — see addUnrankedCourseRanking)
-              have no score to show. */}
-          {item.rating != null ? (
-            <Text style={styles.listRowRating}>{item.rating.toFixed(1)}</Text>
-          ) : (
-            <Text style={styles.listRowSubtitle}>Unranked</Text>
-          )}
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
 }
 
 function CoursesPlayedList({ courses, loading, onPressCourse }) {
@@ -109,12 +73,13 @@ function CoursesPlayedList({ courses, loading, onPressCourse }) {
   );
 }
 
-function UploadsGrid({ posts, loading, onPressPost }) {
+// Also renders the Tagged Posts tab, with its own `emptyMessage`.
+function UploadsGrid({ posts, loading, onPressPost, emptyMessage = 'No posts yet.' }) {
   if (loading) {
     return <ActivityIndicator color={colors.red} style={{ marginTop: 24 }} />;
   }
   if (posts.length === 0) {
-    return <Text style={styles.emptyText}>No posts yet.</Text>;
+    return <Text style={styles.emptyText}>{emptyMessage}</Text>;
   }
   return (
     <FlatList
@@ -160,13 +125,15 @@ export default function OtherUserProfileScreen({ route, navigation }) {
   const [stats, setStats] = useState({ followers: 0, following: 0, posts: 0 });
   const [isFollowing, setIsFollowing] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
-  const [rankings, setRankings] = useState([]);
-  const [rankingsLoading, setRankingsLoading] = useState(true);
   const [coursesPlayed, setCoursesPlayed] = useState([]);
   const [coursesPlayedLoading, setCoursesPlayedLoading] = useState(true);
   const [uploads, setUploads] = useState([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
   const [actionSheetCourse, setActionSheetCourse] = useState(null);
+  const { posts: taggedPosts, loading: taggedPostsLoading } = useTaggedPosts(
+    profile?.user_id,
+    activeTab === 'Tagged Posts'
+  );
   const [followListVisible, setFollowListVisible] = useState(false);
   const [followListMode, setFollowListMode] = useState('followers');
 
@@ -193,12 +160,6 @@ export default function OtherUserProfileScreen({ route, navigation }) {
       if (currentUser?.id && currentUser.id !== row.user_id) {
         setIsFollowing(await getFollowStatus(currentUser.id, row.user_id));
       }
-
-      setRankingsLoading(true);
-      getCourseRankings(row.user_id)
-        .then(setRankings)
-        .catch((err) => console.error('Failed to load course rankings:', err))
-        .finally(() => setRankingsLoading(false));
 
       setCoursesPlayedLoading(true);
       console.log('Loading courses played for profile user:', row.user_id);
@@ -227,17 +188,6 @@ export default function OtherUserProfileScreen({ route, navigation }) {
     loadProfile();
   }, [loadProfile]);
 
-  function handlePressRanking(item) {
-    setActionSheetCourse({
-      courseId: item.courseId,
-      courseName: item.courseName,
-      city: null,
-      state: null,
-      lat: null,
-      lng: null,
-    });
-  }
-
   function handlePressCoursePlayed(item) {
     setActionSheetCourse({
       courseId: item.courseId,
@@ -259,6 +209,16 @@ export default function OtherUserProfileScreen({ route, navigation }) {
     const course = actionSheetCourse;
     setActionSheetCourse(null);
     navigateToCourseDetail(navigation, course);
+  }
+
+  // Tagged posts already carry their authors' profiles (getTaggedPosts joins
+  // them), so they go to ProfileFeed as-is.
+  function handleTaggedPostTap(post, index) {
+    navigation.navigate('ProfileFeed', {
+      posts: taggedPosts,
+      startIndex: index,
+      username: profile?.username,
+    });
   }
 
   function handlePostTap(post, index) {
@@ -450,11 +410,12 @@ export default function OtherUserProfileScreen({ route, navigation }) {
           {activeTab === 'Uploads' && (
             <UploadsGrid posts={uploads} loading={uploadsLoading} onPressPost={handlePostTap} />
           )}
-          {activeTab === 'Course Rankings' && (
-            <RankingsList
-              rankings={rankings}
-              loading={rankingsLoading}
-              onPressCourse={handlePressRanking}
+          {activeTab === 'Tagged Posts' && (
+            <UploadsGrid
+              posts={taggedPosts}
+              loading={taggedPostsLoading}
+              onPressPost={handleTaggedPostTap}
+              emptyMessage="No tagged posts yet."
             />
           )}
           {activeTab === 'Courses Played' && (
@@ -704,22 +665,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginTop: 16,
   },
-  rankBadge: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: colors.navy,
-    borderWidth: 1,
-    borderColor: colors.gold,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  rankBadgeText: {
-    color: colors.gold,
-    fontWeight: '700',
-    fontSize: 12,
-  },
   listRowTitle: {
     color: colors.white,
     fontSize: 14,
@@ -740,11 +685,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: 'center',
     marginTop: 12,
-  },
-  listRowRating: {
-    color: colors.gold,
-    fontWeight: '700',
-    fontSize: 14,
   },
   uploadRow: {
     marginBottom: 8,

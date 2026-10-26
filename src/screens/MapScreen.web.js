@@ -18,9 +18,11 @@ import SilentMarkerBoundary from '../components/map/SilentMarkerBoundary';
 import { MapWarningBanner } from '../components/map/MapMessageBanner';
 import PinDropBanner from '../components/map/PinDropBanner';
 import Toast from '../components/Toast';
+import CourseSearchModal from '../components/profile/CourseSearchModal';
 import colors from '../theme/colors';
 import { useCourseMapData, US_INITIAL_REGION, MAP_FILTERS, ZOOM_LEVEL } from '../hooks/useCourseMapData';
 import { useAuth } from '../context/AuthContext';
+import { addSearchedCourse, addManualCourse } from '../services/myCourses';
 import { filterCoursesWithValidCoordinates, hasValidCoordinates } from '../utils/mapCoords';
 
 // react-native-maps has no web renderer, so web gets its own map surface here
@@ -171,6 +173,7 @@ export default function MapScreen({ navigation, route }) {
   const mapInstanceRef = useRef(null);
   const [emptyMyCoursesToast, setEmptyMyCoursesToast] = useState(null);
   const [courseSearchFocused, setCourseSearchFocused] = useState(false);
+  const [addCourseVisible, setAddCourseVisible] = useState(false);
   const playedEmptyToastShownRef = useRef(false);
   const {
     setRegion,
@@ -231,6 +234,21 @@ export default function MapScreen({ navigation, route }) {
     routeDropPinTimestamp: route?.params?.dropPinAt,
     userId: user?.id,
   });
+
+  // The Played pill's "Add Course" (own map only) saves to my_courses, the
+  // same list Profile's Courses Played reads, then refetches the map's copy.
+  // Errors bubble to CourseSearchModal, which stays open and alerts.
+  async function handleAddPlayedCourse(course) {
+    if (!user?.id) return;
+    await addSearchedCourse(user.id, course);
+    refreshMyCourses();
+  }
+
+  async function handleAddManualPlayedCourse(manualCourse) {
+    if (!user?.id) return;
+    await addManualCourse(user.id, manualCourse);
+    refreshMyCourses();
+  }
 
   // The "Played X courses" pill follows whoever's pins the map is showing —
   // a friend's courses while friendFilter is active (e.g. arriving from
@@ -502,7 +520,10 @@ export default function MapScreen({ navigation, route }) {
         </MapErrorBoundary>
 
         {showPlayedBadge && (
-          <CoursesPlayedBadge courses={playedBadgeCourses} />
+          <CoursesPlayedBadge
+            courses={playedBadgeCourses}
+            onAddCourse={friendFilter ? undefined : () => setAddCourseVisible(true)}
+          />
         )}
         <ZoomControls
           onZoomIn={guard(handleZoomIn)}
@@ -529,6 +550,13 @@ export default function MapScreen({ navigation, route }) {
         onHide={() => setEmptyMyCoursesToast(null)}
         duration={3000}
         bottom
+      />
+
+      <CourseSearchModal
+        visible={addCourseVisible}
+        onClose={() => setAddCourseVisible(false)}
+        onAddCourse={handleAddPlayedCourse}
+        onAddManualCourse={handleAddManualPlayedCourse}
       />
     </View>
   );

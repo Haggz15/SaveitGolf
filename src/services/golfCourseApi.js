@@ -194,7 +194,8 @@ const ROUTING_NINE_NAMES = ['pines', 'willows'];
 // "Pines/Willows", "The Pines Course" — which the API returns when an entry
 // has no club_name. Matches whole parts rather than any name containing
 // "pines", so real courses like Torrey Pines or Whispering Pines still show.
-function isRoutingOnlyName(name) {
+// Also keeps those nines out of PostScreen's "Which 9?" picker.
+export function isRoutingOnlyName(name) {
   const parts = (name ?? '')
     .toLowerCase()
     .split(/\s*(?:\/|&|\s[-–—]\s|\sand\s)\s*/)
