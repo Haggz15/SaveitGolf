@@ -13,6 +13,7 @@ import {
   getFollowingCount,
 } from '../services/social';
 import { getUserPosts, getPostsCount } from '../services/posts';
+import { getShotOfWeekPostIds } from '../services/shotOfWeek';
 import { getMyCourses } from '../services/myCourses';
 import CourseActionSheet from '../components/profile/CourseActionSheet';
 import FollowListModal from '../components/profile/FollowListModal';
@@ -73,8 +74,9 @@ function CoursesPlayedList({ courses, loading, onPressCourse }) {
   );
 }
 
-// Also renders the Tagged Posts tab, with its own `emptyMessage`.
-function UploadsGrid({ posts, loading, onPressPost, emptyMessage = 'No posts yet.' }) {
+// Also renders the Tagged Posts tab, with its own `emptyMessage`. Posts in
+// `shotOfWeekIds` get a trophy badge.
+function UploadsGrid({ posts, loading, onPressPost, shotOfWeekIds, emptyMessage = 'No posts yet.' }) {
   if (loading) {
     return <ActivityIndicator color={colors.red} style={{ marginTop: 24 }} />;
   }
@@ -107,6 +109,11 @@ function UploadsGrid({ posts, loading, onPressPost, emptyMessage = 'No posts yet
             <Ionicons name="heart" size={10} color={colors.white} />
             <Text style={styles.uploadLikesText}>{item.likes || 0}</Text>
           </View>
+          {shotOfWeekIds?.has(item.id) && (
+            <View style={styles.uploadTrophyBadge}>
+              <Text style={{ fontSize: 10 }}>🏆</Text>
+            </View>
+          )}
         </TouchableOpacity>
       )}
     />
@@ -129,6 +136,7 @@ export default function OtherUserProfileScreen({ route, navigation }) {
   const [coursesPlayedLoading, setCoursesPlayedLoading] = useState(true);
   const [uploads, setUploads] = useState([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
+  const [shotOfWeekIds, setShotOfWeekIds] = useState(new Set());
   const [actionSheetCourse, setActionSheetCourse] = useState(null);
   const { posts: taggedPosts, loading: taggedPostsLoading } = useTaggedPosts(
     profile?.user_id,
@@ -176,6 +184,9 @@ export default function OtherUserProfileScreen({ route, navigation }) {
         .then(setUploads)
         .catch((err) => console.error('Failed to load uploads:', err))
         .finally(() => setUploadsLoading(false));
+      getShotOfWeekPostIds()
+        .then(setShotOfWeekIds)
+        .catch((err) => console.error('Failed to load Shot of the Week posts:', err));
     } catch (err) {
       console.error('Failed to load profile:', err);
       setNotFound(true);
@@ -408,13 +419,19 @@ export default function OtherUserProfileScreen({ route, navigation }) {
           </View>
 
           {activeTab === 'Uploads' && (
-            <UploadsGrid posts={uploads} loading={uploadsLoading} onPressPost={handlePostTap} />
+            <UploadsGrid
+              posts={uploads}
+              loading={uploadsLoading}
+              onPressPost={handlePostTap}
+              shotOfWeekIds={shotOfWeekIds}
+            />
           )}
           {activeTab === 'Tagged Posts' && (
             <UploadsGrid
               posts={taggedPosts}
               loading={taggedPostsLoading}
               onPressPost={handleTaggedPostTap}
+              shotOfWeekIds={shotOfWeekIds}
               emptyMessage="No tagged posts yet."
             />
           )}
@@ -719,6 +736,15 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 10,
     fontWeight: '700',
+  },
+  uploadTrophyBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 4,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
   },
   uploadPlayBadge: {
     position: 'absolute',

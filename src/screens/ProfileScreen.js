@@ -32,6 +32,7 @@ import { uploadAvatar } from '../services/profiles';
 import { getCourseRankings, addCourseRanking, updateCourseRanking } from '../services/courseRankings';
 import { getMyCourses, addSearchedCourse, addManualCourse, removeMyCourse } from '../services/myCourses';
 import { getUserPosts, updatePostCaption, deletePost } from '../services/posts';
+import { getShotOfWeekPostIds } from '../services/shotOfWeek';
 import { getFollowerCount, getFollowingCount } from '../services/social';
 import { deleteAccount } from '../services/auth';
 import { friendlyAuthError } from '../services/authErrors';
@@ -139,12 +140,14 @@ function CoursesPlayedList({ courses, rankings, loading, editMode, onToggleEdit,
 }
 
 // Also renders the Tagged Posts tab, with its own `emptyMessage` and no
-// long-press delete (those are other people's posts).
+// long-press delete (those are other people's posts). Posts in
+// `shotOfWeekIds` get a trophy badge.
 function UploadsGrid({
   posts,
   loading,
   onPressPost,
   onLongPressPost,
+  shotOfWeekIds,
   emptyMessage = 'No posts yet — share your first hole to see it here.',
 }) {
   if (loading) {
@@ -185,6 +188,11 @@ function UploadsGrid({
             <Ionicons name="heart" size={10} color={colors.white} />
             <Text style={styles.uploadLikesText}>{item.likes || 0}</Text>
           </View>
+          {shotOfWeekIds?.has(item.id) && (
+            <View style={styles.uploadTrophyBadge}>
+              <Text style={{ fontSize: 10 }}>🏆</Text>
+            </View>
+          )}
         </TouchableOpacity>
       )}
     />
@@ -224,6 +232,7 @@ export default function ProfileScreen({ navigation }) {
   const [editingRanking, setEditingRanking] = useState(null);
   const [uploadPosts, setUploadPosts] = useState([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
+  const [shotOfWeekIds, setShotOfWeekIds] = useState(new Set());
   const { posts: taggedPosts, loading: taggedPostsLoading } = useTaggedPosts(user?.id, activeTab === 'Tagged Posts');
   const [myCourses, setMyCourses] = useState([]);
   const [myCoursesLoading, setMyCoursesLoading] = useState(true);
@@ -555,6 +564,10 @@ export default function ProfileScreen({ navigation }) {
   const loadUploads = useCallback(async () => {
     if (!user?.id) return;
     setUploadsLoading(true);
+    // Separate from the posts fetch so a failure only costs the trophies.
+    getShotOfWeekPostIds()
+      .then(setShotOfWeekIds)
+      .catch((err) => console.error('Failed to load Shot of the Week posts:', err));
     try {
       setUploadPosts(await getUserPosts(user.id));
     } catch (err) {
@@ -830,6 +843,7 @@ export default function ProfileScreen({ navigation }) {
               posts={taggedPosts}
               loading={taggedPostsLoading}
               onPressPost={handleTaggedPostTap}
+              shotOfWeekIds={shotOfWeekIds}
               emptyMessage="No tagged posts yet."
             />
           )}
@@ -852,6 +866,7 @@ export default function ProfileScreen({ navigation }) {
               loading={uploadsLoading}
               onPressPost={handlePostTap}
               onLongPressPost={handleLongPressPost}
+              shotOfWeekIds={shotOfWeekIds}
             />
           )}
         </View>
@@ -1438,6 +1453,15 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 10,
     fontWeight: '700',
+  },
+  uploadTrophyBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 4,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
   },
   uploadPlayBadge: {
     position: 'absolute',

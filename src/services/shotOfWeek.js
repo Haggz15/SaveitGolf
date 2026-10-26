@@ -8,6 +8,16 @@ import { mapRow as mapPostRow } from './posts';
 // post that's since been deleted (FK is `on delete cascade`, so this can't
 // actually dangle, but a moderation-hidden post still counts) fails the
 // second query cleanly instead of a join silently coming back empty.
+// Every post that's ever been Shot of the Week — the profile grids' permanent
+// trophy badge.
+export async function getShotOfWeekPostIds() {
+  const { data, error } = await supabase
+    .from('shot_of_week')
+    .select('post_id');
+  if (error) throw error;
+  return new Set((data ?? []).map((r) => r.post_id));
+}
+
 export async function getCurrentShotOfWeek() {
   const { data: shotData, error: shotError } = await supabase
     .from('shot_of_week')
