@@ -422,7 +422,9 @@ export default function CourseDetailScreen({ route, navigation }) {
   }, [courseId, courseName]);
 
   const primaryTee = tees?.male?.[0] ?? tees?.female?.[0] ?? null;
-  const holesCount = primaryTee?.holes?.length ?? DEFAULT_HOLES_COUNT;
+  // A club with named nines (e.g. Scranton's Pines/Willows) can come back from
+  // the API as a single 9-hole routing — its main grid is still 18 holes.
+  const holesCount = clubNines.length > 0 ? 18 : (primaryTee?.holes?.length ?? DEFAULT_HOLES_COUNT);
 
   // Hole number/par/yardage shells — HoleByHoleGrid layers postCount onto
   // these per whichever subset of coursePosts it's given (see subCourseNames
