@@ -169,16 +169,25 @@ export async function searchCourses(query) {
 // "vd09jtqh"), not the first one returned: the API's ordering
 // changes with the search text ("scranton" vs "country club of scranton"), and
 // keeping whichever came first would split one club across several ids again.
-// Also drops routing-only entries (see isRoutingOnlyName). Kept separate from
-// searchCourses because getClubNines needs the siblings.
+// A club with several real courses (Philadelphia Cricket Club: Militia Hill,
+// Wissahickon, St. Martins) still gets one row, but the canonical entry is
+// one with a meaningful course_name over a routing-only one ("Pines/Willows")
+// — lowest id among those. Also drops routing-only entries (see
+// isRoutingOnlyName). Kept separate from searchCourses because getClubNines
+// needs the siblings.
 export function dedupeCourseResults(results) {
   console.log('RAW results for query:', results.map(r => r.name + ' | ' + r.city));
+  const hasMeaningfulLayout = (course) => !!course.layoutName?.trim() && !isRoutingOnlyName(course.layoutName);
   const groups = new Map();
   for (const course of results) {
     if (isRoutingOnlyName(course.name)) continue;
     const key = `${course.name?.toLowerCase().trim()}|${course.city?.toLowerCase().trim()}`;
     const current = groups.get(key);
-    if (!current || course.id < current.id) groups.set(key, course);
+    const preferred =
+      !current ||
+      (hasMeaningfulLayout(course) && !hasMeaningfulLayout(current)) ||
+      (hasMeaningfulLayout(course) === hasMeaningfulLayout(current) && course.id < current.id);
+    if (preferred) groups.set(key, course);
   }
   const deduped = Array.from(groups.values());
   console.log('DEDUPED results:', deduped.map(r => r.name + ' | ' + r.city));
