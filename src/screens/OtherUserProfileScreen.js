@@ -793,10 +793,6 @@ const styles = StyleSheet.create({
     left: 4,
     zIndex: 2,
     elevation: 2,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderRadius: 4,
-    paddingHorizontal: 3,
-    paddingVertical: 1,
   },
   uploadTrophyText: {
     fontSize: 13,

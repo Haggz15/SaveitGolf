@@ -699,10 +699,15 @@ begin
   order by (likes_count + comments_count + shares_count) desc, created_at desc
   limit 1;
 
+  -- Insert-only: every week's winner is kept forever (the profile trophy
+  -- badge reads all rows; the Feed reads the newest by created_at). If the
+  -- job re-runs for a week that already has a winner, leave it untouched
+  -- rather than overwriting it — that would strip the trophy from the
+  -- original winner.
   if winner_post_id is not null then
     insert into public.shot_of_week (post_id, week_start)
     values (winner_post_id, winner_week_start)
-    on conflict (week_start) do update set post_id = excluded.post_id;
+    on conflict (week_start) do nothing;
   end if;
 end;
 $$ language plpgsql security definer;
