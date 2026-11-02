@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Platform, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
-import * as Updates from 'expo-updates';
 import { useFonts, DancingScript_700Bold } from '@expo-google-fonts/dancing-script';
 import { BarlowCondensed_700Bold, BarlowCondensed_800ExtraBold } from '@expo-google-fonts/barlow-condensed';
 import { Courgette_400Regular } from '@expo-google-fonts/courgette';
@@ -15,16 +14,12 @@ import RootNavigator from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
 import { NotificationsProvider } from './src/context/NotificationsContext';
 import ErrorBoundary from './src/components/ErrorBoundary';
-import ForceUpdateModal from './src/components/ForceUpdateModal';
 import colors from './src/theme/colors';
-import { getAppStoreUpdate, getStoreUpdate } from './src/services/appVersion';
 import { version as appVersion } from './package.json';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function App() {
-  const [forceUpdateUrl, setForceUpdateUrl] = useState(null);
-
   useEffect(() => {
     if (Platform.OS === 'web') {
       const lastVersion = localStorage.getItem('appVersion');
@@ -35,75 +30,7 @@ export default function App() {
           window.location.reload();
         }
       }
-      return;
     }
-
-    // A new store build (native changes) takes priority over an OTA update,
-    // since OTA updates only target the currently installed runtime version.
-    const checkForUpdates = async () => {
-      if (__DEV__) return;
-
-      // iOS: prompt (optionally) when a newer App Store release is out.
-      // getAppStoreUpdate only returns a result when the App Store version is
-      // strictly newer than the installed one, so a build that matches or is
-      // ahead of the store (e.g. a TestFlight build of the next release) never
-      // sees the modal.
-      if (Platform.OS === 'ios') {
-        try {
-          const appStoreUpdate = await getAppStoreUpdate();
-          if (appStoreUpdate) {
-            setForceUpdateUrl(appStoreUpdate.storeUrl);
-            return;
-          }
-        } catch (err) {
-          console.log('App Store version check error:', err);
-        }
-      }
-
-      try {
-        const storeUpdate = Platform.OS === 'ios' ? null : await getStoreUpdate();
-        if (storeUpdate) {
-          Alert.alert(
-            'Update Available',
-            `SaveitGolf ${storeUpdate.latestVersion} is available with bug fixes and improvements.`,
-            [
-              { text: 'Later', style: 'cancel' },
-              { text: 'Update Now', onPress: () => Linking.openURL(storeUpdate.storeUrl) },
-            ]
-          );
-          return;
-        }
-      } catch (err) {
-        console.log('Store version check error:', err);
-      }
-
-      try {
-        const update = await Updates.checkForUpdateAsync();
-        if (update.isAvailable) {
-          Alert.alert(
-            '🏌️ Update Available',
-            'A new version of SaveitGolf is available with bug fixes and improvements.',
-            [
-              { text: 'Later', style: 'cancel' },
-              {
-                text: 'Update Now',
-                onPress: async () => {
-                  try {
-                    await Updates.fetchUpdateAsync();
-                    await Updates.reloadAsync();
-                  } catch (err) {
-                    console.log('Update fetch error:', err);
-                  }
-                },
-              },
-            ]
-          );
-        }
-      } catch (err) {
-        console.log('Update check error:', err);
-      }
-    };
-    checkForUpdates();
   }, []);
 
   const [fontsLoaded] = useFonts({
@@ -137,10 +64,6 @@ export default function App() {
               <RootNavigator />
             </NotificationsProvider>
           </AuthProvider>
-          <ForceUpdateModal
-            storeUrl={forceUpdateUrl}
-            onDismiss={() => setForceUpdateUrl(null)}
-          />
         </View>
       </SafeAreaProvider>
     </ErrorBoundary>
