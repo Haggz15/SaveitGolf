@@ -1,30 +1,27 @@
 import { Linking, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import colors from '../theme/colors';
 
-// Blocks the whole app until the user updates: no backdrop tap, and the
-// Android back button is swallowed by the no-op onRequestClose. When
-// `onDismiss` is passed (non-production builds), a "Maybe Later" button is
-// shown so testers aren't locked out.
+// Tells the user a newer App Store version is available. It's optional:
+// "Maybe Later" (or the Android back button) dismisses it and the user
+// carries on into the app.
 export default function ForceUpdateModal({ storeUrl, onDismiss }) {
   const openStore = () => {
     Linking.openURL(storeUrl).catch((err) => console.log('Open App Store error:', err));
   };
 
   return (
-    <Modal visible={!!storeUrl} transparent animationType="fade" onRequestClose={() => {}}>
+    <Modal visible={!!storeUrl} transparent animationType="fade" onRequestClose={onDismiss}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
           <Text style={styles.message}>
-            A new update is available. Please update SaveitGolf to continue.
+            A new version of SaveitGolf is available. Update now to get the latest features and fixes.
           </Text>
           <TouchableOpacity style={styles.button} onPress={openStore} activeOpacity={0.8}>
             <Text style={styles.buttonText}>Update Now</Text>
           </TouchableOpacity>
-          {onDismiss ? (
-            <TouchableOpacity style={styles.dismissButton} onPress={onDismiss} activeOpacity={0.7}>
-              <Text style={styles.dismissText}>Maybe Later</Text>
-            </TouchableOpacity>
-          ) : null}
+          <TouchableOpacity style={styles.dismissButton} onPress={onDismiss} activeOpacity={0.7}>
+            <Text style={styles.dismissText}>Maybe Later</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </Modal>

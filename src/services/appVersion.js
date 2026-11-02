@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as Application from 'expo-application';
+import * as Updates from 'expo-updates';
 import { supabase } from './supabase';
 
 const APP_STORE_LOOKUP_URL = 'https://itunes.apple.com/lookup?bundleId=com.saveitgolf.app';
@@ -39,6 +40,9 @@ export async function getStoreUpdate() {
 // Asks the App Store for the live version of this app. Resolves to
 // { latestVersion, storeUrl } when the running build is older, otherwise null.
 export async function getAppStoreUpdate() {
+  // Don't block TestFlight or dev builds
+  if (__DEV__ || Updates.channel !== 'production') return null;
+
   const currentVersion = Application.nativeApplicationVersion;
   if (!currentVersion || Platform.OS !== 'ios') return null;
 

@@ -24,9 +24,6 @@ SplashScreen.preventAutoHideAsync();
 
 export default function App() {
   const [forceUpdateUrl, setForceUpdateUrl] = useState(null);
-  // Only builds on the production channel are hard-blocked; preview/dev
-  // builds get a "Maybe Later" button so testers can keep using the app.
-  const canDismissForceUpdate = Updates.channel !== 'production';
 
   useEffect(() => {
     if (Platform.OS === 'web') {
@@ -46,7 +43,7 @@ export default function App() {
     const checkForUpdates = async () => {
       if (__DEV__) return;
 
-      // iOS: a newer App Store release is mandatory — block the app until updated.
+      // iOS: prompt (optionally) when a newer App Store release is out.
       // getAppStoreUpdate only returns a result when the App Store version is
       // strictly newer than the installed one, so a build that matches or is
       // ahead of the store (e.g. a TestFlight build of the next release) never
@@ -142,7 +139,7 @@ export default function App() {
           </AuthProvider>
           <ForceUpdateModal
             storeUrl={forceUpdateUrl}
-            onDismiss={canDismissForceUpdate ? () => setForceUpdateUrl(null) : undefined}
+            onDismiss={() => setForceUpdateUrl(null)}
           />
         </View>
       </SafeAreaProvider>
