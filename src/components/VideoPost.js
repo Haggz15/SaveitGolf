@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
@@ -11,6 +11,8 @@ import colors from '../theme/colors';
 // Tap-to-pause is handled by the parent slide (VideoView absorbs touches, so
 // a touchable in here never fires): it owns `userPaused` and calls
 // `onTap.current`, which this component sets to its icon-flash animation.
+const PLAYBACK_RATES = [0.5, 1, 2];
+
 export default function VideoPost({ source, isActive, muted, setMuted, userPaused = false, onTap }) {
   const player = useVideoPlayer(source, (p) => {
     p.loop = true;
@@ -66,6 +68,17 @@ export default function VideoPost({ source, isActive, muted, setMuted, userPause
     player.muted = muted;
   }, [muted, player]);
 
+  // expo-video has no `rate` prop on VideoView; speed is set on the player.
+  const [playbackRate, setPlaybackRate] = useState(1);
+  useEffect(() => {
+    player.playbackRate = playbackRate;
+  }, [playbackRate, player]);
+
+  const cyclePlaybackRate = () => {
+    const next = PLAYBACK_RATES[(PLAYBACK_RATES.indexOf(playbackRate) + 1) % PLAYBACK_RATES.length];
+    setPlaybackRate(next);
+  };
+
   return (
     <>
       <VideoView
@@ -89,6 +102,16 @@ export default function VideoPost({ source, isActive, muted, setMuted, userPause
       >
         <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={14} color={colors.white} />
       </TouchableOpacity>
+      {isActive && !userPaused && (
+        <TouchableOpacity
+          style={styles.speedButton}
+          onPress={cyclePlaybackRate}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          activeOpacity={0.75}
+        >
+          <Text style={styles.speedButtonText}>{playbackRate}x</Text>
+        </TouchableOpacity>
+      )}
     </>
   );
 }
@@ -120,5 +143,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(6, 14, 26, 0.6)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Sits in the strip below the feed's caption block (leftInfo, bottom: 45)
+  // and above the bottom gradient so it isn't dimmed.
+  speedButton: {
+    position: 'absolute',
+    bottom: 12,
+    left: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: 'rgba(6, 14, 26, 0.6)',
+    zIndex: 6,
+  },
+  speedButtonText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '700',
   },
 });
