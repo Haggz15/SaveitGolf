@@ -13,10 +13,16 @@ import colors from '../theme/colors';
 // `onTap.current`, which this component sets to its icon-flash animation.
 // Hold-to-2x works the same way: the slide owns the long-press and passes the
 // resulting `playbackRate` down.
-export default function VideoPost({ source, isActive, muted, setMuted, userPaused = false, onTap, playbackRate = 1 }) {
+export default function VideoPost({ source, isActive, muted = true, setMuted, userPaused = false, onTap, playbackRate = 1 }) {
+  // Only the active (visible, focused) post may ever make sound. Every other
+  // mounted video is forced muted regardless of the feed-wide sound toggle,
+  // so a neighbouring slide can't leak audio before the user swipes to it.
+  const effectiveMuted = !isActive || muted;
+  const paused = !isActive || userPaused;
+
   const player = useVideoPlayer(source, (p) => {
     p.loop = true;
-    p.muted = muted;
+    p.muted = true; // always start silent; the effect below unmutes if allowed
   });
 
   useEffect(() => {
@@ -56,17 +62,17 @@ export default function VideoPost({ source, isActive, muted, setMuted, userPause
 
   // Only the currently visible post should play. This keeps every other
   // mounted video paused so it isn't buffering or decoding in the background.
+  // Mute is applied before play so an activating video never emits a frame
+  // of audio with a stale muted state, and before pause so a deactivating one
+  // goes silent immediately.
   useEffect(() => {
-    if (isActive && !userPaused) {
-      player.play();
-    } else {
+    player.muted = effectiveMuted;
+    if (paused) {
       player.pause();
+    } else {
+      player.play();
     }
-  }, [isActive, userPaused, player]);
-
-  useEffect(() => {
-    player.muted = muted;
-  }, [muted, player]);
+  }, [paused, effectiveMuted, player]);
 
   // expo-video has no `rate` prop on VideoView; speed is set on the player.
   useEffect(() => {

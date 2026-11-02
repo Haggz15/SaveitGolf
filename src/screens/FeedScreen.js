@@ -444,8 +444,9 @@ export default function FeedScreen({ navigation, route }) {
   const [refreshing, setRefreshing] = useState(false);
   const [activePostId, setActivePostId] = useState(null);
   // Shared across every video in the feed (not per-post) so toggling sound
-  // on one post carries over as the user scrolls to the next.
-  const [isMuted, setIsMuted] = useState(false);
+  // on one post carries over as the user scrolls to the next. Starts muted;
+  // sound only comes on when the user taps the speaker button.
+  const [isMuted, setIsMuted] = useState(true);
   const [userSearchVisible, setUserSearchVisible] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [commentPost, setCommentPost] = useState(null);
@@ -926,10 +927,19 @@ export default function FeedScreen({ navigation, route }) {
     return [{ ...shotOfWeek, isShotOfWeek: true }, ...posts.filter((p) => p.id !== shotOfWeek.id)];
   }, [posts, shotOfWeek]);
 
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
+  // A slide only becomes active once it's (nearly) fully on screen. At the
+  // old 60% threshold the next video started playing mid-swipe, before the
+  // user had actually landed on it. Slides are full-height and paged, so at
+  // most one item can clear 90% at a time; while none does (mid-swipe), the
+  // previous slide stays active rather than jumping ahead.
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 90,
+    minimumViewTime: 100,
+  }).current;
   const onViewableItemsChanged = useRef(({ viewableItems }) => {
-    if (viewableItems.length > 0) {
-      setActivePostId(viewableItems[0].item.id);
+    const visible = viewableItems.find((v) => v.isViewable);
+    if (visible) {
+      setActivePostId(visible.item.id);
     }
   }).current;
 
