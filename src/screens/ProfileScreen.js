@@ -29,7 +29,7 @@ import FollowListModal from '../components/profile/FollowListModal';
 import CourseActionSheet from '../components/profile/CourseActionSheet';
 import { navigateToCourseOnMap, navigateToCourseDetail } from '../utils/courseNavigation';
 import { uploadAvatar } from '../services/profiles';
-import { getCourseRankings, addCourseRanking, updateCourseRanking } from '../services/courseRankings';
+import { getCourseRankings, addCourseRanking, updateCourseRanking, findRankingForCourse } from '../services/courseRankings';
 import { getMyCourses, addSearchedCourse, addManualCourse, removeMyCourse } from '../services/myCourses';
 import { getUserPosts, updatePostCaption, deletePost } from '../services/posts';
 import { getShotOfWeekPostIds } from '../services/shotOfWeek';
@@ -41,18 +41,6 @@ import { formatHandicap } from '../utils/handicap';
 import { useTaggedPosts } from '../hooks/useTaggedPosts';
 
 const TABS = ['Uploads', 'Courses Played', 'Tagged Posts'];
-
-// The Course Rankings row for a Courses Played course: matched by course_id
-// when both have one, else by name ignoring case (addUnrankedCourseRanking
-// keys rankings by course_name).
-function findRankingForCourse(rankings, course) {
-  const name = course.courseName?.trim().toLowerCase();
-  return (
-    (course.courseId && rankings.find((r) => r.courseId === course.courseId)) ||
-    rankings.find((r) => r.courseName?.trim().toLowerCase() === name) ||
-    null
-  );
-}
 
 function CoursesPlayedList({ courses, rankings, loading, editMode, onToggleEdit, onAdd, onRemove, onRate, onPressCourse }) {
   // Ranked courses first, highest rating first and numbered like Course
@@ -170,6 +158,10 @@ function UploadsGrid({
       // virtualization was buying nothing anyway.
       initialNumToRender={posts.length}
       columnWrapperStyle={styles.uploadRow}
+      // renderItem reads shotOfWeekIds, which usually arrives after the
+      // posts — without extraData the already-rendered cells never re-render
+      // to pick the trophies up.
+      extraData={shotOfWeekIds}
       renderItem={({ item, index }) => (
         <TouchableOpacity
           style={styles.uploadTile}
@@ -188,9 +180,9 @@ function UploadsGrid({
             <Ionicons name="heart" size={10} color={colors.white} />
             <Text style={styles.uploadLikesText}>{item.likes || 0}</Text>
           </View>
-          {shotOfWeekIds?.has(item.id) && (
-            <View style={styles.uploadTrophyBadge}>
-              <Text style={{ fontSize: 10 }}>🏆</Text>
+          {shotOfWeekIds?.has(String(item.id)) && (
+            <View style={styles.uploadTrophyBadge} pointerEvents="none">
+              <Text style={styles.uploadTrophyText}>🏆</Text>
             </View>
           )}
         </TouchableOpacity>
@@ -597,6 +589,9 @@ export default function ProfileScreen({ navigation }) {
       getCourseRankings(user.id)
         .then(setRankings)
         .catch((err) => console.error('Failed to refresh course rankings:', err));
+      getShotOfWeekPostIds()
+        .then(setShotOfWeekIds)
+        .catch((err) => console.error('Failed to refresh Shot of the Week posts:', err));
     }, [user?.id])
   );
 
@@ -1458,10 +1453,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     left: 4,
+    zIndex: 2,
+    elevation: 2,
     backgroundColor: 'rgba(0,0,0,0.45)',
     borderRadius: 4,
     paddingHorizontal: 3,
     paddingVertical: 1,
+  },
+  uploadTrophyText: {
+    fontSize: 13,
+    lineHeight: 16,
   },
   uploadPlayBadge: {
     position: 'absolute',

@@ -31,7 +31,7 @@ function resolveWebAssetUri(source) {
 // `muted`/`setMuted` are lifted to the feed screen (see FeedScreen.js's
 // isMuted state) so toggling sound on one post applies to every other video
 // in the feed, not just this one.
-export default function VideoPost({ source, mobileSource, isActive, muted, setMuted }) {
+export default function VideoPost({ source, mobileSource, isActive, muted, setMuted, playbackRate = 1 }) {
   const videoRef = useRef(null);
   const asset = isMobileDevice() && mobileSource ? mobileSource : source;
   const uri = resolveWebAssetUri(asset);
@@ -73,6 +73,10 @@ export default function VideoPost({ source, mobileSource, isActive, muted, setMu
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = muted;
   }, [muted]);
+
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = playbackRate;
+  }, [playbackRate, uri]);
 
   return (
     <>

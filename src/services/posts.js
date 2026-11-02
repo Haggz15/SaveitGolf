@@ -232,6 +232,18 @@ const POST_CARD_COLUMNS =
 // Not paginated on purpose: the profile uploads grid renders every tile, its
 // Posts stat is this list's length, and PostScreen tallies most-posted
 // courses from it.
+// One post with its author joined — for opening a notification's post when
+// it isn't in the currently loaded feed.
+export async function getPostById(postId) {
+  const { data, error } = await supabase
+    .from('posts')
+    .select('*, profiles!posts_user_id_profiles_fkey(username, full_name, avatar_url)')
+    .eq('id', postId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? mapRow(data) : null;
+}
+
 export async function getUserPosts(userId) {
   const { data, error } = await supabase
     .from('posts')

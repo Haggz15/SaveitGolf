@@ -15,7 +15,12 @@ export async function getShotOfWeekPostIds() {
     .from('shot_of_week')
     .select('post_id');
   if (error) throw error;
-  return new Set((data ?? []).map((r) => r.post_id));
+  // Stringified so .has(post.id) matches regardless of how the post id came
+  // back (and an empty result is logged — the usual reason no trophies show
+  // is that calculate_shot_of_week() has never written a row).
+  const ids = new Set((data ?? []).map((r) => String(r.post_id)));
+  console.log('[shotOfWeek] trophy post ids loaded:', ids.size);
+  return ids;
 }
 
 export async function getCurrentShotOfWeek() {

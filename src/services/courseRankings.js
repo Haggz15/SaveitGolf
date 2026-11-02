@@ -11,6 +11,27 @@ function mapRow(row) {
   };
 }
 
+// The Course Rankings row for a Courses Played course: matched by course_id
+// when both have one, else by name ignoring case (addUnrankedCourseRanking
+// keys rankings by course_name).
+export function findRankingForCourse(rankings, course) {
+  const name = course.courseName?.trim().toLowerCase();
+  return (
+    (course.courseId && rankings.find((r) => r.courseId === course.courseId)) ||
+    rankings.find((r) => r.courseName?.trim().toLowerCase() === name) ||
+    null
+  );
+}
+
+// Courses Played entries with their ranking merged in as `ranking` (the
+// course_rankings row or null) and `rating` (number or null).
+export function mergeRankingsIntoCourses(courses, rankings) {
+  return (courses ?? []).map((course) => {
+    const ranking = findRankingForCourse(rankings ?? [], course);
+    return { ...course, ranking, rating: ranking?.rating ?? null };
+  });
+}
+
 export async function getCourseRankings(userId) {
   const { data, error } = await supabase
     .from('course_rankings')

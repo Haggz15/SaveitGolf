@@ -15,6 +15,7 @@ import {
 import { getUserPosts, getPostsCount } from '../services/posts';
 import { getShotOfWeekPostIds } from '../services/shotOfWeek';
 import { getMyCourses } from '../services/myCourses';
+import { getCourseRankings, mergeRankingsIntoCourses } from '../services/courseRankings';
 import CourseActionSheet from '../components/profile/CourseActionSheet';
 import FollowListModal from '../components/profile/FollowListModal';
 import { navigateToCourseOnMap, navigateToCourseDetail } from '../utils/courseNavigation';
@@ -37,6 +38,9 @@ function getInitials(fullName) {
     .toUpperCase();
 }
 
+// `courses` carry a merged `rating` (see mergeRankingsIntoCourses). Ranked
+// courses come first, highest rating first and numbered; unranked ones
+// follow in their my_courses order. Read-only — only the owner can rate.
 function CoursesPlayedList({ courses, loading, onPressCourse }) {
   if (loading) {
     return <ActivityIndicator color={colors.red} style={{ marginTop: 24 }} />;
@@ -44,29 +48,41 @@ function CoursesPlayedList({ courses, loading, onPressCourse }) {
   if (courses.length === 0) {
     return <Text style={styles.emptyText}>No courses played yet.</Text>;
   }
+  const ranked = courses.filter((c) => c.rating != null).sort((a, b) => b.rating - a.rating);
+  const unranked = courses.filter((c) => c.rating == null);
   return (
     <View>
-      {courses.map((item) => (
-        <TouchableOpacity
-          key={item.id}
-          style={styles.listRow}
-          onPress={() => onPressCourse(item)}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="flag-outline" size={18} color={colors.red} style={{ marginRight: 12 }} />
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={styles.listRowTitle}>{item.courseName}</Text>
-              {!hasValidCoordinates(item.latitude, item.longitude) && (
-                <Text style={styles.notOnMapAsterisk}>*</Text>
-              )}
+      {[...ranked, ...unranked].map((item, index) => {
+        const isRanked = item.rating != null;
+        return (
+          <TouchableOpacity
+            key={item.id}
+            style={styles.listRow}
+            onPress={() => onPressCourse(item)}
+            activeOpacity={0.8}
+          >
+            {isRanked ? (
+              <View style={styles.rankBadge}>
+                <Text style={styles.rankBadgeText}>{index + 1}</Text>
+              </View>
+            ) : (
+              <Ionicons name="flag-outline" size={18} color={colors.red} style={{ marginRight: 12 }} />
+            )}
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.listRowTitle}>{item.courseName}</Text>
+                {!hasValidCoordinates(item.latitude, item.longitude) && (
+                  <Text style={styles.notOnMapAsterisk}>*</Text>
+                )}
+              </View>
+              <Text style={styles.listRowSubtitle}>
+                {[item.city, item.state].filter(Boolean).join(', ') || 'Location unknown'}
+              </Text>
             </View>
-            <Text style={styles.listRowSubtitle}>
-              {[item.city, item.state].filter(Boolean).join(', ') || 'Location unknown'}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      ))}
+            {isRanked && <Text style={styles.listRowRating}>{item.rating.toFixed(1)}</Text>}
+          </TouchableOpacity>
+        );
+      })}
       {courses.some((item) => !hasValidCoordinates(item.latitude, item.longitude)) && (
         <Text style={styles.notOnMapNote}>* Course location not yet available on map</Text>
       )}
@@ -93,6 +109,10 @@ function UploadsGrid({ posts, loading, onPressPost, shotOfWeekIds, emptyMessage 
       // ProfileScreen's identical UploadsGrid for why this is needed.
       initialNumToRender={posts.length}
       columnWrapperStyle={styles.uploadRow}
+      // renderItem reads shotOfWeekIds, which usually arrives after the
+      // posts — without extraData the already-rendered cells never re-render
+      // to pick the trophies up.
+      extraData={shotOfWeekIds}
       renderItem={({ item, index }) => (
         <TouchableOpacity
           style={styles.uploadTile}
@@ -109,9 +129,9 @@ function UploadsGrid({ posts, loading, onPressPost, shotOfWeekIds, emptyMessage 
             <Ionicons name="heart" size={10} color={colors.white} />
             <Text style={styles.uploadLikesText}>{item.likes || 0}</Text>
           </View>
-          {shotOfWeekIds?.has(item.id) && (
-            <View style={styles.uploadTrophyBadge}>
-              <Text style={{ fontSize: 10 }}>🏆</Text>
+          {shotOfWeekIds?.has(String(item.id)) && (
+            <View style={styles.uploadTrophyBadge} pointerEvents="none">
+              <Text style={styles.uploadTrophyText}>🏆</Text>
             </View>
           )}
         </TouchableOpacity>
@@ -171,10 +191,18 @@ export default function OtherUserProfileScreen({ route, navigation }) {
 
       setCoursesPlayedLoading(true);
       console.log('Loading courses played for profile user:', row.user_id);
-      getMyCourses(row.user_id)
-        .then((courses) => {
-          console.log('Courses played found:', courses?.length);
-          setCoursesPlayed(courses);
+      // Rankings are best-effort: a failure there still shows the courses,
+      // just without scores.
+      Promise.all([
+        getMyCourses(row.user_id),
+        getCourseRankings(row.user_id).catch((err) => {
+          console.error('Failed to load course rankings:', err);
+          return [];
+        }),
+      ])
+        .then(([courses, rankings]) => {
+          console.log('Courses played found:', courses?.length, 'rankings:', rankings.length);
+          setCoursesPlayed(mergeRankingsIntoCourses(courses, rankings));
         })
         .catch((err) => console.error('Failed to load courses played:', err))
         .finally(() => setCoursesPlayedLoading(false));
@@ -688,6 +716,28 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flex: 1,
   },
+  rankBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.navy,
+    borderWidth: 1,
+    borderColor: colors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  rankBadgeText: {
+    color: colors.gold,
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  listRowRating: {
+    color: colors.gold,
+    fontWeight: '700',
+    fontSize: 14,
+    marginLeft: 10,
+  },
   listRowSubtitle: {
     color: colors.muted,
     fontSize: 12,
@@ -741,10 +791,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     left: 4,
+    zIndex: 2,
+    elevation: 2,
     backgroundColor: 'rgba(0,0,0,0.45)',
     borderRadius: 4,
     paddingHorizontal: 3,
     paddingVertical: 1,
+  },
+  uploadTrophyText: {
+    fontSize: 13,
+    lineHeight: 16,
   },
   uploadPlayBadge: {
     position: 'absolute',

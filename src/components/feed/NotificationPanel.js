@@ -132,32 +132,40 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
               keyExtractor={(item) => item.id}
               contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
               renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.row, !item.read && styles.rowUnread]}
-                  onPress={() => handlePressNotification(item)}
-                  activeOpacity={0.75}
-                >
-                  <View>
+                <View style={[styles.row, !item.read && styles.rowUnread]}>
+                  {/* Avatar (and the username inside the text) go to the
+                      actor's profile; the rest of the row goes to the post. */}
+                  <TouchableOpacity
+                    onPress={() => handlePressActor(item)}
+                    activeOpacity={0.75}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  >
                     <NotificationAvatar avatarUrl={item.actorAvatarUrl} name={item.actorFullName || item.actorUsername} />
                     {item.type === 'save' && (
                       <View style={styles.typeBadge}>
                         <Ionicons name="bookmark" size={10} color={colors.white} />
                       </View>
                     )}
-                  </View>
-                  <View style={styles.rowBody}>
-                    <Text style={styles.rowText} numberOfLines={3}>
-                      <Text style={styles.rowUsername} onPress={() => handlePressActor(item)} suppressHighlighting>
-                        {item.actorUsername}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.rowPressArea}
+                    onPress={() => handlePressNotification(item)}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.rowBody}>
+                      <Text style={styles.rowText} numberOfLines={3}>
+                        <Text style={styles.rowUsername} onPress={() => handlePressActor(item)} suppressHighlighting>
+                          {item.actorUsername}
+                        </Text>
+                        <Text style={styles.rowMessage}> {item.actionText}</Text>
                       </Text>
-                      <Text style={styles.rowMessage}> {item.actionText}</Text>
-                    </Text>
-                  </View>
-                  <View style={styles.rowRight}>
-                    <Text style={styles.rowTime}>{item.timeAgo}</Text>
-                    {item.thumbnailUrl && <Image source={{ uri: item.thumbnailUrl }} style={styles.rowThumbnail} />}
-                  </View>
-                </TouchableOpacity>
+                    </View>
+                    <View style={styles.rowRight}>
+                      <Text style={styles.rowTime}>{item.timeAgo}</Text>
+                      {item.thumbnailUrl && <Image source={{ uri: item.thumbnailUrl }} style={styles.rowThumbnail} />}
+                    </View>
+                  </TouchableOpacity>
+                </View>
               )}
             />
           )}
@@ -259,6 +267,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  rowPressArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'stretch',
   },
   rowBody: {
     flex: 1,

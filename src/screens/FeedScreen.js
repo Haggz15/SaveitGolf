@@ -33,7 +33,7 @@ import {
 } from '../theme/layout';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
-import { getFeedPosts, getCourseFeedPosts, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
+import { getFeedPosts, getCourseFeedPosts, getPostById, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
 import { getFollowingIds } from '../services/social';
 import { likePost, unlikePost, getLikedPostIds } from '../services/likes';
 import { createNotification } from '../services/notifications';
@@ -78,6 +78,11 @@ function PostSlide({
   const [userPaused, setUserPaused] = useState(false);
   const videoTapFeedback = useRef(null);
   const isVideo = post.isVideo ?? Boolean(post.video);
+  // Hold-to-2x: a long press on the left or right third of a video doubles
+  // its speed until the finger lifts. The middle third is left alone so a
+  // hold there doesn't fight with reading the caption / reaching buttons.
+  const [holdSpeed, setHoldSpeed] = useState(false);
+  const { width: screenWidth } = useWindowDimensions();
 
   useEffect(() => () => clearTimeout(savedFlashTimer.current), []);
 
@@ -96,6 +101,23 @@ function PostSlide({
     setUserPaused((prev) => !prev);
     if (videoTapFeedback.current) videoTapFeedback.current();
   }
+
+  function handleSlideLongPress(event) {
+    if (!isVideo) return;
+    const x = event?.nativeEvent?.pageX;
+    if (x == null) return;
+    if (x < screenWidth / 3 || x > (screenWidth * 2) / 3) setHoldSpeed(true);
+  }
+
+  function handleSlidePressOut() {
+    setHoldSpeed(false);
+  }
+
+  // Scrolling away mid-hold (the press can be cancelled without a clean
+  // press-out) shouldn't leave the next visit stuck at 2x.
+  useEffect(() => {
+    if (!isActive) setHoldSpeed(false);
+  }, [isActive]);
 
   // Every photo and video — own or someone else's — gets the same logo,
   // @author, hole/course and SaveitGolf wordmark (see PostWatermarkCapture).
@@ -213,7 +235,12 @@ function PostSlide({
   }
 
   return (
-    <TouchableWithoutFeedback onPress={handleSlideTap}>
+    <TouchableWithoutFeedback
+      onPress={handleSlideTap}
+      onLongPress={handleSlideLongPress}
+      delayLongPress={300}
+      onPressOut={handleSlidePressOut}
+    >
       <View style={[styles.slide, { height }]}>
         {isVideo ? (
           <VideoPost
@@ -224,6 +251,7 @@ function PostSlide({
             setMuted={setIsMuted}
             userPaused={userPaused}
             onTap={videoTapFeedback}
+            playbackRate={holdSpeed ? 2 : 1}
           />
         ) : (
           <Image
@@ -793,9 +821,9 @@ export default function FeedScreen({ navigation, route }) {
     navigation.navigate('UserProfile', { username: notification.actorUsername });
   };
 
-  // Notifications panel lives inside this screen, so a postId notification
-  // just has to scroll the already-mounted posts list — no cross-screen
-  // navigation needed. Only "follow" goes to a different screen.
+  // A postId notification scrolls the already-mounted posts list when the
+  // post is in it, else opens the post on its own (ProfileFeed). "follow"
+  // has no post, so it goes to the follower's profile.
   const handleNotificationPress = (notification) => {
     if (!notification.read) {
       decrementUnread(notification.type === 'follow');
@@ -810,7 +838,22 @@ export default function FeedScreen({ navigation, route }) {
     if (notification.postId) {
       const index = posts.findIndex((p) => p.id === notification.postId);
       if (index === -1) {
-        showToast("Couldn't find that post in your feed", 'error');
+        // Usually your own post (likes/comments/saves are on your uploads),
+        // which the Following feed doesn't include — fetch it and open it
+        // on its own in the ProfileFeed viewer instead.
+        setNotificationsVisible(false);
+        getPostById(notification.postId)
+          .then((post) => {
+            if (!post) {
+              showToast('That post is no longer available', 'error');
+              return;
+            }
+            navigation.navigate('ProfileFeed', { posts: [post], startIndex: 0, username: post.user });
+          })
+          .catch((err) => {
+            console.error('Failed to open notification post:', err);
+            showToast("Couldn't open that post", 'error');
+          });
         return;
       }
       setNotificationsVisible(false);
