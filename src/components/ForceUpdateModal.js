@@ -1,9 +1,11 @@
 import { Linking, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import colors from '../theme/colors';
 
-// Blocks the whole app until the user updates: no close button, no backdrop
-// tap, and the Android back button is swallowed by the no-op onRequestClose.
-export default function ForceUpdateModal({ storeUrl }) {
+// Blocks the whole app until the user updates: no backdrop tap, and the
+// Android back button is swallowed by the no-op onRequestClose. When
+// `onDismiss` is passed (non-production builds), a "Maybe Later" button is
+// shown so testers aren't locked out.
+export default function ForceUpdateModal({ storeUrl, onDismiss }) {
   const openStore = () => {
     Linking.openURL(storeUrl).catch((err) => console.log('Open App Store error:', err));
   };
@@ -18,6 +20,11 @@ export default function ForceUpdateModal({ storeUrl }) {
           <TouchableOpacity style={styles.button} onPress={openStore} activeOpacity={0.8}>
             <Text style={styles.buttonText}>Update Now</Text>
           </TouchableOpacity>
+          {onDismiss ? (
+            <TouchableOpacity style={styles.dismissButton} onPress={onDismiss} activeOpacity={0.7}>
+              <Text style={styles.dismissText}>Maybe Later</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -60,5 +67,17 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 16,
     fontWeight: '700',
+  },
+  dismissButton: {
+    alignSelf: 'stretch',
+    marginTop: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  dismissText: {
+    color: colors.white,
+    opacity: 0.7,
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
