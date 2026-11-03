@@ -12,7 +12,7 @@ module.exports = {
     name: 'SaveitGolf',
     slug: 'SaveitGolf',
     owner: 'saveitgolf',
-    version: '1.1.5',
+    version: '1.1.6',
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'dark',
@@ -27,7 +27,7 @@ module.exports = {
     runtimeVersion: '1.1.0',
     ios: {
       bundleIdentifier: 'com.saveitgolf.app',
-      buildNumber: '28',
+      buildNumber: '29',
       supportsTablet: true,
       config: {
         googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
