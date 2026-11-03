@@ -13,6 +13,7 @@ import {
   getFollowingCount,
 } from '../services/social';
 import { getUserPosts, getPostsCount } from '../services/posts';
+import { withLikedState } from '../services/likes';
 import { getShotOfWeekPostIds } from '../services/shotOfWeek';
 import { getMyCourses } from '../services/myCourses';
 import { getCourseRankings, mergeRankingsIntoCourses } from '../services/courseRankings';
@@ -23,6 +24,7 @@ import { hasValidCoordinates } from '../utils/mapCoords';
 import { formatHandicap } from '../utils/handicap';
 import UploadTileMedia from '../components/profile/UploadTileMedia';
 import { useTaggedPosts } from '../hooks/useTaggedPosts';
+import { useLikeSync } from '../utils/postLikeSync';
 
 const TABS = ['Uploads', 'Courses Played', 'Tagged Posts'];
 
@@ -155,6 +157,9 @@ export default function OtherUserProfileScreen({ route, navigation }) {
   const [coursesPlayed, setCoursesPlayed] = useState([]);
   const [coursesPlayedLoading, setCoursesPlayedLoading] = useState(true);
   const [uploads, setUploads] = useState([]);
+  // Likes made in ProfileFeed land here on the way back, so tile counts are
+  // right immediately without refetching (see utils/postLikeSync).
+  useLikeSync(setUploads);
   const [uploadsLoading, setUploadsLoading] = useState(true);
   const [shotOfWeekIds, setShotOfWeekIds] = useState(new Set());
   const [actionSheetCourse, setActionSheetCourse] = useState(null);
@@ -209,6 +214,7 @@ export default function OtherUserProfileScreen({ route, navigation }) {
 
       setUploadsLoading(true);
       getUserPosts(row.user_id)
+        .then((posts) => withLikedState(posts, currentUser?.id))
         .then(setUploads)
         .catch((err) => console.error('Failed to load uploads:', err))
         .finally(() => setUploadsLoading(false));

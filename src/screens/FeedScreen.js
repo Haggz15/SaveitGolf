@@ -35,7 +35,8 @@ import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { getFeedPosts, getCourseFeedPosts, getPostById, UNGROUPED_NINE, UNGROUPED_SUB_COURSE } from '../services/posts';
 import { getFollowingIds } from '../services/social';
-import { likePost, unlikePost, getLikedPostIds } from '../services/likes';
+import { likePost, unlikePost, getLikedPostIds, getPostLikeState } from '../services/likes';
+import { applyLikeUpdates, publishLikeChanges, subscribeLikeChanges } from '../utils/postLikeSync';
 import { createNotification } from '../services/notifications';
 import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
@@ -59,10 +60,21 @@ function PostSlide({
   onMorePress,
   onMentionPress,
   onToast,
+  onLikeChange,
   watermarkCaptureRef,
 }) {
   const [liked, setLiked] = useState(initiallyLiked);
   const [likeCount, setLikeCount] = useState(post.likes);
+  // useState only reads its argument on mount, but the parent's like state
+  // can land after that (ProfileFeed seats its posts before the liked ids
+  // come back) or be corrected later (the focus refresh from Supabase), so
+  // follow the props whenever they change.
+  useEffect(() => {
+    setLiked(initiallyLiked);
+  }, [initiallyLiked]);
+  useEffect(() => {
+    setLikeCount(post.likes);
+  }, [post.likes]);
   const [saved, setSaved] = useState(initiallySaved);
   const [saveCount, setSaveCount] = useState(post.saves ?? 0);
   // Whether a saved_posts row actually exists. `saved` can't tell us: it
@@ -137,8 +149,12 @@ function PostSlide({
   async function toggleLike() {
     if (!currentUserId) return;
     const next = !liked;
+    const nextCount = Math.max(0, likeCount + (next ? 1 : -1));
     setLiked(next);
-    setLikeCount((prev) => (next ? prev + 1 : prev - 1));
+    setLikeCount(nextCount);
+    // Lift it to the parent's posts/likedPostIds so the slide stays right if
+    // FlatList recycles it, and so it can be synced to other screens.
+    onLikeChange?.(post.id, next, nextCount);
     try {
       if (next) {
         await likePost(post.id, currentUserId);
@@ -149,7 +165,8 @@ function PostSlide({
     } catch (err) {
       console.error('Failed to toggle like:', err);
       setLiked(!next);
-      setLikeCount((prev) => (next ? prev - 1 : prev + 1));
+      setLikeCount(likeCount);
+      onLikeChange?.(post.id, !next, likeCount);
     }
   }
 
@@ -631,22 +648,56 @@ export default function FeedScreen({ navigation, route }) {
 
   // Profile-feed mode's "loader" — the posts are already fetched (see
   // ProfileScreen.handlePostTap), so this just seats them straight into
-  // state instead of querying Supabase, then fetches like/save state for
-  // just this user's posts the same way loadFollowingFeed does for the main feed.
+  // state instead of querying Supabase, then fetches save state for just
+  // this user's posts the same way loadFollowingFeed does for the main feed.
+  // Like state is seeded from whatever isLiked the grid already knew (so
+  // the heart doesn't flicker) and then made authoritative by the focus
+  // refresh below.
   useEffect(() => {
     if (!profileFeedPosts) return;
     setPosts(profileFeedPosts);
+    setLikedPostIds(new Set(profileFeedPosts.filter((p) => p.isLiked).map((p) => p.id)));
     setLoadingFeed(false);
     if (user?.id && profileFeedPosts.length) {
-      const postIds = profileFeedPosts.map((p) => p.id);
-      Promise.all([getLikedPostIds(user.id, postIds), getSavedPostIds(user.id, postIds)])
-        .then(([liked, saved]) => {
-          setLikedPostIds(new Set(liked));
-          setSavedPostIds(new Set(saved));
-        })
-        .catch((err) => console.error('Failed to load liked/saved state for profile feed:', err));
+      getSavedPostIds(user.id, profileFeedPosts.map((p) => p.id))
+        .then((saved) => setSavedPostIds(new Set(saved)))
+        .catch((err) => console.error('Failed to load saved state for profile feed:', err));
     }
   }, [profileFeedPosts, user?.id]);
+
+  // The posts handed over in route.params are a snapshot of the grid that
+  // opened this screen and can be stale (an old likes_count, or a like made
+  // here on an earlier visit). Every time the viewer gains focus, re-read
+  // likes_count and the current user's like straight from Supabase and
+  // patch them in, rather than trusting the params.
+  useFocusEffect(
+    useCallback(() => {
+      if (!profileFeedPosts || profileFeedPosts.length === 0) return;
+      let cancelled = false;
+      getPostLikeState(
+        profileFeedPosts.map((p) => p.id),
+        user?.id
+      )
+        .then((state) => {
+          if (cancelled || state.size === 0) return;
+          setPosts((prev) =>
+            prev.map((p) => {
+              const s = state.get(p.id);
+              return s && s.likes !== p.likes ? { ...p, likes: s.likes } : p;
+            })
+          );
+          setLikedPostIds((prev) => {
+            const next = new Set(prev);
+            state.forEach((s, id) => (s.liked ? next.add(id) : next.delete(id)));
+            return next;
+          });
+        })
+        .catch((err) => console.error('Failed to refresh like state for profile feed:', err));
+      return () => {
+        cancelled = true;
+      };
+    }, [profileFeedPosts, user?.id])
+  );
 
   // Filtered mode's initial load (and reload whenever the course/hole/nine
   // being viewed or the sort mode changes) — separate from loadFollowingFeed
@@ -864,6 +915,54 @@ export default function FeedScreen({ navigation, route }) {
       });
     }
   };
+
+  // Likes made on this screen since it last lost focus, by post id — sent
+  // to the other screens (profile grids, the Following feed) on blur.
+  const pendingLikeChangesRef = useRef(new Map());
+
+  const handleLikeChange = useCallback((postId, liked, likes) => {
+    setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, likes } : p)));
+    setShotOfWeek((prev) => (prev && prev.id === postId ? { ...prev, likes } : prev));
+    setLikedPostIds((prev) => {
+      const next = new Set(prev);
+      if (liked) next.add(postId);
+      else next.delete(postId);
+      return next;
+    });
+    pendingLikeChangesRef.current.set(postId, { id: postId, likes, liked });
+  }, []);
+
+  // Runs when this screen blurs or is popped (the back button / swipe from
+  // ProfileFeed), so the screen being returned to already has the new
+  // likes_count and isLiked in its own posts array.
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        const pending = pendingLikeChangesRef.current;
+        if (pending.size === 0) return;
+        publishLikeChanges([...pending.values()]);
+        pending.clear();
+      },
+      []
+    )
+  );
+
+  // Likes made on another FeedScreen instance (e.g. a ProfileFeed opened
+  // from the Following feed) — keeps this one's cached posts and hearts
+  // current. Hearts here come from likedPostIds, not post.isLiked.
+  useEffect(
+    () =>
+      subscribeLikeChanges((updates) => {
+        setPosts((prev) => applyLikeUpdates(prev, updates));
+        setShotOfWeek((prev) => (prev ? applyLikeUpdates([prev], updates)[0] : prev));
+        setLikedPostIds((prev) => {
+          const next = new Set(prev);
+          updates.forEach((u) => (u.liked ? next.add(u.id) : next.delete(u.id)));
+          return next;
+        });
+      }),
+    []
+  );
 
   const handleCommentPosted = (postId) => {
     setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, comments: p.comments + 1 } : p)));
@@ -1105,6 +1204,7 @@ export default function FeedScreen({ navigation, route }) {
                   onMorePress={setActionsSheetPost}
                   onMentionPress={handleMentionPress}
                   onToast={showToast}
+                  onLikeChange={handleLikeChange}
                   watermarkCaptureRef={watermarkCaptureRef}
                 />
               )}

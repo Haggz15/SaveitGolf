@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getTaggedPosts } from '../services/posts';
+import { useLikeSync } from '../utils/postLikeSync';
 
 // Lazily loads the posts `userId` is tagged in for a profile's Tagged Posts
 // tab: nothing is fetched until `active` (the tab is selected) first turns
@@ -10,6 +11,8 @@ export function useTaggedPosts(userId, active) {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(false);
   const fetchedForRef = useRef(null);
+  // Kept for the screen's life, so likes made in ProfileFeed are patched in.
+  useLikeSync(setPosts);
 
   useEffect(() => {
     if (!active || !userId || fetchedForRef.current === userId) return;

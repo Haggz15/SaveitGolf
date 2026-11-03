@@ -32,6 +32,7 @@ import { uploadAvatar } from '../services/profiles';
 import { getCourseRankings, addCourseRanking, updateCourseRanking, findRankingForCourse } from '../services/courseRankings';
 import { getMyCourses, addSearchedCourse, addManualCourse, removeMyCourse } from '../services/myCourses';
 import { getUserPosts, updatePostCaption, deletePost } from '../services/posts';
+import { withLikedState } from '../services/likes';
 import { getShotOfWeekPostIds } from '../services/shotOfWeek';
 import { getFollowerCount, getFollowingCount } from '../services/social';
 import { deleteAccount } from '../services/auth';
@@ -39,6 +40,7 @@ import { friendlyAuthError } from '../services/authErrors';
 import { hasValidCoordinates } from '../utils/mapCoords';
 import { formatHandicap } from '../utils/handicap';
 import { useTaggedPosts } from '../hooks/useTaggedPosts';
+import { useLikeSync } from '../utils/postLikeSync';
 
 const TABS = ['Uploads', 'Courses Played', 'Tagged Posts'];
 
@@ -223,6 +225,9 @@ export default function ProfileScreen({ navigation }) {
   const [rankingModalVisible, setRankingModalVisible] = useState(false);
   const [editingRanking, setEditingRanking] = useState(null);
   const [uploadPosts, setUploadPosts] = useState([]);
+  // Likes made in ProfileFeed land here on the way back, so tile counts are
+  // right immediately without refetching (see utils/postLikeSync).
+  useLikeSync(setUploadPosts);
   const [uploadsLoading, setUploadsLoading] = useState(true);
   const [shotOfWeekIds, setShotOfWeekIds] = useState(new Set());
   const { posts: taggedPosts, loading: taggedPostsLoading } = useTaggedPosts(user?.id, activeTab === 'Tagged Posts');
@@ -561,7 +566,7 @@ export default function ProfileScreen({ navigation }) {
       .then(setShotOfWeekIds)
       .catch((err) => console.error('Failed to load Shot of the Week posts:', err));
     try {
-      setUploadPosts(await getUserPosts(user.id));
+      setUploadPosts(await withLikedState(await getUserPosts(user.id), user.id));
     } catch (err) {
       console.error('Failed to load uploads:', err);
     } finally {
