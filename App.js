@@ -14,12 +14,17 @@ import RootNavigator from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
 import { NotificationsProvider } from './src/context/NotificationsContext';
 import ErrorBoundary from './src/components/ErrorBoundary';
+import UpdatePromptModal from './src/components/UpdatePromptModal';
+import { useOneTimeUpdatePrompt } from './src/hooks/useOneTimeUpdatePrompt';
 import colors from './src/theme/colors';
 import { version as appVersion } from './package.json';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function App() {
+  // Shown once per App Store release, never again after closing/reopening.
+  const { update: appStoreUpdate, dismiss: dismissUpdatePrompt } = useOneTimeUpdatePrompt();
+
   useEffect(() => {
     if (Platform.OS === 'web') {
       const lastVersion = localStorage.getItem('appVersion');
@@ -64,6 +69,7 @@ export default function App() {
               <RootNavigator />
             </NotificationsProvider>
           </AuthProvider>
+          <UpdatePromptModal storeUrl={appStoreUpdate?.storeUrl} onDismiss={dismissUpdatePrompt} />
         </View>
       </SafeAreaProvider>
     </ErrorBoundary>
