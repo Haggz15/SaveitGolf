@@ -13,7 +13,7 @@ import colors from '../theme/colors';
 // `onTap.current`, which this component sets to its icon-flash animation.
 // Hold-to-2x works the same way: the slide owns the long-press and passes the
 // resulting `playbackRate` down.
-export default function VideoPost({ source, isActive, muted = true, setMuted, userPaused = false, onTap, playbackRate = 1 }) {
+export default function VideoPost({ source, isActive, muted = false, setMuted, userPaused = false, onTap, playbackRate = 1 }) {
   // Only the active (visible, focused) post may ever make sound. Every other
   // mounted video is forced muted regardless of the feed-wide sound toggle,
   // so a neighbouring slide can't leak audio before the user swipes to it.

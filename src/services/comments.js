@@ -22,6 +22,8 @@ function mapRow(row) {
     fullName: row.profiles?.full_name ?? null,
     avatarUrl: row.profiles?.avatar_url ?? null,
     commentText: row.comment_text,
+    // From the embedded comment_likes(count) aggregate; 0 for a new comment.
+    likesCount: row.comment_likes?.[0]?.count ?? 0,
     timeAgo: timeAgo(row.created_at),
     createdAt: row.created_at,
   };
@@ -30,7 +32,7 @@ function mapRow(row) {
 export async function getComments(postId) {
   const { data, error } = await supabase
     .from('comments')
-    .select('*, profiles!comments_user_id_profiles_fkey(username, full_name, avatar_url)')
+    .select('*, profiles!comments_user_id_profiles_fkey(username, full_name, avatar_url), comment_likes(count)')
     .eq('post_id', postId)
     .order('created_at', { ascending: true });
 

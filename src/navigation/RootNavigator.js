@@ -64,11 +64,10 @@ function CenterPostButton({ onPress }) {
 }
 
 function Tabs() {
-  // Profile tab badge doubles as the "friend/follow requests" indicator —
-  // this app follows instantly rather than requiring approval, so a
-  // pending request is really just an unread `follow` notification (see
-  // NotificationsContext).
-  const { followUnreadCount } = useNotifications();
+  // Profile tab badge counts unread likes, comments and mentions only —
+  // follows show in the bell's panel but don't badge the tab (see
+  // PROFILE_BADGE_TYPES in services/notifications.js).
+  const { profileBadgeCount } = useNotifications();
   const insets = useSafeAreaInsets();
   // iPad's home indicator inset differs from an iPhone's — a hardcoded
   // paddingBottom either clips the bar's content or leaves a dead gap below
@@ -117,7 +116,7 @@ function Tabs() {
         name="Profile"
         component={ProfileScreen}
         options={{
-          tabBarBadge: followUnreadCount > 0 ? (followUnreadCount > 99 ? '99+' : followUnreadCount) : undefined,
+          tabBarBadge: profileBadgeCount > 0 ? (profileBadgeCount > 99 ? '99+' : profileBadgeCount) : undefined,
         }}
       />
     </Tab.Navigator>

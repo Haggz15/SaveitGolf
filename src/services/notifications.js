@@ -97,16 +97,18 @@ export async function getUnreadNotificationCount(userId) {
   return count ?? 0;
 }
 
-// This app has no separate follow-request/approval flow — following is
-// instant — so "pending follow requests" is really just unread `follow`
-// notifications, which is exactly what should badge a profile/friends icon.
-export async function getUnreadFollowNotificationCount(userId) {
+// The notification types that badge the Profile tab: activity on the
+// user's own posts and comments. Follows (and new_post/new_scorecard/etc.)
+// still appear in the bell's notification panel, but don't badge the tab.
+export const PROFILE_BADGE_TYPES = ['like', 'comment', 'mention'];
+
+export async function getUnreadProfileBadgeCount(userId) {
   if (!userId) return 0;
   const { count, error } = await supabase
     .from('notifications')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', userId)
-    .eq('type', 'follow')
+    .in('type', PROFILE_BADGE_TYPES)
     .eq('read', false);
 
   if (error) throw error;

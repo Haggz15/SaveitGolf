@@ -109,12 +109,17 @@ export default function CommentSheet({
   async function handleToggleCommentLike(commentId) {
     if (!currentUserId) return;
     const isLiked = likedCommentIds.has(commentId);
+    const bumpCount = (delta) =>
+      setComments((prev) =>
+        prev.map((c) => (c.id === commentId ? { ...c, likesCount: Math.max(0, (c.likesCount ?? 0) + delta) } : c))
+      );
     setLikedCommentIds((prev) => {
       const next = new Set(prev);
       if (isLiked) next.delete(commentId);
       else next.add(commentId);
       return next;
     });
+    bumpCount(isLiked ? -1 : 1);
     try {
       if (isLiked) {
         await unlikeComment(currentUserId, commentId);
@@ -129,6 +134,7 @@ export default function CommentSheet({
         else next.delete(commentId);
         return next;
       });
+      bumpCount(isLiked ? 1 : -1);
     }
   }
 
@@ -238,6 +244,9 @@ export default function CommentSheet({
                           size={14}
                           color={likedCommentIds.has(item.id) ? colors.red : colors.muted}
                         />
+                        {item.likesCount > 0 && (
+                          <Text style={styles.commentLikeCount}>{item.likesCount}</Text>
+                        )}
                       </TouchableOpacity>
                       {isOwnComment && (
                         <TouchableOpacity
@@ -386,6 +395,15 @@ const styles = StyleSheet.create({
   },
   commentLikeButton: {
     paddingTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  // Matches the post rail's like count (FeedScreen railCountText).
+  commentLikeCount: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: '700',
   },
   commentDeleteButton: {
     paddingTop: 2,

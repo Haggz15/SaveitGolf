@@ -3,8 +3,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { supabase } from '../services/supabase';
 import {
   getUnreadNotificationCount,
-  getUnreadFollowNotificationCount,
+  getUnreadProfileBadgeCount,
   markAllNotificationsRead,
+  PROFILE_BADGE_TYPES,
 } from '../services/notifications';
 import { useAuth } from './AuthContext';
 
@@ -19,21 +20,22 @@ export function NotificationsProvider({ children }) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const [unreadCount, setUnreadCount] = useState(0);
-  const [followUnreadCount, setFollowUnreadCount] = useState(0);
+  // Unread like/comment/mention notifications only — the Profile tab badge.
+  const [profileBadgeCount, setProfileBadgeCount] = useState(0);
 
   const refreshCounts = useCallback(async () => {
     if (!userId) {
       setUnreadCount(0);
-      setFollowUnreadCount(0);
+      setProfileBadgeCount(0);
       return;
     }
     try {
-      const [total, follows] = await Promise.all([
+      const [total, badge] = await Promise.all([
         getUnreadNotificationCount(userId),
-        getUnreadFollowNotificationCount(userId),
+        getUnreadProfileBadgeCount(userId),
       ]);
       setUnreadCount(total);
-      setFollowUnreadCount(follows);
+      setProfileBadgeCount(badge);
     } catch (err) {
       console.error('Failed to load unread notification counts:', err);
     }
@@ -57,8 +59,8 @@ export function NotificationsProvider({ children }) {
         { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
         (payload) => {
           setUnreadCount((count) => count + 1);
-          if (payload.new?.type === 'follow') {
-            setFollowUnreadCount((count) => count + 1);
+          if (PROFILE_BADGE_TYPES.includes(payload.new?.type)) {
+            setProfileBadgeCount((count) => count + 1);
           }
         }
       )
@@ -74,7 +76,7 @@ export function NotificationsProvider({ children }) {
     try {
       await markAllNotificationsRead(userId);
       setUnreadCount(0);
-      setFollowUnreadCount(0);
+      setProfileBadgeCount(0);
     } catch (err) {
       console.error('Failed to mark notifications read:', err);
     }
@@ -83,14 +85,14 @@ export function NotificationsProvider({ children }) {
   // Optimistic decrement for a single notification read outside of
   // markAllRead (tapping one in the panel before its 3s auto-read timer
   // fires) — clamped so a stale double-decrement can't go negative.
-  const decrementUnread = useCallback((wasFollow) => {
+  const decrementUnread = useCallback((type) => {
     setUnreadCount((count) => Math.max(0, count - 1));
-    if (wasFollow) setFollowUnreadCount((count) => Math.max(0, count - 1));
+    if (PROFILE_BADGE_TYPES.includes(type)) setProfileBadgeCount((count) => Math.max(0, count - 1));
   }, []);
 
   const value = useMemo(
-    () => ({ unreadCount, followUnreadCount, refreshCounts, markAllRead, decrementUnread }),
-    [unreadCount, followUnreadCount, refreshCounts, markAllRead, decrementUnread]
+    () => ({ unreadCount, profileBadgeCount, refreshCounts, markAllRead, decrementUnread }),
+    [unreadCount, profileBadgeCount, refreshCounts, markAllRead, decrementUnread]
   );
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;

@@ -461,9 +461,10 @@ export default function FeedScreen({ navigation, route }) {
   const [refreshing, setRefreshing] = useState(false);
   const [activePostId, setActivePostId] = useState(null);
   // Shared across every video in the feed (not per-post) so toggling sound
-  // on one post carries over as the user scrolls to the next. Starts muted;
-  // sound only comes on when the user taps the speaker button.
-  const [isMuted, setIsMuted] = useState(true);
+  // on one post carries over as the user scrolls to the next. Starts with
+  // sound on; the speaker button mutes every video until tapped again.
+  // Off-screen videos are always muted regardless (see VideoPost).
+  const [isMuted, setIsMuted] = useState(false);
   const [userSearchVisible, setUserSearchVisible] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [commentPost, setCommentPost] = useState(null);
@@ -867,7 +868,7 @@ export default function FeedScreen({ navigation, route }) {
   const handleNotificationActorPress = (notification) => {
     if (!notification.actorUsername) return;
     if (!notification.read) {
-      decrementUnread(notification.type === 'follow');
+      decrementUnread(notification.type);
     }
     setNotificationsVisible(false);
     navigation.navigate('UserProfile', { username: notification.actorUsername });
@@ -878,7 +879,7 @@ export default function FeedScreen({ navigation, route }) {
   // has no post, so it goes to the follower's profile.
   const handleNotificationPress = (notification) => {
     if (!notification.read) {
-      decrementUnread(notification.type === 'follow');
+      decrementUnread(notification.type);
     }
 
     if (notification.type === 'follow') {
