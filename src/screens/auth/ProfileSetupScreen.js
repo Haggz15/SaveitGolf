@@ -36,6 +36,10 @@ export default function ProfileSetupScreen() {
   const [handicapModalVisible, setHandicapModalVisible] = useState(false);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  // Name and username are both required — there's no skip — so Continue
+  // stays disabled until each has something in it (validate() then checks
+  // the username format).
+  const canContinue = fullName.trim().length > 0 && username.trim().length > 0;
 
   const validate = () => {
     const next = {};
@@ -79,19 +83,6 @@ export default function ProfileSetupScreen() {
     }
   };
 
-  const handleSkip = async () => {
-    setLoading(true);
-    setErrors({});
-    try {
-      const avatarUrl = await uploadPickedAvatar();
-      await completeOnboarding({ avatarUrl });
-    } catch (err) {
-      setErrors({ form: friendlyAuthError(err) });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // There's no earlier onboarding screen to pop back to — a signed-in user
   // with no profile row is routed straight here (see needsOnboarding in
   // AuthContext) — so "back" means leaving the flow entirely rather than
@@ -124,14 +115,6 @@ export default function ProfileSetupScreen() {
         style={[styles.backButton, { top: insets.top + 16 }]}
       >
         <Text style={styles.backButtonText}>←</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        onPress={handleSkip}
-        disabled={loading}
-        style={[styles.topSkipButton, { top: insets.top + 16 }]}
-      >
-        <Text style={styles.topSkipButtonText}>Skip</Text>
       </TouchableOpacity>
 
       <View style={{ paddingTop: insets.top + 20 }}>
@@ -184,10 +167,10 @@ export default function ProfileSetupScreen() {
           {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}
 
           <TouchableOpacity
-            style={[styles.primaryButton, loading && styles.disabled]}
+            style={[styles.primaryButton, (loading || !canContinue) && styles.disabled]}
             onPress={handleContinue}
             activeOpacity={0.85}
-            disabled={loading}
+            disabled={loading || !canContinue}
           >
             <Text style={styles.primaryButtonText}>{loading ? 'Saving…' : 'Continue'}</Text>
           </TouchableOpacity>
@@ -288,16 +271,5 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: colors.white,
     fontSize: 20,
-  },
-  topSkipButton: {
-    position: 'absolute',
-    right: 16,
-    zIndex: 100,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-  },
-  topSkipButtonText: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 14,
   },
 });

@@ -247,6 +247,8 @@ export default function ProfileScreen({ navigation }) {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showUsernameModal, setShowUsernameModal] = useState(false);
   const [newUsername, setNewUsername] = useState('');
+  const [newFullName, setNewFullName] = useState('');
+  const [fullNameError, setFullNameError] = useState('');
   const [usernameError, setUsernameError] = useState('');
   const [usernameLoading, setUsernameLoading] = useState(false);
 
@@ -413,10 +415,22 @@ export default function ProfileScreen({ navigation }) {
     setShowEditModal(true);
   }
 
+  // The name/username editor opens pre-filled with the current values, so a
+  // missing full name shows as an empty field to fill in.
+  function openUsernameModal() {
+    setNewFullName(profileData?.full_name || '');
+    setNewUsername(profileData?.username || '');
+    setFullNameError('');
+    setUsernameError('');
+    setShowUsernameModal(true);
+  }
+
   function closeUsernameModal() {
     setShowUsernameModal(false);
     setNewUsername('');
+    setNewFullName('');
     setUsernameError('');
+    setFullNameError('');
   }
 
   // Mirrors ProfileSetupScreen's own username validation (same regex/length
@@ -425,24 +439,44 @@ export default function ProfileScreen({ navigation }) {
   // unique constraint (see schema.sql), and friendlyAuthError already turns
   // that violation into "That username is already taken" below, so a
   // separate check-then-update round trip would just add a race condition.
+  // Only fields that actually changed are sent, so saving a new name with the
+  // same username doesn't touch the username (or trip its unique check).
   async function handleChangeUsername() {
     const trimmed = newUsername.trim().toLowerCase();
+    const trimmedName = newFullName.trim();
+    let invalid = false;
+    if (!trimmedName) {
+      setFullNameError('Enter your full name.');
+      invalid = true;
+    }
     if (!trimmed) {
       setUsernameError('Choose a username.');
-      return;
-    }
-    if (!/^[a-z0-9_.]{3,20}$/i.test(trimmed)) {
+      invalid = true;
+    } else if (!/^[a-z0-9_.]{3,20}$/i.test(trimmed)) {
       setUsernameError('3-20 characters: letters, numbers, underscores.');
+      invalid = true;
+    }
+    if (invalid) return;
+
+    const changes = {};
+    if (trimmedName !== (profileData?.full_name || '')) changes.fullName = trimmedName;
+    if (trimmed !== (profileData?.username || '')) changes.username = trimmed;
+    if (Object.keys(changes).length === 0) {
+      closeUsernameModal();
       return;
     }
 
     setUsernameError('');
+    setFullNameError('');
     setUsernameLoading(true);
     try {
-      await updateProfile({ username: trimmed });
+      const updated = await updateProfile(changes);
+      setProfileData((prev) =>
+        prev ? { ...prev, full_name: updated.full_name, username: updated.username } : updated
+      );
       closeUsernameModal();
     } catch (err) {
-      console.error('Failed to update username:', err);
+      console.error('Failed to update name/username:', err);
       setUsernameError(friendlyAuthError(err));
     } finally {
       setUsernameLoading(false);
@@ -748,7 +782,14 @@ export default function ProfileScreen({ navigation }) {
             </View>
           ) : (
             <>
-              <Text style={styles.name}>{profileData?.full_name || 'Unnamed Golfer'}</Text>
+              {profileData?.full_name ? (
+                <Text style={styles.name}>{profileData.full_name}</Text>
+              ) : (
+                <TouchableOpacity onPress={openUsernameModal} activeOpacity={0.7}>
+                  <Text style={styles.name}>Unnamed Golfer</Text>
+                  <Text style={styles.addNameLink}>+ Add your name</Text>
+                </TouchableOpacity>
+              )}
               <Text style={styles.handle}>
                 {profileData?.username ? `@${profileData.username}` : ''}
               </Text>
@@ -913,14 +954,14 @@ export default function ProfileScreen({ navigation }) {
           <TouchableOpacity
             onPress={() => {
               setShowAccountMenu(false);
-              setShowUsernameModal(true);
+              openUsernameModal();
             }}
             style={styles.accountModalOption}
           >
             <Ionicons name="create-outline" size={20} color={colors.white} />
             <View>
-              <Text style={styles.accountModalOptionTitle}>Change Username</Text>
-              <Text style={styles.accountModalOptionSubtitle}>Update your @username</Text>
+              <Text style={styles.accountModalOptionTitle}>Edit Name & Username</Text>
+              <Text style={styles.accountModalOptionSubtitle}>Update your name and @username</Text>
             </View>
           </TouchableOpacity>
 
@@ -1044,11 +1085,26 @@ export default function ProfileScreen({ navigation }) {
         >
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeUsernameModal} />
           <View style={styles.usernameModalSheet}>
-            <Text style={styles.usernameModalTitle}>Change Username</Text>
-            <Text style={styles.usernameModalSubtitle}>
-              Current username: @{profileData?.username || 'none'}
-            </Text>
+            <Text style={styles.usernameModalTitle}>Edit Name & Username</Text>
 
+            <Text style={styles.usernameModalLabel}>Full name</Text>
+            <TextInput
+              value={newFullName}
+              onChangeText={(text) => {
+                setNewFullName(text);
+                setFullNameError('');
+              }}
+              placeholder="Your full name"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="words"
+              autoCorrect={false}
+              textContentType="name"
+              maxLength={50}
+              style={[styles.usernameModalInput, fullNameError && styles.usernameModalInputError]}
+            />
+            {fullNameError ? <Text style={styles.usernameModalError}>{fullNameError}</Text> : null}
+
+            <Text style={styles.usernameModalLabel}>Username</Text>
             <TextInput
               value={newUsername}
               onChangeText={(text) => {
@@ -1077,7 +1133,7 @@ export default function ProfileScreen({ navigation }) {
               {usernameLoading ? (
                 <ActivityIndicator color={colors.brightGreenText} size="small" />
               ) : (
-                <Text style={styles.usernameModalSaveButtonText}>Save Username</Text>
+                <Text style={styles.usernameModalSaveButtonText}>Save</Text>
               )}
             </TouchableOpacity>
 
@@ -1625,6 +1681,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     marginBottom: 20,
+  },
+  usernameModalLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  addNameLink: {
+    color: colors.brightGreen,
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 2,
   },
   usernameModalInput: {
     backgroundColor: colors.navyCard,

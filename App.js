@@ -15,6 +15,7 @@ import { AuthProvider } from './src/context/AuthContext';
 import { NotificationsProvider } from './src/context/NotificationsContext';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import UpdatePromptModal from './src/components/UpdatePromptModal';
+import CompleteProfilePrompt from './src/components/CompleteProfilePrompt';
 import { useOneTimeUpdatePrompt } from './src/hooks/useOneTimeUpdatePrompt';
 import colors from './src/theme/colors';
 import { version as appVersion } from './package.json';
@@ -68,6 +69,9 @@ export default function App() {
             <NotificationsProvider>
               <RootNavigator />
             </NotificationsProvider>
+            {/* One-time, for accounts missing a name/username from the old
+                skippable signup. Waits until the update prompt is closed. */}
+            <CompleteProfilePrompt blocked={!!appStoreUpdate} />
           </AuthProvider>
           <UpdatePromptModal storeUrl={appStoreUpdate?.storeUrl} onDismiss={dismissUpdatePrompt} />
         </View>
