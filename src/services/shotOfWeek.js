@@ -155,6 +155,11 @@ export async function getSotwVoteCounts() {
   return counts;
 }
 
+// Reposts are never eligible: calculate_shot_of_week() and
+// calculate_sotw_winner_from_votes() only read public.posts (original
+// posts), and reposts live in their own public.reposts table, so a repost
+// can't be nominated or win and reposts_count isn't in either formula.
+//
 // The current Shot of the Week, computed server-side by
 // calculate_shot_of_week() (see supabase/schema.sql) and pinned to the top
 // of the Feed pill until it's replaced the following Friday. Two queries

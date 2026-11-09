@@ -175,6 +175,7 @@ export function mapRow(row) {
     likes: row.likes_count ?? 0,
     comments: row.comments_count ?? 0,
     saves: row.saves_count ?? 0,
+    reposts: row.reposts_count ?? 0,
     timeAgo: timeAgo(row.created_at),
     isVideo: row.media_type === 'video',
     mediaUrl: row.media_url,

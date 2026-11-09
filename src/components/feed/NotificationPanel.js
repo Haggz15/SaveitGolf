@@ -146,6 +146,11 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
                         <Ionicons name="bookmark" size={10} color={colors.white} />
                       </View>
                     )}
+                    {item.type === 'repost' && (
+                      <View style={[styles.typeBadge, styles.typeBadgeRepost]}>
+                        <Ionicons name="repeat" size={11} color={colors.white} />
+                      </View>
+                    )}
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.rowPressArea}
@@ -256,6 +261,9 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 16,
     fontWeight: '700',
+  },
+  typeBadgeRepost: {
+    backgroundColor: colors.green,
   },
   typeBadge: {
     position: 'absolute',

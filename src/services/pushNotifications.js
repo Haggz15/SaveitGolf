@@ -59,6 +59,7 @@ const PUSH_TEXT = {
   comment: 'commented on your post',
   follow: 'started following you',
   save: 'saved your post',
+  repost: 'reposted your post',
   tag: 'tagged you in a post',
   mention: 'mentioned you in a comment',
 };

@@ -9,6 +9,8 @@ import {
   TouchableWithoutFeedback,
   Image,
   ActivityIndicator,
+  Alert,
+  Platform,
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -50,6 +52,30 @@ import {
 } from '../services/shotOfWeek';
 import { saveMediaToDevice, saveLocalUriToLibrary } from '../utils/saveMedia';
 import { toStateAbbreviation } from '../data/usStates';
+import { repostPost, undoRepost, getUserReposts, getFeedReposts } from '../services/reposts';
+
+// Merges a page of original posts and a page of reposts onto the feed.
+// A post shows once: an original beats a repost of it, the newest repost
+// beats older ones, and anything already in the feed is skipped. Reposts
+// sort by when they were reposted, originals by when they were posted.
+function mergeFeedPage(existing, originals, reposts) {
+  const seen = new Set(existing.map((p) => p.id));
+  const added = [];
+  for (const post of [...originals, ...reposts]) {
+    if (seen.has(post.id)) continue;
+    seen.add(post.id);
+    added.push(post);
+  }
+  const sortTime = (p) => new Date(p.repostedAt ?? p.createdAt).getTime();
+  added.sort((a, b) => sortTime(b) - sortTime(a));
+  return [...existing, ...added];
+}
+
+// Drops reposts made by, or of posts from, anyone the user has blocked.
+function filterBlockedReposts(reposts, excludeUserIds) {
+  if (!excludeUserIds?.size) return reposts;
+  return reposts.filter((r) => !excludeUserIds.has(r.userId) && !excludeUserIds.has(r.repostedBy?.id));
+}
 
 function PostSlide({
   post,
@@ -60,6 +86,9 @@ function PostSlide({
   currentUserId,
   initiallyLiked,
   initiallySaved,
+  initiallyReposted,
+  onRepostChange,
+  onRepostedByPress,
   isMuted,
   setIsMuted,
   onStatePress,
@@ -85,6 +114,17 @@ function PostSlide({
     setLikeCount(post.likes);
   }, [post.likes]);
   const [saved, setSaved] = useState(initiallySaved);
+  const [reposted, setReposted] = useState(Boolean(initiallyReposted));
+  const [repostCount, setRepostCount] = useState(post.reposts ?? 0);
+  const [reposting, setReposting] = useState(false);
+  useEffect(() => {
+    setReposted(Boolean(initiallyReposted));
+  }, [initiallyReposted]);
+  useEffect(() => {
+    setRepostCount(post.reposts ?? 0);
+  }, [post.reposts]);
+  // Your own posts (and demo posts with no author) can't be reposted.
+  const canRepost = Boolean(post.userId) && post.userId !== currentUserId;
   const [saveCount, setSaveCount] = useState(post.saves ?? 0);
   // Whether a saved_posts row actually exists. `saved` can't tell us: it
   // flashes back to false after a save, and re-saving then is a no-op
@@ -177,6 +217,53 @@ function PostSlide({
       setLikeCount(likeCount);
       onLikeChange?.(post.id, !next, likeCount);
     }
+  }
+
+  async function setRepost(next) {
+    const prevCount = repostCount;
+    const nextCount = Math.max(0, prevCount + (next ? 1 : -1));
+    setReposted(next);
+    setRepostCount(nextCount);
+    setReposting(true);
+    onRepostChange?.(post.id, next, nextCount);
+    try {
+      if (next) {
+        await repostPost(currentUserId, post.id);
+        // Best-effort, like the save notification — a failed notification
+        // shouldn't undo the repost.
+        createNotification({ userId: post.userId, actorId: currentUserId, type: 'repost', postId: post.id }).catch(
+          (notifyErr) => console.error('Failed to send repost notification:', notifyErr)
+        );
+      } else {
+        await undoRepost(currentUserId, post.id);
+      }
+    } catch (err) {
+      console.error('Failed to toggle repost:', err);
+      setReposted(!next);
+      setRepostCount(prevCount);
+      onRepostChange?.(post.id, !next, prevCount);
+      onToast?.(next ? 'Could not repost — please try again' : 'Could not remove repost — please try again', 'error');
+    } finally {
+      setReposting(false);
+    }
+  }
+
+  // Reposting is instant; undoing asks first. Alert is a no-op on web, so
+  // web confirms with window.confirm instead.
+  function handleRepostPress() {
+    if (!currentUserId || reposting) return;
+    if (!reposted) {
+      setRepost(true);
+      return;
+    }
+    if (Platform.OS === 'web') {
+      if (window.confirm('Remove repost?')) setRepost(false);
+      return;
+    }
+    Alert.alert('Remove repost?', 'It will no longer show in your followers\' feeds.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => setRepost(false) },
+    ]);
   }
 
   async function handleToggleSave() {
@@ -373,6 +460,22 @@ function PostSlide({
             )}
             <Text style={styles.railCountText}>{saveCount}</Text>
           </TouchableOpacity>
+          {canRepost && (
+            <TouchableOpacity
+              style={styles.railButton}
+              onPress={handleRepostPress}
+              disabled={reposting}
+              hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
+            >
+              <Ionicons
+                name="repeat"
+                size={28}
+                color={reposted ? colors.brightGreen : colors.white}
+                style={styles.railIconShadow}
+              />
+              <Text style={[styles.railCountText, reposted && styles.railCountTextReposted]}>{repostCount}</Text>
+            </TouchableOpacity>
+          )}
           {/* Demo/mock posts have no real userId — nothing in the database to
               report or block, so the option doesn't render for them. */}
           {post.userId && (
@@ -387,6 +490,18 @@ function PostSlide({
         </View>
 
         <View style={styles.leftInfo}>
+          {post.isRepost && post.repostedBy?.username ? (
+            <TouchableOpacity
+              style={styles.repostedByRow}
+              onPress={() => onRepostedByPress?.(post.repostedBy)}
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+            >
+              <Ionicons name="repeat" size={13} color={colors.muted} />
+              <Text style={styles.repostedByText} numberOfLines={1}>
+                {post.repostedBy.username} reposted
+              </Text>
+            </TouchableOpacity>
+          ) : null}
           {isShotOfWeek ? (
             <ShotOfWeekBanner />
           ) : isSotwFinalist ? (
@@ -469,6 +584,10 @@ export default function FeedScreen({ navigation, route }) {
   const [sotwVoteBanner, setSotwVoteBanner] = useState(null);
   const [followingOffset, setFollowingOffset] = useState(0);
   const [followingHasMore, setFollowingHasMore] = useState(true);
+  // Reposts page separately from original posts (their own offset).
+  const [repostOffset, setRepostOffset] = useState(0);
+  const [repostsHasMore, setRepostsHasMore] = useState(true);
+  const [repostedPostIds, setRepostedPostIds] = useState(new Set());
   const [loadingMoreFollowing, setLoadingMoreFollowing] = useState(false);
   const [courseFeedOffset, setCourseFeedOffset] = useState(0);
   const [courseFeedHasMore, setCourseFeedHasMore] = useState(true);
@@ -535,19 +654,28 @@ export default function FeedScreen({ navigation, route }) {
       followingIdsRef.current = feedUserIds;
 
       const excludeUserIds = new Set(blockedIds);
-      const firstPage = await getFeedPosts({
-        userIds: feedUserIds,
-        excludeUserIds,
-        offset: 0,
-        limit: FOLLOWING_PAGE_SIZE,
-      });
+      const [firstPage, firstReposts] = await Promise.all([
+        getFeedPosts({
+          userIds: feedUserIds,
+          excludeUserIds,
+          offset: 0,
+          limit: FOLLOWING_PAGE_SIZE,
+        }),
+        // A failed repost fetch shouldn't empty the whole feed.
+        getFeedReposts(feedUserIds, FOLLOWING_PAGE_SIZE, 0).catch((err) => {
+          console.error('Failed to load feed reposts:', err);
+          return null;
+        }),
+      ]);
 
-      setPosts(firstPage);
+      setPosts(mergeFeedPage([], firstPage, filterBlockedReposts(firstReposts ?? [], excludeUserIds)));
       setFollowingOffset(firstPage.length);
       setFollowingHasMore(firstPage.length === FOLLOWING_PAGE_SIZE);
+      setRepostOffset(firstReposts?.length ?? 0);
+      setRepostsHasMore(firstReposts?.length === FOLLOWING_PAGE_SIZE);
 
-      if (firstPage.length) {
-        const postIds = firstPage.map((p) => p.id);
+      if (firstPage.length || firstReposts?.length) {
+        const postIds = [...firstPage, ...(firstReposts ?? [])].map((p) => p.id);
         const [liked, saved] = await Promise.all([
           getLikedPostIds(user.id, postIds),
           getSavedPostIds(user.id, postIds),
@@ -639,24 +767,41 @@ export default function FeedScreen({ navigation, route }) {
   }, [loadFeed, refreshCounts]);
 
   const loadMoreFollowingPosts = useCallback(async () => {
-    if (filter || profileFeedPosts || !followingHasMore || loadingMoreFollowing || !user?.id) return;
+    if (filter || profileFeedPosts || (!followingHasMore && !repostsHasMore) || loadingMoreFollowing || !user?.id)
+      return;
     setLoadingMoreFollowing(true);
     try {
       const blockedIds = await getBlockedUserIds(user.id);
       const excludeUserIds = new Set(blockedIds);
-      const next = await getFeedPosts({
-        userIds: followingIdsRef.current,
-        excludeUserIds,
-        offset: followingOffset,
-        limit: FOLLOWING_PAGE_SIZE,
-      });
+      const [next, nextReposts] = await Promise.all([
+        followingHasMore
+          ? getFeedPosts({
+              userIds: followingIdsRef.current,
+              excludeUserIds,
+              offset: followingOffset,
+              limit: FOLLOWING_PAGE_SIZE,
+            })
+          : [],
+        repostsHasMore
+          ? getFeedReposts(followingIdsRef.current, FOLLOWING_PAGE_SIZE, repostOffset).catch((err) => {
+              console.error('Failed to load more feed reposts:', err);
+              return [];
+            })
+          : [],
+      ]);
 
-      setPosts((prev) => [...prev, ...next]);
-      setFollowingOffset((prev) => prev + next.length);
-      setFollowingHasMore(next.length === FOLLOWING_PAGE_SIZE);
+      setPosts((prev) => mergeFeedPage(prev, next, filterBlockedReposts(nextReposts, excludeUserIds)));
+      if (followingHasMore) {
+        setFollowingOffset((prev) => prev + next.length);
+        setFollowingHasMore(next.length === FOLLOWING_PAGE_SIZE);
+      }
+      if (repostsHasMore) {
+        setRepostOffset((prev) => prev + nextReposts.length);
+        setRepostsHasMore(nextReposts.length === FOLLOWING_PAGE_SIZE);
+      }
 
-      if (next.length) {
-        const ids = next.map((p) => p.id);
+      if (next.length || nextReposts.length) {
+        const ids = [...next, ...nextReposts].map((p) => p.id);
         const [liked, saved] = await Promise.all([getLikedPostIds(user.id, ids), getSavedPostIds(user.id, ids)]);
         setLikedPostIds((prev) => new Set([...prev, ...liked]));
         setSavedPostIds((prev) => new Set([...prev, ...saved]));
@@ -666,7 +811,16 @@ export default function FeedScreen({ navigation, route }) {
     } finally {
       setLoadingMoreFollowing(false);
     }
-  }, [filter, profileFeedPosts, followingHasMore, loadingMoreFollowing, followingOffset, user?.id]);
+  }, [
+    filter,
+    profileFeedPosts,
+    followingHasMore,
+    repostsHasMore,
+    loadingMoreFollowing,
+    followingOffset,
+    repostOffset,
+    user?.id,
+  ]);
 
   // Re-checks every time this tab regains focus — covers both a plain tab
   // switch back to Following and a logo tap elsewhere in the app navigating
@@ -907,6 +1061,22 @@ export default function FeedScreen({ navigation, route }) {
     navigation.navigate('UserProfile', { username: post.user });
   };
 
+  const handleRepostedByPress = (repostedBy) => {
+    if (!repostedBy?.username) return;
+    navigation.navigate('UserProfile', { username: repostedBy.username });
+  };
+
+  const handleRepostChange = useCallback((postId, reposted, reposts) => {
+    setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, reposts } : p)));
+    setShotOfWeek((prev) => (prev && prev.id === postId ? { ...prev, reposts } : prev));
+    setRepostedPostIds((prev) => {
+      const next = new Set(prev);
+      if (reposted) next.add(postId);
+      else next.delete(postId);
+      return next;
+    });
+  }, []);
+
   const handleMentionPress = (username) => {
     if (!username) return;
     navigation.navigate('UserProfile', { username });
@@ -1073,6 +1243,27 @@ export default function FeedScreen({ navigation, route }) {
     if (!shotOfWeek) return posts;
     return [{ ...shotOfWeek, isShotOfWeek: true }, ...posts.filter((p) => p.id !== shotOfWeek.id)];
   }, [posts, shotOfWeek]);
+
+  // Which on-screen posts the user has already reposted — checked once per
+  // post id as posts arrive, in every feed mode. Demo posts (no userId)
+  // aren't real rows, so they're skipped.
+  const repostCheckedIdsRef = useRef(new Set());
+  useEffect(() => {
+    if (!user?.id) return;
+    const ids = displayedPosts
+      .filter((p) => p.userId && !repostCheckedIdsRef.current.has(p.id))
+      .map((p) => p.id);
+    if (ids.length === 0) return;
+    ids.forEach((id) => repostCheckedIdsRef.current.add(id));
+    getUserReposts(user.id, ids)
+      .then((reposted) => {
+        if (reposted.length) setRepostedPostIds((prev) => new Set([...prev, ...reposted]));
+      })
+      .catch((err) => {
+        console.error('Failed to load repost state:', err);
+        ids.forEach((id) => repostCheckedIdsRef.current.delete(id));
+      });
+  }, [displayedPosts, user?.id]);
 
   // A slide only becomes active once it's (nearly) fully on screen. At the
   // old 60% threshold the next video started playing mid-swipe, before the
@@ -1267,6 +1458,9 @@ export default function FeedScreen({ navigation, route }) {
                   currentUserId={user?.id}
                   initiallyLiked={likedPostIds.has(item.id)}
                   initiallySaved={savedPostIds.has(item.id)}
+                  initiallyReposted={repostedPostIds.has(item.id)}
+                  onRepostChange={handleRepostChange}
+                  onRepostedByPress={handleRepostedByPress}
                   isMuted={isMuted}
                   setIsMuted={setIsMuted}
                   onStatePress={handleStatePress}
@@ -1787,6 +1981,24 @@ const styles = StyleSheet.create({
   },
   saveButtonTextSaved: {
     color: colors.brightGreen,
+  },
+  railCountTextReposted: {
+    color: colors.brightGreen,
+  },
+  repostedByRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginBottom: 6,
+  },
+  repostedByText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   leftInfo: {
     position: 'absolute',

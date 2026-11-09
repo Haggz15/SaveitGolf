@@ -574,7 +574,7 @@ create policy "Users can delete their own course rankings"
 -- rest — kept in the same constraint rather than a separate migration.
 alter table public.notifications drop constraint if exists notifications_type_check;
 alter table public.notifications add constraint notifications_type_check
-  check (type in ('like', 'comment', 'share', 'mention', 'new_post', 'new_scorecard', 'tag', 'follow', 'save'));
+  check (type in ('like', 'comment', 'share', 'mention', 'new_post', 'new_scorecard', 'tag', 'follow', 'save', 'repost'));
 
 alter table public.notifications add column if not exists scorecard_id uuid references public.scorecards (id) on delete cascade;
 alter table public.notifications add column if not exists course_name text;
@@ -1378,3 +1378,82 @@ begin
     raise notice 'pg_cron extension not installed -- enable it (Database > Extensions) then re-run this block to schedule the Monday Shot of the Week vote count.';
   end if;
 end $$;
+
+-- Reposts: a user sharing someone else's post to their own followers'
+-- feeds. user_id is the reposter's auth id (profiles.user_id, not
+-- profiles.id, so auth.uid() = user_id works). The named foreign keys let
+-- the app embed the reposter's profile and the post in one query.
+-- Reposts never count toward Shot of the Week: calculate_shot_of_week()
+-- only reads public.posts, so a repost can't be nominated or win, and
+-- reposts_count isn't part of either scoring formula.
+create table if not exists public.reposts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  post_id uuid not null,
+  created_at timestamptz not null default now(),
+  constraint reposts_user_id_profiles_fkey foreign key (user_id)
+    references public.profiles (user_id) on delete cascade,
+  constraint reposts_post_id_fkey foreign key (post_id)
+    references public.posts (id) on delete cascade,
+  unique (user_id, post_id)
+);
+
+create index if not exists reposts_user_created_idx
+  on public.reposts (user_id, created_at desc);
+
+alter table public.reposts enable row level security;
+
+drop policy if exists "Reposts are public" on public.reposts;
+create policy "Reposts are public"
+  on public.reposts for select
+  using (true);
+
+-- Only your own repost, and never of your own post.
+drop policy if exists "Users can repost" on public.reposts;
+create policy "Users can repost"
+  on public.reposts for insert
+  to authenticated
+  with check (
+    auth.uid() = user_id
+    and not exists (
+      select 1 from public.posts p
+      where p.id = reposts.post_id and p.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Users can undo repost" on public.reposts;
+create policy "Users can undo repost"
+  on public.reposts for delete
+  to authenticated
+  using (auth.uid() = user_id);
+
+-- posts.reposts_count backs the count next to the feed's repost button,
+-- same counter pattern as saves_count.
+alter table public.posts add column if not exists reposts_count integer not null default 0;
+
+update public.posts p
+set reposts_count = (select count(*) from public.reposts r where r.post_id = p.id);
+
+create or replace function public.handle_reposts_count_change()
+returns trigger as $$
+begin
+  if (tg_op = 'INSERT') then
+    update public.posts set reposts_count = reposts_count + 1 where id = new.post_id;
+    return new;
+  elsif (tg_op = 'DELETE') then
+    update public.posts set reposts_count = greatest(reposts_count - 1, 0) where id = old.post_id;
+    return old;
+  end if;
+  return null;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists reposts_count_after_insert on public.reposts;
+create trigger reposts_count_after_insert
+  after insert on public.reposts
+  for each row execute function public.handle_reposts_count_change();
+
+drop trigger if exists reposts_count_after_delete on public.reposts;
+create trigger reposts_count_after_delete
+  after delete on public.reposts
+  for each row execute function public.handle_reposts_count_change();
