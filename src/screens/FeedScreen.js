@@ -40,7 +40,14 @@ import { applyLikeUpdates, publishLikeChanges, subscribeLikeChanges } from '../u
 import { createNotification } from '../services/notifications';
 import { savePost, unsavePost, getSavedPostIds } from '../services/savedPosts';
 import { reportPost, blockUser, getBlockedUserIds } from '../services/moderation';
-import { getCurrentShotOfWeek } from '../services/shotOfWeek';
+import {
+  getCurrentShotOfWeek,
+  getShotOfWeekPostIds,
+  getSotwNomineeIds,
+  getSotwNominees,
+  getSotwVote,
+  isSotwVotingOpen,
+} from '../services/shotOfWeek';
 import { saveMediaToDevice, saveLocalUriToLibrary } from '../utils/saveMedia';
 
 function PostSlide({
@@ -48,6 +55,7 @@ function PostSlide({
   height,
   isActive,
   isShotOfWeek,
+  isSotwFinalist,
   currentUserId,
   initiallyLiked,
   initiallySaved,
@@ -378,7 +386,11 @@ function PostSlide({
         </View>
 
         <View style={styles.leftInfo}>
-          {isShotOfWeek && <ShotOfWeekBanner />}
+          {isShotOfWeek ? (
+            <ShotOfWeekBanner />
+          ) : isSotwFinalist ? (
+            <ShotOfWeekBanner variant="finalist" />
+          ) : null}
           <View style={styles.avatarRow}>
             {post.avatarUrl ? (
               <Image source={{ uri: post.avatarUrl }} style={styles.avatar} />
@@ -447,6 +459,13 @@ export default function FeedScreen({ navigation, route }) {
   const [sortMode, setSortMode] = useState('likes'); // 'likes' | 'recent' — filtered mode only, resets on remount
   const [posts, setPosts] = useState([]);
   const [shotOfWeek, setShotOfWeek] = useState(null);
+  // This week's Shot of the Week finalists and every past winner, for the
+  // finalist badge on feed posts (a finalist that has won gets no badge).
+  const [sotwNomineeIds, setSotwNomineeIds] = useState(new Set());
+  const [sotwWinnerIds, setSotwWinnerIds] = useState(new Set());
+  // The main feed's voting banner, shown Friday 9am – Sunday midnight while
+  // there are finalists to vote on: null (hidden) or { count, voted }.
+  const [sotwVoteBanner, setSotwVoteBanner] = useState(null);
   const [followingOffset, setFollowingOffset] = useState(0);
   const [followingHasMore, setFollowingHasMore] = useState(true);
   const [loadingMoreFollowing, setLoadingMoreFollowing] = useState(false);
@@ -479,7 +498,7 @@ export default function FeedScreen({ navigation, route }) {
   // post as a gap at the top. Measure the pager instead in those modes.
   const [measuredPagerHeight, setMeasuredPagerHeight] = useState(0);
   const containerHeight =
-    filter || profileFeedPosts
+    filter || profileFeedPosts || sotwVoteBanner
       ? measuredPagerHeight
       : windowHeight - insets.top - HEADER_CONTENT_HEIGHT - TAB_BAR_HEIGHT;
   const postsListRef = useRef(null);
@@ -569,6 +588,32 @@ export default function FeedScreen({ navigation, route }) {
     }
   }, [user?.id]);
 
+  // Main feed only. Re-checked on every focus (not cached with the feed) so
+  // the banner flips to "You voted" as soon as the user comes back from
+  // SotwVotingScreen.
+  const loadSotwVoteBanner = useCallback(async () => {
+    if (filter || profileFeedPosts || !isSotwVotingOpen()) {
+      setSotwVoteBanner(null);
+      return;
+    }
+    try {
+      const [nominees, myVote] = await Promise.all([getSotwNominees(), getSotwVote(user?.id)]);
+      setSotwVoteBanner(nominees.length > 0 ? { count: nominees.length, voted: Boolean(myVote) } : null);
+    } catch (err) {
+      console.error('Failed to load Shot of the Week voting state:', err);
+      setSotwVoteBanner(null);
+    }
+  }, [filter, profileFeedPosts, user?.id]);
+
+  useEffect(() => {
+    Promise.all([getSotwNomineeIds(), getShotOfWeekPostIds()])
+      .then(([nomineeIds, winnerIds]) => {
+        setSotwNomineeIds(nomineeIds);
+        setSotwWinnerIds(winnerIds);
+      })
+      .catch((err) => console.error('Failed to load Shot of the Week finalists:', err));
+  }, []);
+
   // Cache-aware entry point for the main feed — skips the Supabase round trip
   // entirely when the last real fetch is still within CACHE_DURATION, unless
   // forceRefresh is set (pull-to-refresh, logo tap, or a realtime new-post
@@ -632,7 +677,8 @@ export default function FeedScreen({ navigation, route }) {
     useCallback(() => {
       if (filter || profileFeedPosts) return;
       loadFeed();
-    }, [loadFeed, filter, profileFeedPosts])
+      loadSotwVoteBanner();
+    }, [loadFeed, loadSotwVoteBanner, filter, profileFeedPosts])
   );
 
   useEffect(() => {
@@ -1147,6 +1193,27 @@ export default function FeedScreen({ navigation, route }) {
         />
       )}
 
+      {sotwVoteBanner && (
+        <TouchableOpacity
+          style={styles.sotwVoteBanner}
+          onPress={() => navigation.navigate('SotwVoting')}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.sotwVoteBannerText} numberOfLines={2}>
+            {sotwVoteBanner.voted
+              ? '✓ You voted — see results'
+              : `🏆 ${sotwVoteBanner.count} finalists are up — Vote for Shot of the Week`}
+          </Text>
+          {sotwVoteBanner.voted ? (
+            <Ionicons name="chevron-forward" size={20} color={colors.gold} />
+          ) : (
+            <View style={styles.sotwVoteBannerButton}>
+              <Text style={styles.sotwVoteBannerButtonText}>Vote Now</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      )}
+
       <View
         style={styles.pagerContainer}
         onLayout={(e) => setMeasuredPagerHeight(Math.round(e.nativeEvent.layout.height))}
@@ -1193,6 +1260,9 @@ export default function FeedScreen({ navigation, route }) {
                   height={containerHeight}
                   isActive={item.id === activePostId && isFocused}
                   isShotOfWeek={item.isShotOfWeek}
+                  isSotwFinalist={
+                    sotwNomineeIds.has(String(item.id)) && !sotwWinnerIds.has(String(item.id))
+                  }
                   currentUserId={user?.id}
                   initiallyLiked={likedPostIds.has(item.id)}
                   initiallySaved={savedPostIds.has(item.id)}
@@ -1436,6 +1506,33 @@ const styles = StyleSheet.create({
   },
   pagerContainer: {
     flex: 1,
+  },
+  sotwVoteBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: colors.navyCard,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.gold,
+  },
+  sotwVoteBannerText: {
+    flex: 1,
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700',
+    marginRight: 10,
+  },
+  sotwVoteBannerButton: {
+    backgroundColor: colors.red,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  sotwVoteBannerButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '800',
   },
   emptyState: {
     alignItems: 'center',

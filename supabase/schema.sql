@@ -674,43 +674,8 @@ create policy "Shot of the week is viewable by everyone"
 -- calculate_shot_of_week() below (security definer), invoked by the
 -- pg_cron job — never directly by client requests.
 
--- Finds the post with the highest combined likes+comments+shares created
--- in the most recently completed week (Friday 04:00 UTC -> Friday 04:00
--- UTC, i.e. Thursday 11pm EST / midnight EDT) and pins it as that week's
--- Shot of the Week, ready for the all-day-Friday reveal in the app.
--- week_start is keyed to the UTC Friday the window opened.
-create or replace function public.calculate_shot_of_week()
-returns void as $$
-declare
-  window_end timestamptz := date_trunc('week', now()) + interval '4 days 4 hours';
-  window_start timestamptz;
-  winner_post_id uuid;
-  winner_week_start date;
-begin
-  if now() < window_end then
-    window_end := window_end - interval '7 days';
-  end if;
-  window_start := window_end - interval '7 days';
-  winner_week_start := window_start::date;
-
-  select id into winner_post_id
-  from public.posts
-  where created_at >= window_start and created_at < window_end
-  order by (likes_count + comments_count + shares_count) desc, created_at desc
-  limit 1;
-
-  -- Insert-only: every week's winner is kept forever (the profile trophy
-  -- badge reads all rows; the Feed reads the newest by created_at). If the
-  -- job re-runs for a week that already has a winner, leave it untouched
-  -- rather than overwriting it — that would strip the trophy from the
-  -- original winner.
-  if winner_post_id is not null then
-    insert into public.shot_of_week (post_id, week_start)
-    values (winner_post_id, winner_week_start)
-    on conflict (week_start) do nothing;
-  end if;
-end;
-$$ language plpgsql security definer;
+-- calculate_shot_of_week() is defined at the bottom of this file, in the
+-- Shot of the Week voting section (it also picks that week's nominees).
 
 -- Schedules the weekly run via pg_cron. This requires the pg_cron
 -- extension, which isn't enabled by default -- turn it on once via the
@@ -1258,3 +1223,158 @@ drop policy if exists "Signed-in users can add a custom course" on public.custom
 create policy "Signed-in users can add a custom course"
   on public.custom_courses for insert
   with check (auth.uid() = created_by);
+
+-- Shot of the Week voting. Each Friday, calculate_shot_of_week() still pins
+-- the top post by likes+comments+shares as a provisional winner, and it now
+-- also picks five nominees (ranked by likes + comments*2 + saves*3) that
+-- everyone can vote on. On Monday, calculate_sotw_winner_from_votes()
+-- replaces the provisional winner with whichever nominee got the most votes,
+-- or with the top nominee by engagement if nobody voted. week_start is the
+-- same key in all three tables: the UTC Friday the scoring window opened.
+create table if not exists public.sotw_nominees (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid references public.posts (id) on delete cascade,
+  week_start date not null,
+  created_at timestamptz default now()
+);
+
+-- Makes the Friday job safe to re-run: a post is nominated once per week.
+create unique index if not exists sotw_nominees_week_post_idx
+  on public.sotw_nominees (week_start, post_id);
+
+create table if not exists public.sotw_votes (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references public.profiles (user_id) on delete cascade,
+  post_id uuid references public.posts (id) on delete cascade,
+  week_start date not null,
+  created_at timestamptz default now(),
+  unique (user_id, week_start) -- one vote per user per week
+);
+
+create index if not exists sotw_votes_week_post_idx
+  on public.sotw_votes (week_start, post_id);
+
+alter table public.sotw_nominees enable row level security;
+alter table public.sotw_votes enable row level security;
+
+drop policy if exists "Signed-in users can view SOTW nominees" on public.sotw_nominees;
+create policy "Signed-in users can view SOTW nominees"
+  on public.sotw_nominees for select
+  to authenticated
+  using (true);
+
+drop policy if exists "Signed-in users can view SOTW votes" on public.sotw_votes;
+create policy "Signed-in users can view SOTW votes"
+  on public.sotw_votes for select
+  to authenticated
+  using (true);
+
+-- Users can only cast their own vote, and only for a post that's actually
+-- a nominee that week. No update or delete policy, so a vote is final.
+drop policy if exists "Users can cast their own SOTW vote" on public.sotw_votes;
+create policy "Users can cast their own SOTW vote"
+  on public.sotw_votes for insert
+  to authenticated
+  with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from public.sotw_nominees n
+      where n.post_id = sotw_votes.post_id
+        and n.week_start = sotw_votes.week_start
+    )
+  );
+
+-- Finds the post with the highest combined likes+comments+shares created
+-- in the most recently completed week (Friday 04:00 UTC -> Friday 04:00
+-- UTC, i.e. Thursday 11pm EST / midnight EDT) and pins it as that week's
+-- provisional Shot of the Week, then nominates that week's top five posts
+-- by likes + comments*2 + saves*3 for the vote. week_start is keyed to the
+-- UTC Friday the window opened.
+create or replace function public.calculate_shot_of_week()
+returns void as $$
+declare
+  window_end timestamptz := date_trunc('week', now()) + interval '4 days 4 hours';
+  window_start timestamptz;
+  winner_post_id uuid;
+  winner_week_start date;
+begin
+  if now() < window_end then
+    window_end := window_end - interval '7 days';
+  end if;
+  window_start := window_end - interval '7 days';
+  winner_week_start := window_start::date;
+
+  select id into winner_post_id
+  from public.posts
+  where created_at >= window_start and created_at < window_end
+  order by (likes_count + comments_count + shares_count) desc, created_at desc
+  limit 1;
+
+  -- Insert-only: if the job re-runs for a week that already has a winner,
+  -- leave it untouched. Monday's vote count is what replaces it.
+  if winner_post_id is not null then
+    insert into public.shot_of_week (post_id, week_start)
+    values (winner_post_id, winner_week_start)
+    on conflict (week_start) do nothing;
+  end if;
+
+  insert into public.sotw_nominees (post_id, week_start)
+  select id, winner_week_start
+  from public.posts
+  where created_at >= window_start and created_at < window_end
+  order by (likes_count + comments_count * 2 + saves_count * 3) desc, created_at desc
+  limit 5
+  on conflict (week_start, post_id) do nothing;
+end;
+$$ language plpgsql security definer;
+
+-- Runs Monday: counts the votes for the most recent week's nominees and
+-- makes the top-voted post that week's Shot of the Week, replacing the
+-- provisional Friday pick. Ties go to the nominee with more engagement. If
+-- nobody voted, the top nominee by engagement wins.
+create or replace function public.calculate_sotw_winner_from_votes()
+returns void as $$
+declare
+  target_week date;
+  winner_post_id uuid;
+begin
+  select max(week_start) into target_week from public.sotw_nominees;
+  if target_week is null then
+    return;
+  end if;
+
+  select n.post_id into winner_post_id
+  from public.sotw_nominees n
+  join public.posts p on p.id = n.post_id
+  left join public.sotw_votes v
+    on v.post_id = n.post_id and v.week_start = n.week_start
+  where n.week_start = target_week
+  group by n.post_id, p.likes_count, p.comments_count, p.saves_count, p.created_at
+  order by count(v.id) desc,
+    (p.likes_count + p.comments_count * 2 + p.saves_count * 3) desc,
+    p.created_at desc
+  limit 1;
+
+  if winner_post_id is not null then
+    insert into public.shot_of_week (post_id, week_start)
+    values (winner_post_id, target_week)
+    on conflict (week_start) do update set post_id = excluded.post_id;
+  end if;
+end;
+$$ language plpgsql security definer;
+
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    if exists (select 1 from cron.job where jobname = 'sotw-winner-from-votes') then
+      perform cron.unschedule('sotw-winner-from-votes');
+    end if;
+    perform cron.schedule(
+      'sotw-winner-from-votes',
+      '0 9 * * 1',
+      $cron$select public.calculate_sotw_winner_from_votes();$cron$
+    );
+  else
+    raise notice 'pg_cron extension not installed -- enable it (Database > Extensions) then re-run this block to schedule the Monday Shot of the Week vote count.';
+  end if;
+end $$;
