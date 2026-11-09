@@ -36,7 +36,7 @@ import {
 import { notifyFollowersOfScorecard } from '../services/notifications';
 import { useAuth } from '../context/AuthContext';
 import { compressImage } from '../utils/imageCompression';
-import { saveLocalUriToLibrary } from '../utils/saveMedia';
+import { saveLocalUriToLibrary, showPhotoPermissionAlert } from '../utils/saveMedia';
 
 export default function ScorecardScreen() {
   const { user, profile } = useAuth();
@@ -482,7 +482,7 @@ export default function ScorecardScreen() {
         await saveLocalUriToLibrary(shareImageUri);
       } catch (err) {
         if (err.message !== 'PERMISSION_DENIED') throw err;
-        Alert.alert('Permission needed', 'Please allow photo access in Settings.');
+        showPhotoPermissionAlert();
         return;
       }
       setShowShareModal(false);

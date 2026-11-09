@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import colors from '../../theme/colors';
-import { saveMediaToDevice } from '../../utils/saveMedia';
+import { saveMediaToDevice, showPhotoPermissionAlert } from '../../utils/saveMedia';
 
 const POST_LINK_BASE = 'https://saveitgolf.com/post';
 
@@ -42,11 +42,11 @@ export default function PostShareSheet({ visible, post, onClose, onToast, onShar
       onToast?.(isWeb ? 'Image downloaded' : 'Saved to Camera Roll');
     } catch (err) {
       console.error('Failed to save post media:', err);
-      onToast?.(
-        err.message === 'PERMISSION_DENIED'
-          ? 'Allow photo library access to save posts to your camera roll.'
-          : "Couldn't save this post. Please try again."
-      );
+      if (err.message === 'PERMISSION_DENIED') {
+        showPhotoPermissionAlert();
+      } else {
+        onToast?.("Couldn't save this post. Please try again.");
+      }
     } finally {
       setBusy(false);
       onClose();

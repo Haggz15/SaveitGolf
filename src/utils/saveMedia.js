@@ -1,4 +1,13 @@
-import { Platform } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
+
+// Shown wherever a camera-roll save hits PERMISSION_DENIED — the system
+// prompt won't appear again once declined, so Settings is the only way back.
+export function showPhotoPermissionAlert() {
+  Alert.alert('Photo Access Needed', 'Please allow photo library access in Settings to save videos.', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Open Settings', onPress: () => Linking.openSettings() },
+  ]);
+}
 
 // Shared by saveMediaToDevice and the scorecard share-card save: both end
 // up with a local file URI that just needs permission to write into the
@@ -11,15 +20,44 @@ export async function saveLocalUriToLibrary(uri) {
   // the class-based Asset/Album API.
   const MediaLibrary = require('expo-media-library');
 
-  const { status } = await MediaLibrary.requestPermissionsAsync();
-  if (status !== 'granted') {
+  let permission;
+  try {
+    permission = await MediaLibrary.requestPermissionsAsync();
+  } catch (err) {
+    console.error('Photo library permission request failed:', err);
     throw new Error('PERMISSION_DENIED');
   }
-  const album = await MediaLibrary.Album.get('SaveitGolf');
-  if (album) {
-    await MediaLibrary.Asset.create(uri, album);
-  } else {
-    await MediaLibrary.Album.create('SaveitGolf', [uri], false);
+  if (permission.status !== 'granted') {
+    throw new Error('PERMISSION_DENIED');
+  }
+
+  // On iOS, Album.get/Album.create need *full* library access — with
+  // "Limited" access the status is still 'granted' but every album call
+  // throws FailedToGrantPermissions. Asset.create only needs write access,
+  // so without full access (or if the album step fails for any other
+  // reason) save straight to the camera roll, outside the SaveitGolf album.
+  const hasFullAccess = Platform.OS !== 'ios' || permission.accessPrivileges === 'all';
+  if (hasFullAccess) {
+    try {
+      const album = await MediaLibrary.Album.get('SaveitGolf');
+      if (album) {
+        await MediaLibrary.Asset.create(uri, album);
+      } else {
+        await MediaLibrary.Album.create('SaveitGolf', [uri], false);
+      }
+      return;
+    } catch (err) {
+      console.warn('Saving into the SaveitGolf album failed, saving to camera roll instead:', err);
+    }
+  }
+
+  try {
+    await MediaLibrary.Asset.create(uri);
+  } catch (err) {
+    if (String(err?.code || err?.message || '').includes('FailedToGrantPermissions')) {
+      throw new Error('PERMISSION_DENIED');
+    }
+    throw err;
   }
 }
 

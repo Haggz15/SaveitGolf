@@ -15,7 +15,7 @@ import Toast from '../Toast';
 import { saveScorecardPhoto, setScorecardPhotoUrl, updateScorecardPhotoLayout } from '../../services/scorecards';
 import { compressImage } from '../../utils/imageCompression';
 import { useAuth } from '../../context/AuthContext';
-import { saveLocalUriToLibrary } from '../../utils/saveMedia';
+import { saveLocalUriToLibrary, showPhotoPermissionAlert } from '../../utils/saveMedia';
 
 const CAPTURE_ID = 'scorecard-detail-card';
 
@@ -348,7 +348,7 @@ export default function ScorecardDetailModal({ visible, scorecard, fullName, onC
         await saveLocalUriToLibrary(shareImageUri);
       } catch (err) {
         if (err.message !== 'PERMISSION_DENIED') throw err;
-        Alert.alert('Permission needed', 'Please allow photo access in Settings.');
+        showPhotoPermissionAlert();
         return;
       }
       setShowShareModal(false);

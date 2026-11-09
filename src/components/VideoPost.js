@@ -13,7 +13,7 @@ import colors from '../theme/colors';
 // `onTap.current`, which this component sets to its icon-flash animation.
 // Hold-to-2x works the same way: the slide owns the long-press and passes the
 // resulting `playbackRate` down.
-export default function VideoPost({ source, isActive, muted = false, setMuted, userPaused = false, onTap, playbackRate = 1 }) {
+export default function VideoPost({ source, isActive, isCurrent, muted = false, setMuted, userPaused = false, onTap, playbackRate = 1 }) {
   // Only the active (visible, focused) post may ever make sound. Every other
   // mounted video is forced muted regardless of the feed-wide sound toggle,
   // so a neighbouring slide can't leak audio before the user swipes to it.
@@ -59,6 +59,21 @@ export default function VideoPost({ source, isActive, muted = false, setMuted, u
       onTap.current = null;
     };
   }, [onTap, feedbackOpacity]);
+
+  // Scrolling back to a video starts it over rather than resuming where it
+  // was left. `isCurrent` is the scrolled-to slide regardless of screen
+  // focus, so coming back from a profile or another tab still resumes —
+  // only leaving the slide itself resets it. Declared before the play/pause
+  // effect so the seek lands before play() in the same commit. Callers that
+  // don't pass isCurrent (SotwVotingScreen) fall back to isActive.
+  const isShown = isCurrent ?? isActive;
+  const wasShownRef = useRef(isShown);
+  useEffect(() => {
+    if (isShown && !wasShownRef.current) {
+      player.currentTime = 0;
+    }
+    wasShownRef.current = isShown;
+  }, [isShown, player]);
 
   // Only the currently visible post should play. This keeps every other
   // mounted video paused so it isn't buffering or decoding in the background.

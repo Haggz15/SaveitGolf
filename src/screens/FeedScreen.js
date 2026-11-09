@@ -25,7 +25,7 @@ import CommentSheet from '../components/feed/CommentSheet';
 import NotificationPanel from '../components/feed/NotificationPanel';
 import PostActionsSheet from '../components/feed/PostActionsSheet';
 import ShotOfWeekBanner from '../components/feed/ShotOfWeekBanner';
-import MentionText from '../components/social/MentionText';
+import ExpandableCaption from '../components/social/ExpandableCaption';
 import PostWatermarkCapture, { stampPostMedia } from '../components/feed/PostWatermarkCapture';
 import Toast from '../components/Toast';
 import colors from '../theme/colors';
@@ -50,7 +50,7 @@ import {
   getSotwVote,
   isSotwVotingOpen,
 } from '../services/shotOfWeek';
-import { saveMediaToDevice, saveLocalUriToLibrary } from '../utils/saveMedia';
+import { saveMediaToDevice, saveLocalUriToLibrary, showPhotoPermissionAlert } from '../utils/saveMedia';
 import { toStateAbbreviation } from '../data/usStates';
 import { repostPost, undoRepost, getUserReposts, getFeedReposts } from '../services/reposts';
 
@@ -89,6 +89,7 @@ function PostSlide({
   post,
   height,
   isActive,
+  isCurrent,
   isShotOfWeek,
   isSotwFinalist,
   currentUserId,
@@ -299,11 +300,11 @@ function PostSlide({
         } catch (mediaErr) {
           console.error('Failed to save demo post media to camera roll:', mediaErr);
           setSaved(!next);
-          const message =
-            mediaErr.message === 'PERMISSION_DENIED'
-              ? 'Please allow photo access in Settings to save posts'
-              : mediaErr.message || 'Could not save to Camera Roll';
-          onToast?.(message, 'error');
+          if (mediaErr.message === 'PERMISSION_DENIED') {
+            showPhotoPermissionAlert();
+          } else {
+            onToast?.(mediaErr.message || 'Could not save to Camera Roll', 'error');
+          }
         } finally {
           setSavingMedia(false);
         }
@@ -331,11 +332,11 @@ function PostSlide({
             onToast?.('Saved to Camera Roll', 'success');
           } catch (mediaErr) {
             console.error('Failed to save media to camera roll:', mediaErr);
-            const message =
-              mediaErr.message === 'PERMISSION_DENIED'
-                ? 'Please allow photo access in Settings to save posts'
-                : mediaErr.message || 'Could not save to Camera Roll';
-            onToast?.(message, 'error');
+            if (mediaErr.message === 'PERMISSION_DENIED') {
+              showPhotoPermissionAlert();
+            } else {
+              onToast?.(mediaErr.message || 'Could not save to Camera Roll', 'error');
+            }
           } finally {
             setSavingMedia(false);
           }
@@ -368,6 +369,7 @@ function PostSlide({
             source={post.mediaUrl || post.video}
             mobileSource={post.videoMobile}
             isActive={isActive}
+            isCurrent={isCurrent}
             muted={isMuted}
             setMuted={setIsMuted}
             userPaused={userPaused}
@@ -526,13 +528,7 @@ function PostSlide({
             </TouchableOpacity>
             <Text style={styles.timeAgo}>{post.timeAgo}</Text>
           </View>
-          <MentionText
-            text={post.caption}
-            style={styles.caption}
-            numberOfLines={2}
-            ellipsizeMode="tail"
-            onMentionPress={onMentionPress}
-          />
+          <ExpandableCaption text={post.caption} style={styles.caption} onMentionPress={onMentionPress} />
         </View>
 
         {/* No state on the post (none entered, none from the API) → no
@@ -993,8 +989,19 @@ export default function FeedScreen({ navigation, route }) {
     // necessarily the first one — see FlatList's initialScrollIndex below,
     // which this keeps in sync with so the right slide starts active
     // (autoplaying video, etc.) before the user scrolls at all.
+    //
+    // Only falls back to that default when the active post has left the
+    // list. `posts` also changes for in-place updates (a like or repost
+    // bumping a count, a new comment, a load-more page), and resetting then
+    // made the slide on screen inactive, pausing its video for good. When a
+    // replacement does change what's on screen (refresh, sort), FlatList's
+    // onViewableItemsChanged fires for the new item and re-picks it.
     const startIndex = profileFeedPosts ? profileFeedStartIndex : 0;
-    setActivePostId(posts[startIndex]?.id ?? posts[0]?.id ?? null);
+    setActivePostId((prev) =>
+      prev != null && (prev === shotOfWeek?.id || posts.some((p) => p.id === prev))
+        ? prev
+        : posts[startIndex]?.id ?? posts[0]?.id ?? null
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts]);
 
@@ -1459,6 +1466,7 @@ export default function FeedScreen({ navigation, route }) {
                   post={item}
                   height={containerHeight}
                   isActive={item.id === activePostId && isFocused}
+                  isCurrent={item.id === activePostId}
                   isShotOfWeek={item.isShotOfWeek}
                   isSotwFinalist={
                     sotwNomineeIds.has(String(item.id)) && !sotwWinnerIds.has(String(item.id))
