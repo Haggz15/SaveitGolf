@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { toTitleCase } from '../utils/titleCase';
 import {
   View,
   Text,
@@ -737,7 +738,7 @@ export default function PostScreen({ navigation }) {
     // a separate course from everyone who picked the real one.
     let pickedCourse;
     if (manualCourseMode) {
-      const name = manualCourseName.trim();
+      const name = toTitleCase(manualCourseName.trim());
       if (!name || !manualCourseState) {
         Alert.alert('Add your course', 'Enter the course name and pick its state.');
         return;

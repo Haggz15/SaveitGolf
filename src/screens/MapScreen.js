@@ -32,6 +32,8 @@ import { testApiKey, testApiCall } from '../services/golfCourseApi';
 import { useAuth } from '../context/AuthContext';
 import { addSearchedCourse, addManualCourse } from '../services/myCourses';
 import { filterCoursesWithValidCoordinates } from '../utils/mapCoords';
+import { toTitleCase } from '../utils/titleCase';
+import { isCustomCourseId } from '../services/customCourses';
 
 const ZOOM_MIN_DELTA = 0.01;
 const ZOOM_MAX_DELTA = MAX_MAP_DELTA;
@@ -104,7 +106,7 @@ function FeedFocusMarker({ pin, onPress }) {
         <Ionicons name="flag" size={FEED_FOCUS_ICON_SIZE} color={colors.red} />
         <View style={styles.feedFocusLabel}>
           <Text style={styles.feedFocusLabelText} numberOfLines={1}>
-            {pin.name}
+            {!pin.courseId || isCustomCourseId(pin.courseId) ? toTitleCase(pin.name) : pin.name}
           </Text>
         </View>
       </View>

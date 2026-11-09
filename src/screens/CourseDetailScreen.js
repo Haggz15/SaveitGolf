@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import colors from '../theme/colors';
 import { getCourseById, getClubNines, getMainEighteenNines } from '../services/golfCourseApi';
 import { isCustomCourseId } from '../services/customCourses';
+import { toTitleCase } from '../utils/titleCase';
 import {
   findCourseIdByName,
   getCourseHoleStats,
@@ -731,7 +732,7 @@ export default function CourseDetailScreen({ route, navigation }) {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <LinearGradient colors={[colors.navy, '#060e1a']} style={styles.hero}>
           <Text style={styles.courseName} numberOfLines={2}>
-            {courseName ?? 'Course'}
+            {(isCustomCourse ? toTitleCase(courseName) : courseName) ?? 'Course'}
           </Text>
           {hasPin || locationLabel ? (
             <TouchableOpacity style={styles.viewOnMapButton} onPress={handleViewOnMap} activeOpacity={0.8}>

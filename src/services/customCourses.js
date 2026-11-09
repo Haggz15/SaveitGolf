@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { escapeIlike } from '../utils/ilike';
+import { toTitleCase } from '../utils/titleCase';
 
 // Courses golfcourseapi.com doesn't have, added through "My course isn't
 // listed" on the post screen. Their uuid is stored as posts.course_id just
@@ -18,7 +19,8 @@ export function isCustomCourseId(id) {
 function mapRow(row) {
   return {
     id: row.id,
-    name: row.name,
+    // Older rows were saved as typed; always show them title-cased.
+    name: toTitleCase(row.name),
     city: row.city ?? null,
     state: row.state ?? null,
     lat: null,
@@ -57,7 +59,9 @@ async function findCustomCourse({ name, city, state }) {
 // id. The unique index backs this up when both submit at the same moment:
 // the loser's insert fails with 23505 and it re-reads the winner's row.
 export async function findOrCreateCustomCourse({ name, city, state, userId }) {
-  const course = { name: name.trim(), city: city?.trim() || null, state };
+  // Title-cased so hand-typed names look consistent. The lookup below
+  // ignores case, so an existing row with other casing is still reused.
+  const course = { name: toTitleCase(name.trim()), city: city?.trim() || null, state };
   const existing = await findCustomCourse(course);
   if (existing) return existing;
 

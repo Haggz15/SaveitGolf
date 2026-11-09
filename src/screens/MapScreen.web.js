@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toTitleCase } from '../utils/titleCase';
+import { isCustomCourseId } from '../services/customCourses';
 import { View, Text, StyleSheet, TouchableOpacity, Switch, Linking } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { MapContainer, TileLayer, Marker, CircleMarker, Tooltip, useMapEvents } from 'react-leaflet';
@@ -486,7 +488,9 @@ export default function MapScreen({ navigation, route }) {
               <SilentMarkerBoundary>
                 <Marker position={[feedFocusPin.lat, feedFocusPin.lng]} icon={feedFocusIcon} zIndexOffset={1500}>
                   <Tooltip permanent direction="top" offset={[0, -FEED_FOCUS_PIN_SIZE + 4]} className="saveitgolf-feed-focus-tooltip">
-                    {feedFocusPin.name}
+                    {!feedFocusPin.courseId || isCustomCourseId(feedFocusPin.courseId)
+                      ? toTitleCase(feedFocusPin.name)
+                      : feedFocusPin.name}
                   </Tooltip>
                 </Marker>
               </SilentMarkerBoundary>

@@ -4,6 +4,7 @@ import { escapeIlike } from '../utils/ilike';
 import { getCourseLocation } from './courseLocations';
 import { geocodeCourseCoordinates } from './geocoding';
 import { submitNewCourse } from './golfCourseApi';
+import { toTitleCase } from '../utils/titleCase';
 
 function mapRow(row) {
   return {
@@ -152,7 +153,9 @@ export async function addSearchedCourse(userId, course) {
 // in themselves. The my_courses save is awaited normally; submitting the
 // course to golfcourseapi.com so it's findable for everyone else is fired
 // off alongside it and never blocks or surfaces its own errors.
-export async function addManualCourse(userId, { name, city, state }) {
+export async function addManualCourse(userId, { name: typedName, city, state }) {
+  // Hand-typed names are title-cased before they're saved anywhere.
+  const name = toTitleCase(typedName);
   // Same as addSearchedCourse: geocoding failure must never block the save.
   const coords = await geocodeCourseCoordinates({
     id: `manual-${name}-${city}-${state}`,
