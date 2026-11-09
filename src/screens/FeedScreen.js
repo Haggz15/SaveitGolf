@@ -49,6 +49,7 @@ import {
   isSotwVotingOpen,
 } from '../services/shotOfWeek';
 import { saveMediaToDevice, saveLocalUriToLibrary } from '../utils/saveMedia';
+import { toStateAbbreviation } from '../data/usStates';
 
 function PostSlide({
   post,
@@ -419,7 +420,7 @@ function PostSlide({
             onPress={() => onStatePress(post)}
             activeOpacity={0.7}
           >
-            <Text style={styles.stateBadgeText}>{post.state}</Text>
+            <Text style={styles.stateBadgeText}>{toStateAbbreviation(post.state)}</Text>
           </TouchableOpacity>
         ) : null}
       </View>

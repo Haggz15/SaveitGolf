@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { toStateAbbreviation } from '../data/usStates';
 import { isCustomCourseId } from './customCourses';
 import { resolveMentionedUserIds } from './mentions';
 import { createNotification } from './notifications';
@@ -101,7 +102,8 @@ export async function createPost({
       course_id: course?.id ?? null,
       course_name: course?.name ?? 'Unknown course',
       city: course?.city ?? null,
-      state: course?.state ?? null,
+      // Saved as the 2-letter code so post data stays consistent.
+      state: toStateAbbreviation(course?.state),
       lat: course?.lat ?? null,
       lng: course?.lng ?? null,
       hole: hole ?? null,
@@ -158,7 +160,8 @@ export function mapRow(row) {
     course: row.course_name,
     courseId: row.course_id,
     city: row.city,
-    state: row.state,
+    // Older posts may have the full state name saved — show the code.
+    state: toStateAbbreviation(row.state),
     lat: row.lat,
     lng: row.lng,
     hole: row.hole,
