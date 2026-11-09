@@ -55,20 +55,28 @@ import { toStateAbbreviation } from '../data/usStates';
 import { repostPost, undoRepost, getUserReposts, getFeedReposts } from '../services/reposts';
 
 // Merges a page of original posts and a page of reposts onto the feed.
-// A post shows once: an original beats a repost of it, the newest repost
-// beats older ones, and anything already in the feed is skipped. Reposts
-// sort by when they were reposted, originals by when they were posted.
+// A post shows once, and a repost beats the original, so followers who also
+// follow the original author still see the "X reposted" label. The newest
+// repost beats older ones (getFeedReposts returns newest first). If the
+// original is already on screen from an earlier page, it's swapped in place
+// for the repost; anything else already in the feed is skipped. Reposts sort
+// by when they were reposted, originals by when they were posted.
 function mergeFeedPage(existing, originals, reposts) {
-  const seen = new Set(existing.map((p) => p.id));
-  const added = [];
-  for (const post of [...originals, ...reposts]) {
-    if (seen.has(post.id)) continue;
-    seen.add(post.id);
-    added.push(post);
+  const incoming = new Map();
+  for (const post of [...reposts, ...originals]) {
+    if (!incoming.has(post.id)) incoming.set(post.id, post);
   }
+
+  const existingIds = new Set(existing.map((p) => p.id));
+  const updated = existing.map((p) => {
+    const repost = incoming.get(p.id);
+    return repost?.isRepost && !p.isRepost ? repost : p;
+  });
+
+  const added = [...incoming.values()].filter((p) => !existingIds.has(p.id));
   const sortTime = (p) => new Date(p.repostedAt ?? p.createdAt).getTime();
   added.sort((a, b) => sortTime(b) - sortTime(a));
-  return [...existing, ...added];
+  return [...updated, ...added];
 }
 
 // Drops reposts made by, or of posts from, anyone the user has blocked.
