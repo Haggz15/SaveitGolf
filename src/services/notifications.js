@@ -97,24 +97,6 @@ export async function getUnreadNotificationCount(userId) {
   return count ?? 0;
 }
 
-// The notification types that badge the Profile tab: activity on the
-// user's own posts and comments. Follows (and new_post/new_scorecard/etc.)
-// still appear in the bell's notification panel, but don't badge the tab.
-export const PROFILE_BADGE_TYPES = ['like', 'comment', 'mention'];
-
-export async function getUnreadProfileBadgeCount(userId) {
-  if (!userId) return 0;
-  const { count, error } = await supabase
-    .from('notifications')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .in('type', PROFILE_BADGE_TYPES)
-    .eq('read', false);
-
-  if (error) throw error;
-  return count ?? 0;
-}
-
 // Fires a notification for `userId` describing something `actorId` did.
 // Silently skipped when acting on your own post/comment — nobody needs to
 // be notified that they liked their own post.

@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import colors from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
-import { useNotifications } from '../context/NotificationsContext';
 import FeedScreen from '../screens/FeedScreen';
 import MapScreen from '../screens/MapScreen';
 import PostScreen from '../screens/PostScreen';
@@ -65,10 +64,8 @@ function CenterPostButton({ onPress }) {
 }
 
 function Tabs() {
-  // Profile tab badge counts unread likes, comments and mentions only —
-  // follows show in the bell's panel but don't badge the tab (see
-  // PROFILE_BADGE_TYPES in services/notifications.js).
-  const { profileBadgeCount } = useNotifications();
+  // No tab shows an unread count — notifications only appear in the bell's
+  // panel on the Following feed (see NotificationsContext).
   const insets = useSafeAreaInsets();
   // iPad's home indicator inset differs from an iPhone's — a hardcoded
   // paddingBottom either clips the bar's content or leaves a dead gap below
@@ -94,7 +91,6 @@ function Tabs() {
           fontSize: 11,
           fontWeight: '600',
         },
-        tabBarBadgeStyle: styles.tabBarBadge,
         tabBarIcon: ({ focused, color, size }) => {
           const iconSet = focused ? TAB_ICONS_FOCUSED : TAB_ICONS;
           return <Ionicons name={iconSet[route.name]} size={size ?? 22} color={color} />;
@@ -113,13 +109,7 @@ function Tabs() {
         }}
       />
       <Tab.Screen name="Scorecard" component={ScorecardScreen} />
-      <Tab.Screen
-        name="Profile"
-        component={ProfileScreen}
-        options={{
-          tabBarBadge: profileBadgeCount > 0 ? (profileBadgeCount > 99 ? '99+' : profileBadgeCount) : undefined,
-        }}
-      />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
 }
@@ -182,12 +172,6 @@ export default function RootNavigator() {
 }
 
 const styles = StyleSheet.create({
-  tabBarBadge: {
-    backgroundColor: '#c0001a',
-    color: colors.white,
-    fontSize: 10,
-    fontWeight: '700',
-  },
   loadingScreen: {
     flex: 1,
     alignItems: 'center',
