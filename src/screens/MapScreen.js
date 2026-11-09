@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Platform, TouchableOpacity, Switch, Linking, FlatList } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity, Switch, Linking, FlatList, LayoutAnimation } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -137,6 +137,7 @@ export default function MapScreen({ navigation, route }) {
   const [courseSearchFocused, setCourseSearchFocused] = useState(false);
   const [addCourseVisible, setAddCourseVisible] = useState(false);
   const [courseListHidden, setCourseListHidden] = useState(false);
+  const [friendQueryActive, setFriendQueryActive] = useState(false);
   const playedEmptyToastShownRef = useRef(false);
   const {
     region,
@@ -309,6 +310,53 @@ export default function MapScreen({ navigation, route }) {
     );
   };
 
+  // The header collapses to just the active search bar while either search
+  // has text or a friend's courses are showing, giving the map more room;
+  // at rest it shows both bars, the request-a-course banner and the filter
+  // pills. Each state change that can flip it is wrapped so LayoutAnimation
+  // is configured before the update, animating the collapse/expand.
+  const courseQueryActive = searchQuery.length > 0;
+  const headerCollapsed = courseQueryActive || friendQueryActive || !!friendFilter;
+  const showCourseSearch = !headerCollapsed || courseQueryActive;
+  const showFriendSearch = !courseSearchFocused && (!headerCollapsed || (!courseQueryActive && (friendQueryActive || !!friendFilter)));
+
+  const animateHeader = () => LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+
+  const handleCourseQueryChange = (text) => {
+    if ((text.length > 0) !== courseQueryActive) animateHeader();
+    handleSearchQueryChange(text);
+  };
+
+  const handleClearCourseSearch = () => {
+    if (courseQueryActive) animateHeader();
+    clearSearch();
+  };
+
+  const handleSelectCourseResult = (course) => {
+    if (courseQueryActive) animateHeader();
+    handleSelectSearchResult(course);
+  };
+
+  const handleStateMarkerPress = (abbr) => {
+    if (courseQueryActive) animateHeader();
+    handleSelectStateMarker(abbr);
+  };
+
+  const handleFriendQueryActiveChange = (active) => {
+    animateHeader();
+    setFriendQueryActive(active);
+  };
+
+  const handleSelectFriend = (profile) => {
+    animateHeader();
+    loadFriendCourses(profile);
+  };
+
+  const handleClearFriendFilter = () => {
+    animateHeader();
+    clearFriendFilter();
+  };
+
   const handleRequestCourse = () => {
     const email = 'saveitgolfapp@gmail.com';
     const subject = 'Course Request';
@@ -321,24 +369,31 @@ export default function MapScreen({ navigation, route }) {
   return (
     <View style={styles.screen}>
       <Header />
-      {/* Always rendered immediately on mount — no zoom-level gating, no
-          loading state — so the search bar is never hidden behind the
-          Level 1 full-US pin view (see Fix 1). */}
-      <CourseSearchBar
-        query={searchQuery}
-        onChangeQuery={handleSearchQueryChange}
-        onClear={clearSearch}
-        results={searchResults}
-        searching={searching}
-        onSelectResult={handleSelectSearchResult}
-        placeholder="Search for a course"
-        onFocus={() => setCourseSearchFocused(true)}
-        onBlur={() => setCourseSearchFocused(false)}
-      />
-      {!courseSearchFocused && (
-        <FriendSearchBar currentUserId={user?.id} onSelectFriend={loadFriendCourses} />
+      {/* Rendered immediately on mount — no zoom-level gating, no loading
+          state — so the search bar is never hidden behind the Level 1
+          full-US pin view (see Fix 1). Only hidden while the header is
+          collapsed around the friend search (see headerCollapsed). */}
+      {showCourseSearch && (
+        <CourseSearchBar
+          query={searchQuery}
+          onChangeQuery={handleCourseQueryChange}
+          onClear={handleClearCourseSearch}
+          results={searchResults}
+          searching={searching}
+          onSelectResult={handleSelectCourseResult}
+          placeholder="Search for a course"
+          onFocus={() => setCourseSearchFocused(true)}
+          onBlur={() => setCourseSearchFocused(false)}
+        />
       )}
-      {zoomLevel !== ZOOM_LEVEL.COUNTRY && (
+      {showFriendSearch && (
+        <FriendSearchBar
+          currentUserId={user?.id}
+          onSelectFriend={handleSelectFriend}
+          onActiveChange={handleFriendQueryActiveChange}
+        />
+      )}
+      {!headerCollapsed && zoomLevel !== ZOOM_LEVEL.COUNTRY && (
         <TouchableOpacity onPress={handleRequestCourse} style={styles.requestCourseButton}>
           <Text style={styles.requestCourseIcon}>⛳</Text>
           <Text style={styles.requestCourseText}>
@@ -347,19 +402,21 @@ export default function MapScreen({ navigation, route }) {
           </Text>
         </TouchableOpacity>
       )}
-      <FilterPills
-        value={filter}
-        onChange={(next) => {
-          if (next === MAP_FILTERS.NEAR) {
-            setCourseListHidden(false);
-            selectNearMe();
-          } else {
-            setFilter(next);
-          }
-        }}
-        nearMeCount={nearMeCount}
-        nearMeLoading={nearMeLoading}
-      />
+      {!headerCollapsed && (
+        <FilterPills
+          value={filter}
+          onChange={(next) => {
+            if (next === MAP_FILTERS.NEAR) {
+              setCourseListHidden(false);
+              selectNearMe();
+            } else {
+              setFilter(next);
+            }
+          }}
+          nearMeCount={nearMeCount}
+          nearMeLoading={nearMeLoading}
+        />
+      )}
 
       {friendFilter && (
         <View style={styles.friendBanner}>
@@ -380,7 +437,7 @@ export default function MapScreen({ navigation, route }) {
               thumbColor={colors.white}
             />
           </View>
-          <TouchableOpacity onPress={clearFriendFilter} style={styles.friendBannerClear}>
+          <TouchableOpacity onPress={handleClearFriendFilter} style={styles.friendBannerClear}>
             <Text style={styles.friendBannerClearText}>Clear</Text>
           </TouchableOpacity>
         </View>
@@ -429,7 +486,7 @@ export default function MapScreen({ navigation, route }) {
               zoomLevel === ZOOM_LEVEL.COUNTRY &&
               stateMarkers.map((state) => (
                 <SilentMarkerBoundary key={state.abbr}>
-                  <StateMarker state={state} onPress={guard(handleSelectStateMarker)} />
+                  <StateMarker state={state} onPress={guard(handleStateMarkerPress)} />
                 </SilentMarkerBoundary>
               ))}
             {markerCourses.map((course) => (

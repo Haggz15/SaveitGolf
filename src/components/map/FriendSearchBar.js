@@ -6,14 +6,21 @@ import { searchProfilesByUsernamePrefix } from '../../services/social';
 
 const SEARCH_DEBOUNCE_MS = 350;
 
-export default function FriendSearchBar({ currentUserId, onSelectFriend }) {
+// `onActiveChange(isActive)` fires only when the input flips between empty
+// and non-empty, so MapScreen can collapse/expand its header around it.
+export default function FriendSearchBar({ currentUserId, onSelectFriend, onActiveChange }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef(null);
 
-  const handleChangeQuery = (text) => {
+  const updateQuery = (text) => {
+    if ((text.length > 0) !== (query.length > 0)) onActiveChange?.(text.length > 0);
     setQuery(text);
+  };
+
+  const handleChangeQuery = (text) => {
+    updateQuery(text);
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     const trimmed = text.trim();
@@ -38,7 +45,7 @@ export default function FriendSearchBar({ currentUserId, onSelectFriend }) {
   };
 
   const clearQuery = () => {
-    setQuery('');
+    updateQuery('');
     setResults([]);
     setSearching(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
