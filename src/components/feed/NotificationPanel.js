@@ -146,6 +146,11 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
                         <Ionicons name="bookmark" size={10} color={colors.white} />
                       </View>
                     )}
+                    {item.type === 'sotw' && (
+                      <View style={[styles.typeBadge, styles.typeBadgeSotw]}>
+                        <Text style={styles.typeBadgeEmoji}>🏆</Text>
+                      </View>
+                    )}
                     {item.type === 'repost' && (
                       <View style={[styles.typeBadge, styles.typeBadgeRepost]}>
                         <Ionicons name="repeat" size={11} color={colors.white} />
@@ -159,10 +164,19 @@ export default function NotificationPanel({ visible, onClose, userId, onPressNot
                   >
                     <View style={styles.rowBody}>
                       <Text style={styles.rowText} numberOfLines={3}>
-                        <Text style={styles.rowUsername} onPress={() => handlePressActor(item)} suppressHighlighting>
-                          {item.actorUsername}
-                        </Text>
-                        <Text style={styles.rowMessage}> {item.actionText}</Text>
+                        {item.type === 'sotw' ? (
+                          <>
+                            <Text style={styles.rowUsername}>🏆 Shot of the Week!</Text>
+                            <Text style={styles.rowMessage}> {item.actionText}</Text>
+                          </>
+                        ) : (
+                          <>
+                            <Text style={styles.rowUsername} onPress={() => handlePressActor(item)} suppressHighlighting>
+                              {item.actorUsername}
+                            </Text>
+                            <Text style={styles.rowMessage}> {item.actionText}</Text>
+                          </>
+                        )}
                       </Text>
                     </View>
                     <View style={styles.rowRight}>
@@ -264,6 +278,12 @@ const styles = StyleSheet.create({
   },
   typeBadgeRepost: {
     backgroundColor: colors.green,
+  },
+  typeBadgeSotw: {
+    backgroundColor: colors.gold,
+  },
+  typeBadgeEmoji: {
+    fontSize: 9,
   },
   typeBadge: {
     position: 'absolute',

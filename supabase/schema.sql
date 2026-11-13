@@ -1357,15 +1357,34 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- Runs Monday: counts the votes for the most recent week's nominees and
--- makes the top-voted post that week's Shot of the Week, replacing the
--- provisional Friday pick. Ties go to the nominee with more engagement. If
--- nobody voted, the top nominee by engagement wins.
+-- Shot of the Week winner notifications: an in-app row (type 'sotw') in the
+-- winner's notification bell, plus an Expo push sent from the database via
+-- pg_net. actor_id is the winner themselves (the column is required and
+-- there's no "system" user).
+alter table public.notifications drop constraint if exists notifications_type_check;
+alter table public.notifications add constraint notifications_type_check
+  check (type in ('like', 'comment', 'share', 'mention', 'new_post', 'new_scorecard', 'tag', 'follow', 'save', 'repost', 'sotw'));
+
+create extension if not exists pg_net;
+
+-- Runs Monday at 09:00 UTC: counts the votes in sotw_votes for the most
+-- recent (non-test) week's nominees and makes the top-voted post that week's
+-- Shot of the Week, replacing the provisional Friday pick. Ties go to the
+-- nominee with more engagement. If nobody voted, the top nominee by
+-- engagement wins. The app pins the winner to the top of everyone's feed all
+-- day Monday; its trophy badge stays on the profile grid permanently.
+--
+-- Then notifies the winner's creator once per week (re-runs don't repeat
+-- it): an in-app notification row, and an Expo push to profiles.push_token.
+-- A failed push never undoes the winner.
 create or replace function public.calculate_sotw_winner_from_votes()
 returns void as $$
 declare
   target_week date;
   winner_post_id uuid;
+  winner_user_id uuid;
+  winner_token text;
+  notified boolean;
 begin
   select max(week_start) into target_week from public.sotw_nominees where not is_test;
   if target_week is null then
@@ -1385,10 +1404,48 @@ begin
     p.created_at desc
   limit 1;
 
-  if winner_post_id is not null then
-    insert into public.shot_of_week (post_id, week_start)
-    values (winner_post_id, target_week)
-    on conflict (week_start) do update set post_id = excluded.post_id;
+  if winner_post_id is null then
+    return;
+  end if;
+
+  insert into public.shot_of_week (post_id, week_start)
+  values (winner_post_id, target_week)
+  on conflict (week_start) do update set post_id = excluded.post_id;
+
+  select user_id into winner_user_id from public.posts where id = winner_post_id;
+  if winner_user_id is null then
+    return;
+  end if;
+
+  select exists (
+    select 1 from public.notifications
+    where type = 'sotw' and post_id = winner_post_id
+  ) into notified;
+  if notified then
+    return;
+  end if;
+
+  insert into public.notifications (user_id, actor_id, type, post_id)
+  values (winner_user_id, winner_user_id, 'sotw', winner_post_id);
+
+  select push_token into winner_token from public.profiles where user_id = winner_user_id;
+  if winner_token is not null and winner_token <> '' then
+    begin
+      perform net.http_post(
+        url := 'https://exp.host/--/api/v2/push/send',
+        body := jsonb_build_object(
+          'to', winner_token,
+          'title', '🏆 Shot of the Week!',
+          'body', 'Your post won Shot of the Week this week. Congrats!',
+          'sound', 'default',
+          'badge', 1,
+          'data', jsonb_build_object('type', 'sotw', 'postId', winner_post_id)
+        ),
+        headers := jsonb_build_object('Accept', 'application/json', 'Content-Type', 'application/json')
+      );
+    exception when others then
+      raise warning 'Shot of the Week push failed: %', sqlerrm;
+    end;
   end if;
 end;
 $$ language plpgsql security definer;

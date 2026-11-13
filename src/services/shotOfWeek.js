@@ -19,6 +19,11 @@ export function isSotwWeekFinal(weekStart, now = Date.now()) {
   return now >= weekStartMs(weekStart) + 10 * DAY_MS + 9 * HOUR_MS;
 }
 
+// When a week's winner was decided: the Monday 09:00 UTC vote count.
+function sotwWeekFinalMs(weekStart) {
+  return weekStartMs(weekStart) + 10 * DAY_MS + 9 * HOUR_MS;
+}
+
 // Voting runs all of Friday through Sunday 11:59pm, in the viewer's local time.
 export function isSotwVotingOpen(now = new Date()) {
   const day = now.getDay();
@@ -198,9 +203,9 @@ export async function getSotwVoteCounts() {
 // posts), and reposts live in their own public.reposts table, so a repost
 // can't be nominated or win and reposts_count isn't in either formula.
 //
-// The current Shot of the Week, computed server-side by
-// calculate_shot_of_week() (see supabase/schema.sql) and pinned to the top
-// of the Feed pill until it's replaced the following Friday. Two queries
+// The current Shot of the Week, decided server-side on Monday by
+// calculate_sotw_winner_from_votes() (see supabase/schema.sql) and pinned to
+// the top of the Feed pill all day that Monday. Two queries
 // (pointer row, then the post itself) rather than one embedded select so a
 // post that's since been deleted (FK is `on delete cascade`, so this can't
 // actually dangle, but a moderation-hidden post still counts) fails the
@@ -236,6 +241,10 @@ export async function getCurrentShotOfWeek() {
   if (shotError) throw shotError;
   const shotData = (shotRows ?? []).find((r) => isSotwWeekFinal(r.week_start));
   if (!shotData?.post_id) return null;
+  // The feed only pins the winner on the Monday it's decided. Early Monday
+  // (before the 09:00 UTC count) the newest final row is last week's, so
+  // skip anything decided more than two days ago rather than re-pin it.
+  if (Date.now() - sotwWeekFinalMs(shotData.week_start) > 2 * DAY_MS) return null;
 
   const { data: post, error: postError } = await supabase
     .from('posts')

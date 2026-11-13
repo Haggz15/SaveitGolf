@@ -23,6 +23,7 @@ const ACTION_TEXT = {
   follow: 'started following you',
   new_post: 'just posted a new shot',
   new_scorecard: 'just shot their score',
+  sotw: 'Your post won Shot of the Week this week. Congrats!',
 };
 
 function actionTextFor(row) {

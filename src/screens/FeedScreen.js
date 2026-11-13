@@ -539,11 +539,11 @@ function PostSlide({
               activeOpacity={0.8}
               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
-              <Text style={[styles.sotwVoteButtonText, styles.sotwVotedButtonText]}>✓ Voted — Change Vote</Text>
+              <Text style={[styles.sotwVoteButtonText, styles.sotwVotedButtonText]}>Voted</Text>
             </TouchableOpacity>
           ) : sotwVoteState === 'busy' ? (
             <View style={[styles.sotwVoteButton, styles.sotwVotedButton]}>
-              <ActivityIndicator size="small" color="#d4af37" />
+              <ActivityIndicator size="small" color="#fff" />
             </View>
           ) : null}
           <View style={styles.avatarRow}>
@@ -578,11 +578,12 @@ function PostSlide({
 
 const COURSE_FEED_PAGE_SIZE = 10;
 
-// Shot of the Week's winning post is computed and stored server-side all
-// week (see calculate_shot_of_week() in supabase/schema.sql) — this just
-// gates when the pinned banner is actually shown: all day Friday, local time.
+// The winning post is decided server-side on Monday at 09:00 UTC (see
+// calculate_sotw_winner_from_votes() in supabase/schema.sql) — this gates
+// when it's pinned to the top of the feed: all day Monday, local time. From
+// Tuesday the feed is back to normal; the trophy stays on the profile grid.
 function isShotOfWeekTime() {
-  return new Date().getDay() === 5;
+  return new Date().getDay() === 1;
 }
 
 export default function FeedScreen({ navigation, route }) {
@@ -817,7 +818,9 @@ export default function FeedScreen({ navigation, route }) {
     async (postId) => {
       if (!user?.id || sotwVotingPostId) return;
       const previous = sotwVotedPostId;
-      // A first vote unpins the finalists (see displayedPosts), so the list
+      const wasChanging = sotwChangingVote;
+      // The finalists are pinned while the user hasn't voted or is changing
+      // their vote, and voting unpins them (see displayedPosts), so the list
       // reflows under the user. Keep the post they just voted on on screen if
       // it's in their normal feed, otherwise go to the top of the feed.
       const jumpTo = (list) => {
@@ -831,14 +834,16 @@ export default function FeedScreen({ navigation, route }) {
       setSotwVotingPostId(String(postId));
       setSotwVotedPostId(String(postId));
       setSotwChangingVote(false);
-      if (!previous) jumpTo(posts);
+      const wasPinned = !previous || wasChanging;
+      if (wasPinned) jumpTo(posts);
       try {
         await castSotwVote(user.id, postId);
         setSotwVoteBanner((prev) => (prev ? { ...prev, voted: true } : prev));
       } catch (err) {
         setSotwVotedPostId(previous);
+        setSotwChangingVote(wasChanging);
         // The finalists are pinned again — go back to the one they tapped.
-        if (!previous) jumpTo(sotwFinalists);
+        if (wasPinned) jumpTo(sotwFinalists);
         if (err?.code === 'SOTW_VOTING_CLOSED') {
           showToast(err.message);
         } else {
@@ -850,7 +855,7 @@ export default function FeedScreen({ navigation, route }) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user?.id, sotwVotingPostId, sotwVotedPostId, posts, sotwFinalists]
+    [user?.id, sotwVotingPostId, sotwVotedPostId, sotwChangingVote, posts, sotwFinalists]
   );
 
   useEffect(() => {
@@ -977,12 +982,13 @@ export default function FeedScreen({ navigation, route }) {
       nextMidnight.setHours(24, 0, 1, 0);
       timer = setTimeout(() => {
         loadSotwVoteBanner();
+        loadShotOfWeek();
         scheduleNext();
       }, nextMidnight.getTime() - Date.now());
     };
     scheduleNext();
     return () => clearTimeout(timer);
-  }, [loadSotwVoteBanner, filter, profileFeedPosts]);
+  }, [loadSotwVoteBanner, loadShotOfWeek, filter, profileFeedPosts]);
 
   useEffect(() => {
     if (filter || profileFeedPosts) return; // main feed tab only
@@ -1403,16 +1409,17 @@ export default function FeedScreen({ navigation, route }) {
   // pass-through there.
   //
   // During Shot of the Week voting (Friday 12am – Sunday 11:59pm) the
-  // previous winner is never pinned. Until the user votes, the five
-  // finalists take that spot instead: most-liked first, then the normal feed
-  // with those posts removed. Once they've voted (or if the finalists haven't
-  // loaded) it's just the normal feed, where finalists sit in their usual
+  // previous winner is never pinned. Until the user votes (or while they're
+  // changing their vote), the five finalists take that spot instead:
+  // most-liked first, then the normal feed with those posts removed. Once
+  // they've voted (or if the finalists haven't loaded) it's just the normal
+  // feed, where finalists sit in their usual
   // place and the voting banner scrolls to them. A finalist that's also in
   // `posts` keeps its fresher in-feed copy (live counts, repost label). The
-  // winner is pinned again from Monday.
+  // winner is pinned all day Monday.
   const displayedPosts = useMemo(() => {
     if (sotwVotingActive || sotwFinalists.length) {
-      if (sotwVotedPostId || !sotwFinalists.length) return posts;
+      if ((sotwVotedPostId && !sotwChangingVote) || !sotwFinalists.length) return posts;
       const finalistIds = new Set(sotwFinalists.map((p) => p.id));
       const inFeed = new Map(posts.filter((p) => finalistIds.has(p.id)).map((p) => [p.id, p]));
       return [
@@ -1422,32 +1429,52 @@ export default function FeedScreen({ navigation, route }) {
     }
     if (!shotOfWeek) return posts;
     return [{ ...shotOfWeek, isShotOfWeek: true }, ...posts.filter((p) => p.id !== shotOfWeek.id)];
-  }, [posts, shotOfWeek, sotwFinalists, sotwVotingActive, sotwVotedPostId]);
+  }, [posts, shotOfWeek, sotwFinalists, sotwVotingActive, sotwVotedPostId, sotwChangingVote]);
 
   const sotwFinalistIdSet = useMemo(() => new Set(sotwFinalists.map((p) => String(p.id))), [sotwFinalists]);
 
-  // What the vote control under a finalist's banner shows: 'vote' (a Vote
-  // button), 'voted' ("✓ Voted — Change Vote"), 'busy' (saving), or null
-  // (nothing — not a finalist, or the user voted for a different one and
-  // hasn't tapped Change Vote).
+  // What the vote control under a finalist's banner shows: 'vote' (a white
+  // Vote button), 'voted' (a black Voted button), 'busy' (saving), or null
+  // (nothing — the user voted for a different finalist). Tapping Voted puts
+  // every finalist back to 'vote' so the user can pick again.
   const sotwVoteStateFor = (postId) => {
     const id = String(postId);
     if (!user?.id || !sotwFinalistIdSet.has(id)) return null;
     if (sotwVotingPostId === id) return 'busy';
-    if (sotwVotedPostId === id) return 'voted';
     if (!sotwVotedPostId || sotwChangingVote) return 'vote';
+    if (sotwVotedPostId === id) return 'voted';
     return null;
   };
 
-  const handleSotwChangeVote = useCallback(() => setSotwChangingVote((prev) => !prev), []);
+  // Re-pins all five finalists to the top with Vote buttons and keeps the
+  // tapped post on screen. The saved vote stays until a new one is cast
+  // (castSotwVote upserts), so backing out of a change loses nothing.
+  // Unlimited changes until the Sunday 11:59pm deadline.
+  const startSotwVoteChange = useCallback(
+    (focusPostId) => {
+      if (!sotwFinalists.length) return false;
+      const index = Math.max(0, sotwFinalists.findIndex((p) => String(p.id) === String(focusPostId)));
+      setSotwChangingVote(true);
+      setActivePostId(sotwFinalists[index].id);
+      requestAnimationFrame(() => {
+        if (index > 0) postsListRef.current?.scrollToIndex({ index, animated: false });
+        else postsListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      });
+      return true;
+    },
+    [sotwFinalists]
+  );
+
+  const handleSotwChangeVote = useCallback(() => {
+    startSotwVoteChange(sotwVotedPostId);
+  }, [startSotwVoteChange, sotwVotedPostId]);
 
   // The voting banner: scrolls to the first finalist in the feed. If the
-  // user has already voted, it also re-shows the Vote buttons (same as
-  // tapping Change Vote) so they can pick a different one from there. If no
-  // finalist is in their feed (none from people they follow, after voting
-  // unpinned them), it opens the voting screen instead.
+  // user has already voted, it re-pins the finalists with Vote buttons (same
+  // as tapping Voted) so they can pick a different one. If no finalist is in
+  // their feed, it opens the voting screen instead.
   const handleSotwBannerPress = () => {
-    if (sotwVotedPostId) setSotwChangingVote(true);
+    if (sotwVotedPostId && !sotwChangingVote && startSotwVoteChange(sotwFinalists[0]?.id)) return;
     const index = displayedPosts.findIndex((p) => sotwFinalistIdSet.has(String(p.id)));
     if (index < 0) {
       navigation.navigate('SotwVoting');
@@ -1601,8 +1628,8 @@ export default function FeedScreen({ navigation, route }) {
       {sotwVoteBanner && (
         <TouchableOpacity style={styles.sotwVoteBanner} onPress={handleSotwBannerPress} activeOpacity={0.8}>
           <Text style={styles.sotwVoteBannerText} numberOfLines={1}>
-            {sotwVotedPostId
-              ? '🏆 Shot of the Week voting is open — change your vote'
+            {sotwVotedPostId && !sotwChangingVote
+              ? '🏆 Voting is open — tap to change your vote'
               : '🏆 Voting is open — pick your Shot of the Week'}
           </Text>
         </TouchableOpacity>
@@ -1648,6 +1675,9 @@ export default function FeedScreen({ navigation, route }) {
               ref={postsListRef}
               data={displayedPosts}
               keyExtractor={(item) => item.id}
+              // Vote button state lives outside `data`, so tell the list to
+              // re-render its rows when it changes.
+              extraData={`${sotwVotedPostId}|${sotwChangingVote}|${sotwVotingPostId}`}
               renderItem={({ item }) => (
                 <PostSlide
                   post={item}
@@ -1908,12 +1938,14 @@ const styles = StyleSheet.create({
   pagerContainer: {
     flex: 1,
   },
-  // Sits directly under the finalist banner, in the same gold.
+  // Sits directly under the finalist banner: white "Vote", black "Voted".
   sotwVoteButton: {
     alignSelf: 'flex-start',
     minHeight: 32,
+    minWidth: 76,
+    alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#d4af37',
+    backgroundColor: '#fff',
     borderRadius: 16,
     paddingVertical: 6,
     paddingHorizontal: 18,
@@ -1921,22 +1953,24 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   sotwVoteButtonText: {
-    color: '#0d1f3c',
+    color: '#000',
     fontSize: 14,
     fontWeight: '700',
   },
   sotwVotedButton: {
-    backgroundColor: 'rgba(13,31,60,0.75)',
-    borderWidth: 1,
-    borderColor: '#d4af37',
+    backgroundColor: '#000',
   },
   sotwVotedButtonText: {
-    color: '#d4af37',
+    color: '#fff',
   },
-  // Thin gold strip above the feed during voting.
+  // Small centered gold pill above the feed during voting.
   sotwVoteBanner: {
-    paddingHorizontal: 12,
+    alignSelf: 'center',
+    marginHorizontal: 16,
+    marginVertical: 6,
+    paddingHorizontal: 14,
     paddingVertical: 5,
+    borderRadius: 999,
     backgroundColor: colors.gold,
     alignItems: 'center',
   },
