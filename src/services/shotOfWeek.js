@@ -36,27 +36,60 @@ export function getSotwVotingDeadline(now = new Date()) {
 }
 
 // The week the current nominees belong to — the newest week_start in
-// sotw_nominees. Stays current until next Friday's job adds new nominees.
+// sotw_nominees — and whether it's a test week. Stays current until next
+// Friday's job adds new nominees.
+//
+// Test weeks: rows inserted by hand with is_test = true (and, usually,
+// today's date as week_start, so they're the newest) open voting right away,
+// whatever the day — see isSotwVotingOpenFor. Every screen that reads the
+// current week (finalist badges, pinned finalists, votes, the voting screen)
+// then uses those rows. Delete them afterwards (supabase/schema.sql has the
+// cleanup query), because test rows are visible to every user.
 async function getCurrentSotwWeek() {
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('sotw_nominees')
-    .select('week_start')
+    .select('week_start, is_test')
     .order('week_start', { ascending: false })
+    .order('is_test', { ascending: false })
     .limit(1)
     .maybeSingle();
+  // 42703 = undefined column: the is_test migration hasn't been run yet.
+  if (error?.code === '42703') {
+    ({ data, error } = await supabase
+      .from('sotw_nominees')
+      .select('week_start')
+      .order('week_start', { ascending: false })
+      .limit(1)
+      .maybeSingle());
+  }
   if (error) throw error;
-  return data?.week_start ?? null;
+  if (!data?.week_start) return null;
+  return { weekStart: data.week_start, isTest: Boolean(data.is_test) };
+}
+
+async function getCurrentSotwWeekStart() {
+  return (await getCurrentSotwWeek())?.weekStart ?? null;
+}
+
+// Whether voting is open for a list of nominees from getSotwNominees():
+// the normal Friday 9am – Sunday window, or any time for a test week.
+export function isSotwVotingOpenFor(nominees, now = new Date()) {
+  if (nominees?.some((n) => n.sotwIsTest)) return true;
+  return isSotwVotingOpen(now);
 }
 
 const nomineeScore = (p) => p.likes + p.comments * 2 + p.saves * 3;
 
-// This week's finalists (up to 5), as feed posts, ranked the same way the
+// This week's finalists (up to 5), as feed posts (each with its live
+// like count as `likes`, from posts.likes_count), ranked the same way the
 // Friday job picked them. Each post carries the week it's a finalist for.
 // Returns [] if the newest nominees are from a week whose result is already
 // final and no new ones have been picked yet — there's nothing to vote on.
 export async function getSotwNominees() {
-  const weekStart = await getCurrentSotwWeek();
-  if (!weekStart || isSotwWeekFinal(weekStart)) return [];
+  const current = await getCurrentSotwWeek();
+  if (!current) return [];
+  const { weekStart, isTest } = current;
+  if (!isTest && isSotwWeekFinal(weekStart)) return [];
 
   const { data: nominees, error: nomineeError } = await supabase
     .from('sotw_nominees')
@@ -73,7 +106,7 @@ export async function getSotwNominees() {
   if (postError) throw postError;
 
   return (posts ?? [])
-    .map((row) => ({ ...mapPostRow(row), sotwWeekStart: weekStart }))
+    .map((row) => ({ ...mapPostRow(row), sotwWeekStart: weekStart, sotwIsTest: isTest }))
     .sort((a, b) => nomineeScore(b) - nomineeScore(a));
 }
 
@@ -81,7 +114,7 @@ export async function getSotwNominees() {
 // posts. Unlike getSotwNominees, this keeps returning last week's finalists
 // after the vote is counted, until next Friday's nominees replace them.
 export async function getSotwNomineeIds() {
-  const weekStart = await getCurrentSotwWeek();
+  const weekStart = await getCurrentSotwWeekStart();
   if (!weekStart) return new Set();
   const { data, error } = await supabase
     .from('sotw_nominees')
@@ -94,7 +127,7 @@ export async function getSotwNomineeIds() {
 // The post the user voted for in the current week, or null.
 export async function getSotwVote(userId) {
   if (!userId) return null;
-  const weekStart = await getCurrentSotwWeek();
+  const weekStart = await getCurrentSotwWeekStart();
   if (!weekStart) return null;
   const { data, error } = await supabase
     .from('sotw_votes')
@@ -106,13 +139,16 @@ export async function getSotwVote(userId) {
   return data?.post_id ?? null;
 }
 
-// Casts the user's one vote for the week this post is a finalist in. RLS
-// only accepts it for the user's own id and a real nominee, and the unique
-// (user_id, week_start) constraint rejects a second vote (Postgres 23505).
+// Casts (or changes) the user's one vote for the week this post is a
+// finalist in. Upserts on the unique (user_id, week_start) key, so voting
+// again that week moves the vote to the new post instead of adding a second
+// one. RLS only accepts it for the user's own id and a real nominee.
 export async function castSotwVote(userId, postId) {
   const { data: nominee, error: nomineeError } = await supabase
     .from('sotw_nominees')
-    .select('week_start')
+    // '*' rather than naming is_test, so this still works before that
+    // column's migration has been run.
+    .select('*')
     .eq('post_id', postId)
     .order('week_start', { ascending: false })
     .limit(1)
@@ -123,10 +159,10 @@ export async function castSotwVote(userId, postId) {
   // The database policy doesn't enforce the deadline, so refuse late votes
   // here: voting for a week ends at the end of its Sunday (11:59pm, the
   // user's local time) — week_start + 9 days, so the cutoff is 00:00 local
-  // on the Monday after.
+  // on the Monday after. Test weeks have no deadline.
   const [y, m, d] = String(nominee.week_start).split('-').map(Number);
   const votingClosesAt = new Date(y, m - 1, d + 10);
-  if (new Date() >= votingClosesAt) {
+  if (!nominee.is_test && new Date() >= votingClosesAt) {
     const closedError = new Error('Voting has closed for this week');
     closedError.code = 'SOTW_VOTING_CLOSED';
     throw closedError;
@@ -134,14 +170,17 @@ export async function castSotwVote(userId, postId) {
 
   const { error } = await supabase
     .from('sotw_votes')
-    .insert({ user_id: userId, post_id: postId, week_start: nominee.week_start });
+    .upsert(
+      { user_id: userId, post_id: postId, week_start: nominee.week_start, created_at: new Date().toISOString() },
+      { onConflict: 'user_id,week_start' }
+    );
   if (error) throw error;
 }
 
 // post_id -> vote count for the current week. Counted client-side — fine
 // while there are only a handful of finalists and votes per week.
 export async function getSotwVoteCounts() {
-  const weekStart = await getCurrentSotwWeek();
+  const weekStart = await getCurrentSotwWeekStart();
   if (!weekStart) return {};
   const { data, error } = await supabase
     .from('sotw_votes')

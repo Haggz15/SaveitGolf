@@ -1238,6 +1238,20 @@ create table if not exists public.sotw_nominees (
   created_at timestamptz default now()
 );
 
+-- Test weeks: hand-inserted nominee rows with is_test = true open voting in
+-- the app immediately, any day of the week (see getCurrentSotwWeek in
+-- src/services/shotOfWeek.js), and calculate_sotw_winner_from_votes()
+-- ignores them, so a test can never become a real Shot of the Week. To run
+-- a test, insert up to 5 rows with today's date:
+--   insert into public.sotw_nominees (post_id, week_start, is_test)
+--   values ('<post uuid>', current_date, true), ...;
+-- and to clean up afterwards (every user sees a test week while it exists):
+--   delete from public.sotw_votes v using public.sotw_nominees n
+--     where n.is_test and v.week_start = n.week_start and v.post_id = n.post_id;
+--   delete from public.sotw_nominees where is_test;
+alter table public.sotw_nominees
+  add column if not exists is_test boolean not null default false;
+
 -- Makes the Friday job safe to re-run: a post is nominated once per week.
 create unique index if not exists sotw_nominees_week_post_idx
   on public.sotw_nominees (week_start, post_id);
@@ -1270,11 +1284,26 @@ create policy "Signed-in users can view SOTW votes"
   using (true);
 
 -- Users can only cast their own vote, and only for a post that's actually
--- a nominee that week. No update or delete policy, so a vote is final.
+-- a nominee that week. The update policy lets them change it (the app
+-- upserts on (user_id, week_start)) under the same rules. No delete policy.
 drop policy if exists "Users can cast their own SOTW vote" on public.sotw_votes;
 create policy "Users can cast their own SOTW vote"
   on public.sotw_votes for insert
   to authenticated
+  with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from public.sotw_nominees n
+      where n.post_id = sotw_votes.post_id
+        and n.week_start = sotw_votes.week_start
+    )
+  );
+
+drop policy if exists "Users can change their own SOTW vote" on public.sotw_votes;
+create policy "Users can change their own SOTW vote"
+  on public.sotw_votes for update
+  to authenticated
+  using (user_id = auth.uid())
   with check (
     user_id = auth.uid()
     and exists (
@@ -1338,7 +1367,7 @@ declare
   target_week date;
   winner_post_id uuid;
 begin
-  select max(week_start) into target_week from public.sotw_nominees;
+  select max(week_start) into target_week from public.sotw_nominees where not is_test;
   if target_week is null then
     return;
   end if;
@@ -1349,6 +1378,7 @@ begin
   left join public.sotw_votes v
     on v.post_id = n.post_id and v.week_start = n.week_start
   where n.week_start = target_week
+    and not n.is_test
   group by n.post_id, p.likes_count, p.comments_count, p.saves_count, p.created_at
   order by count(v.id) desc,
     (p.likes_count + p.comments_count * 2 + p.saves_count * 3) desc,

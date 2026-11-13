@@ -22,7 +22,7 @@ import {
   getSotwVote,
   getSotwVoteCounts,
   castSotwVote,
-  isSotwVotingOpen,
+  isSotwVotingOpenFor,
   getSotwVotingDeadline,
 } from '../services/shotOfWeek';
 
@@ -191,7 +191,7 @@ export default function SotwVotingScreen({ navigation }) {
   const [isMuted, setIsMuted] = useState(false);
   const [pagerHeight, setPagerHeight] = useState(0);
   const [toastMessage, setToastMessage] = useState(null);
-  const votingOpen = isSotwVotingOpen();
+  const votingOpen = isSotwVotingOpenFor(nominees);
 
   const load = useCallback(async () => {
     try {
@@ -256,7 +256,11 @@ export default function SotwVotingScreen({ navigation }) {
         <View style={styles.headerText}>
           <Text style={styles.headerTitle}>Vote for Shot of the Week</Text>
           <Text style={styles.headerSubtitle}>
-            {votingOpen ? formatDeadline(getSotwVotingDeadline()) : 'Voting is closed — winner announced Monday'}
+            {nominees[0]?.sotwIsTest
+              ? 'Test week — voting is open until the test rows are deleted'
+              : votingOpen
+                ? formatDeadline(getSotwVotingDeadline())
+                : 'Voting is closed — winner announced Monday'}
           </Text>
         </View>
       </View>

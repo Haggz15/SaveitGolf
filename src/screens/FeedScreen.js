@@ -48,7 +48,8 @@ import {
   getSotwNomineeIds,
   getSotwNominees,
   getSotwVote,
-  isSotwVotingOpen,
+  castSotwVote,
+  isSotwVotingOpenFor,
 } from '../services/shotOfWeek';
 import { saveMediaToDevice, saveLocalUriToLibrary, showPhotoPermissionAlert } from '../utils/saveMedia';
 import { toStateAbbreviation } from '../data/usStates';
@@ -92,6 +93,9 @@ function PostSlide({
   isCurrent,
   isShotOfWeek,
   isSotwFinalist,
+  sotwVoteState,
+  onSotwVote,
+  onSotwChangeVote,
   currentUserId,
   initiallyLiked,
   initiallySaved,
@@ -517,6 +521,29 @@ function PostSlide({
           ) : isSotwFinalist ? (
             <ShotOfWeekBanner variant="finalist" />
           ) : null}
+          {sotwVoteState === 'vote' ? (
+            <TouchableOpacity
+              style={styles.sotwVoteButton}
+              onPress={() => onSotwVote?.(post.id)}
+              activeOpacity={0.8}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Text style={styles.sotwVoteButtonText}>Vote</Text>
+            </TouchableOpacity>
+          ) : sotwVoteState === 'voted' ? (
+            <TouchableOpacity
+              style={[styles.sotwVoteButton, styles.sotwVotedButton]}
+              onPress={onSotwChangeVote}
+              activeOpacity={0.8}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Text style={[styles.sotwVoteButtonText, styles.sotwVotedButtonText]}>✓ Voted — Change Vote</Text>
+            </TouchableOpacity>
+          ) : sotwVoteState === 'busy' ? (
+            <View style={[styles.sotwVoteButton, styles.sotwVotedButton]}>
+              <ActivityIndicator size="small" color="#d4af37" />
+            </View>
+          ) : null}
           <View style={styles.avatarRow}>
             {post.avatarUrl ? (
               <Image source={{ uri: post.avatarUrl }} style={styles.avatar} />
@@ -586,6 +613,13 @@ export default function FeedScreen({ navigation, route }) {
   // The main feed's voting banner, shown Friday 9am – Sunday midnight while
   // there are finalists to vote on: null (hidden) or { count, voted }.
   const [sotwVoteBanner, setSotwVoteBanner] = useState(null);
+  // While voting is open: this week's finalists (pinned to the top of the
+  // main feed, most-liked first), the finalist the user voted for (or null),
+  // and whether they've tapped "Change Vote" to re-show the other Vote buttons.
+  const [sotwFinalists, setSotwFinalists] = useState([]);
+  const [sotwVotedPostId, setSotwVotedPostId] = useState(null);
+  const [sotwChangingVote, setSotwChangingVote] = useState(false);
+  const [sotwVotingPostId, setSotwVotingPostId] = useState(null);
   const [followingOffset, setFollowingOffset] = useState(0);
   const [followingHasMore, setFollowingHasMore] = useState(true);
   // Reposts page separately from original posts (their own offset).
@@ -725,18 +759,73 @@ export default function FeedScreen({ navigation, route }) {
   // the banner flips to "You voted" as soon as the user comes back from
   // SotwVotingScreen.
   const loadSotwVoteBanner = useCallback(async () => {
-    if (filter || profileFeedPosts || !isSotwVotingOpen()) {
+    const clearVoting = () => {
       setSotwVoteBanner(null);
+      setSotwFinalists([]);
+      setSotwVotedPostId(null);
+    };
+    if (filter || profileFeedPosts) {
+      clearVoting();
       return;
     }
     try {
-      const [nominees, myVote] = await Promise.all([getSotwNominees(), getSotwVote(user?.id)]);
+      // Fetched every day, not just Friday – Sunday, because a hand-inserted
+      // test week (sotw_nominees.is_test) opens voting any day. Outside the
+      // window the nominee fetch is usually one query: getSotwNominees stops
+      // once it sees the newest real week is already final.
+      const nominees = await getSotwNominees();
+      if (!isSotwVotingOpenFor(nominees)) {
+        clearVoting();
+        return;
+      }
+      const myVote = await getSotwVote(user?.id);
       setSotwVoteBanner(nominees.length > 0 ? { count: nominees.length, voted: Boolean(myVote) } : null);
+      // Most-liked finalist first. Sorted once here (not on every like) so
+      // the pinned slides don't reshuffle under the user mid-scroll.
+      setSotwFinalists([...nominees].sort((a, b) => b.likes - a.likes));
+      setSotwVotedPostId(myVote ? String(myVote) : null);
+      setSotwChangingVote(false);
+      if (nominees.length && user?.id) {
+        const ids = nominees.map((p) => p.id);
+        const [liked, saved] = await Promise.all([
+          getLikedPostIds(user.id, ids),
+          getSavedPostIds(user.id, ids),
+        ]);
+        setLikedPostIds((prev) => new Set([...prev, ...liked]));
+        setSavedPostIds((prev) => new Set([...prev, ...saved]));
+      }
     } catch (err) {
       console.error('Failed to load Shot of the Week voting state:', err);
       setSotwVoteBanner(null);
+      setSotwFinalists([]);
     }
   }, [filter, profileFeedPosts, user?.id]);
+
+  const handleSotwVote = useCallback(
+    async (postId) => {
+      if (!user?.id || sotwVotingPostId) return;
+      const previous = sotwVotedPostId;
+      setSotwVotingPostId(String(postId));
+      setSotwVotedPostId(String(postId));
+      setSotwChangingVote(false);
+      try {
+        await castSotwVote(user.id, postId);
+        setSotwVoteBanner((prev) => (prev ? { ...prev, voted: true } : prev));
+      } catch (err) {
+        setSotwVotedPostId(previous);
+        if (err?.code === 'SOTW_VOTING_CLOSED') {
+          showToast(err.message);
+        } else {
+          console.error('Failed to cast Shot of the Week vote:', err);
+          showToast('Could not save your vote — please try again');
+        }
+      } finally {
+        setSotwVotingPostId(null);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user?.id, sotwVotingPostId, sotwVotedPostId]
+  );
 
   useEffect(() => {
     Promise.all([getSotwNomineeIds(), getShotOfWeekPostIds()])
@@ -996,14 +1085,17 @@ export default function FeedScreen({ navigation, route }) {
     // made the slide on screen inactive, pausing its video for good. When a
     // replacement does change what's on screen (refresh, sort), FlatList's
     // onViewableItemsChanged fires for the new item and re-picks it.
+    // Pinned Shot of the Week finalists sit ahead of `posts`, so the first
+    // finalist is the default slide while they're showing.
     const startIndex = profileFeedPosts ? profileFeedStartIndex : 0;
     setActivePostId((prev) =>
-      prev != null && (prev === shotOfWeek?.id || posts.some((p) => p.id === prev))
+      prev != null &&
+      (prev === shotOfWeek?.id || sotwFinalists.some((p) => p.id === prev) || posts.some((p) => p.id === prev))
         ? prev
-        : posts[startIndex]?.id ?? posts[0]?.id ?? null
+        : sotwFinalists[0]?.id ?? posts[startIndex]?.id ?? posts[0]?.id ?? null
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [posts]);
+  }, [posts, sotwFinalists]);
 
   // In the normal tab mode, 'Map' is a sibling screen inside the same Tab
   // navigator so a plain navigate('Map', ...) resolves directly. In filtered
@@ -1254,10 +1346,41 @@ export default function FeedScreen({ navigation, route }) {
   // chronological position (deduped by id so it doesn't also show twice).
   // Filtered/profile-feed modes never set shotOfWeek, so this is a no-op
   // pass-through there.
+  //
+  // During Shot of the Week voting the finalists take that spot instead (and
+  // the previous winner isn't pinned at all): the five finalists first,
+  // most-liked first, then the normal feed with those posts removed. A
+  // finalist that's also in `posts` keeps its fresher in-feed copy (live
+  // counts, repost label).
   const displayedPosts = useMemo(() => {
+    if (sotwFinalists.length) {
+      const finalistIds = new Set(sotwFinalists.map((p) => p.id));
+      const inFeed = new Map(posts.filter((p) => finalistIds.has(p.id)).map((p) => [p.id, p]));
+      return [
+        ...sotwFinalists.map((p) => inFeed.get(p.id) ?? p),
+        ...posts.filter((p) => !finalistIds.has(p.id)),
+      ];
+    }
     if (!shotOfWeek) return posts;
     return [{ ...shotOfWeek, isShotOfWeek: true }, ...posts.filter((p) => p.id !== shotOfWeek.id)];
-  }, [posts, shotOfWeek]);
+  }, [posts, shotOfWeek, sotwFinalists]);
+
+  const sotwFinalistIdSet = useMemo(() => new Set(sotwFinalists.map((p) => String(p.id))), [sotwFinalists]);
+
+  // What the vote control under a finalist's banner shows: 'vote' (a Vote
+  // button), 'voted' ("✓ Voted — Change Vote"), 'busy' (saving), or null
+  // (nothing — not a finalist, or the user voted for a different one and
+  // hasn't tapped Change Vote).
+  const sotwVoteStateFor = (postId) => {
+    const id = String(postId);
+    if (!user?.id || !sotwFinalistIdSet.has(id)) return null;
+    if (sotwVotingPostId === id) return 'busy';
+    if (sotwVotedPostId === id) return 'voted';
+    if (!sotwVotedPostId || sotwChangingVote) return 'vote';
+    return null;
+  };
+
+  const handleSotwChangeVote = useCallback(() => setSotwChangingVote((prev) => !prev), []);
 
   // Which on-screen posts the user has already reposted — checked once per
   // post id as posts arrive, in every feed mode. Demo posts (no userId)
@@ -1427,7 +1550,7 @@ export default function FeedScreen({ navigation, route }) {
       >
         {loadingFeed ? (
           <ActivityIndicator color={colors.red} size="large" style={{ marginTop: 40 }} />
-        ) : posts.length === 0 && !filter && !profileFeedPosts ? (
+        ) : displayedPosts.length === 0 && !filter && !profileFeedPosts ? (
           // New users start out following nobody, so this is the first thing
           // they see — point them at golfers to follow and courses to explore.
           <View style={styles.noPostsState}>
@@ -1448,7 +1571,7 @@ export default function FeedScreen({ navigation, route }) {
               <Text style={styles.noPostsSecondaryButtonText}>🗺️ Explore Courses</Text>
             </TouchableOpacity>
           </View>
-        ) : posts.length === 0 ? (
+        ) : displayedPosts.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={36} color={colors.muted} />
             <Text style={styles.emptyStateText}>
@@ -1471,6 +1594,9 @@ export default function FeedScreen({ navigation, route }) {
                   isSotwFinalist={
                     sotwNomineeIds.has(String(item.id)) && !sotwWinnerIds.has(String(item.id))
                   }
+                  sotwVoteState={sotwVoteStateFor(item.id)}
+                  onSotwVote={handleSotwVote}
+                  onSotwChangeVote={handleSotwChangeVote}
                   currentUserId={user?.id}
                   initiallyLiked={likedPostIds.has(item.id)}
                   initiallySaved={savedPostIds.has(item.id)}
@@ -1717,6 +1843,31 @@ const styles = StyleSheet.create({
   },
   pagerContainer: {
     flex: 1,
+  },
+  // Sits directly under the finalist banner, in the same gold.
+  sotwVoteButton: {
+    alignSelf: 'flex-start',
+    minHeight: 32,
+    justifyContent: 'center',
+    backgroundColor: '#d4af37',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 18,
+    marginTop: -2,
+    marginBottom: 10,
+  },
+  sotwVoteButtonText: {
+    color: '#0d1f3c',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  sotwVotedButton: {
+    backgroundColor: 'rgba(13,31,60,0.75)',
+    borderWidth: 1,
+    borderColor: '#d4af37',
+  },
+  sotwVotedButtonText: {
+    color: '#d4af37',
   },
   sotwVoteBanner: {
     flexDirection: 'row',
