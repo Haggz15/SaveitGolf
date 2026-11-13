@@ -664,7 +664,7 @@ export default function FeedScreen({ navigation, route }) {
   // post as a gap at the top. Measure the pager instead in those modes.
   const [measuredPagerHeight, setMeasuredPagerHeight] = useState(0);
   const containerHeight =
-    filter || profileFeedPosts || sotwVoteBanner
+    filter || profileFeedPosts
       ? measuredPagerHeight
       : windowHeight - insets.top - HEADER_CONTENT_HEIGHT - TAB_BAR_HEIGHT;
   const postsListRef = useRef(null);
@@ -1625,16 +1625,6 @@ export default function FeedScreen({ navigation, route }) {
         />
       )}
 
-      {sotwVoteBanner && (
-        <TouchableOpacity style={styles.sotwVoteBanner} onPress={handleSotwBannerPress} activeOpacity={0.8}>
-          <Text style={styles.sotwVoteBannerText} numberOfLines={1}>
-            {sotwVotedPostId && !sotwChangingVote
-              ? '🏆 Voting is open — tap to change your vote'
-              : '🏆 Voting is open — pick your Shot of the Week'}
-          </Text>
-        </TouchableOpacity>
-      )}
-
       <View
         style={styles.pagerContainer}
         onLayout={(e) => setMeasuredPagerHeight(Math.round(e.nativeEvent.layout.height))}
@@ -1753,6 +1743,19 @@ export default function FeedScreen({ navigation, route }) {
               removeClippedSubviews
             />
           )
+        )}
+        {/* Floats over the top of the video like the course/hole overlay —
+            absolutely positioned so it never takes up a row in the layout. */}
+        {sotwVoteBanner && (
+          <View style={styles.sotwVoteBannerWrap} pointerEvents="box-none">
+            <TouchableOpacity style={styles.sotwVoteBanner} onPress={handleSotwBannerPress} activeOpacity={0.8}>
+              <Text style={styles.sotwVoteBannerText} numberOfLines={1}>
+                {sotwVotedPostId && !sotwChangingVote
+                  ? '🏆 Voting is open — tap to change your vote'
+                  : '🏆 Voting is open — pick your Shot of the Week'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
@@ -1963,16 +1966,26 @@ const styles = StyleSheet.create({
   sotwVotedButtonText: {
     color: '#fff',
   },
-  // Small centered gold pill above the feed during voting.
+  // Small centered gold pill floating over the top of the video during voting.
+  sotwVoteBannerWrap: {
+    position: 'absolute',
+    top: 12,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 10,
+  },
   sotwVoteBanner: {
-    alignSelf: 'center',
-    marginHorizontal: 16,
-    marginVertical: 6,
     paddingHorizontal: 14,
     paddingVertical: 5,
     borderRadius: 999,
     backgroundColor: colors.gold,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   sotwVoteBannerText: {
     color: colors.navy,
