@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { Alert, Linking, Platform } from 'react-native';
 
 import { supabase } from '../services/supabase';
+import { parsePasswordResetUrl, friendlyResetLinkError } from '../services/authDeepLink';
 import { getProfile, insertProfile, updateProfile as updateProfileRequest } from '../services/profiles';
 import { registerForPushNotifications } from '../services/pushNotifications';
 import { followUser } from '../services/social';
@@ -59,6 +61,61 @@ export function AuthProvider({ children }) {
       subscription.subscription.unsubscribe();
     };
   }, [loadProfile]);
+
+  // Native password-reset deep link (com.saveitgolf.app://reset-password).
+  // detectSessionInUrl is web-only, so on native we pull the tokens out of
+  // the link ourselves. setSession fires SIGNED_IN rather than
+  // PASSWORD_RECOVERY, so the recovery flag is raised first — that way
+  // RootNavigator goes straight to ResetPasswordScreen without flashing the
+  // main app.
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+
+    let active = true;
+    const handled = new Set();
+
+    const handleUrl = async (url) => {
+      const parsed = parsePasswordResetUrl(url);
+      if (!parsed || handled.has(url)) return;
+      handled.add(url);
+
+      if (parsed.error) {
+        Alert.alert('Reset link expired', friendlyResetLinkError(parsed.error));
+        return;
+      }
+
+      setPasswordRecovery(true);
+      try {
+        let error;
+        if (parsed.accessToken && parsed.refreshToken) {
+          ({ error } = await supabase.auth.setSession({
+            access_token: parsed.accessToken,
+            refresh_token: parsed.refreshToken,
+          }));
+        } else if (parsed.code) {
+          ({ error } = await supabase.auth.exchangeCodeForSession(parsed.code));
+        } else {
+          error = { code: 'missing_token', message: 'Invalid reset link' };
+        }
+        if (error) throw error;
+      } catch (err) {
+        console.warn('[auth] password reset link failed', err);
+        if (!active) return;
+        setPasswordRecovery(false);
+        Alert.alert('Reset link expired', friendlyResetLinkError(err));
+      }
+    };
+
+    Linking.getInitialURL()
+      .then((url) => url && handleUrl(url))
+      .catch((err) => console.warn('[auth] getInitialURL failed', err));
+    const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+
+    return () => {
+      active = false;
+      sub.remove();
+    };
+  }, []);
 
   // Register this device for push once there's a signed-in user with a
   // profile row to store the token on (a brand-new account gets one after

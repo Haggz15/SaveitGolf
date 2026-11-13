@@ -26,6 +26,12 @@ export function friendlyAuthError(error) {
   if (code === 'weak_password' || /password.*at least/i.test(message)) {
     return 'Password must be at least 6 characters.';
   }
+  if (code === 'same_password' || /should be different from the old password/i.test(message)) {
+    return 'Your new password must be different from your old one.';
+  }
+  if (code === 'session_not_found' || code === 'session_expired' || /auth session missing|jwt expired/i.test(message)) {
+    return 'Your reset link has expired. Go back to sign in and request a new one.';
+  }
   if (/invalid email/i.test(message)) {
     return 'Enter a valid email address.';
   }

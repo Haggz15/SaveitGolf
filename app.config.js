@@ -17,7 +17,11 @@ module.exports = {
     icon: './assets/icon.png',
     userInterfaceStyle: 'dark',
     backgroundColor: '#0d1f3c',
-    scheme: 'saveitgolf',
+    // com.saveitgolf.app is the password-reset deep link scheme
+    // (com.saveitgolf.app://reset-password). iOS already registered it via
+    // the bundle identifier; listing it here adds it on Android too.
+    // 'saveitgolf' is kept so any existing links keep working.
+    scheme: ['saveitgolf', 'com.saveitgolf.app'],
     updates: {
       url: 'https://u.expo.dev/48ad35b3-294a-4970-b8fe-612a50cd94fb',
       enabled: true,

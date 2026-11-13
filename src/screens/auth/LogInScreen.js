@@ -15,19 +15,19 @@ import AuthLogo from '../../components/auth/AuthLogo';
 import AuthTextField from '../../components/auth/AuthTextField';
 import { signInWithEmail, requestPasswordReset } from '../../services/auth';
 import { friendlyAuthError, isEmailNotConfirmedError } from '../../services/authErrors';
+import { PASSWORD_RESET_DEEP_LINK } from '../../services/authDeepLink';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// The recovery link has to land on the web build (see AuthContext's
-// passwordRecovery flag and services/auth.js's requestPasswordReset) — this
-// mirrors saveitgolf.com's existing convention from PostShareSheet.js's
-// POST_LINK_BASE, and on native just becomes the URL the device browser
-// opens when the emailed link is tapped. It must be allow-listed in the
-// Supabase dashboard under Authentication > URL Configuration > Redirect URLs.
+// On native the emailed link deep-links back into the app, where
+// AuthContext's Linking listener reads the tokens and opens
+// ResetPasswordScreen. On web it lands on the site, where supabase.js's
+// detectSessionInUrl handles it. Both must be allow-listed in the Supabase
+// dashboard under Authentication > URL Configuration > Redirect URLs.
 const PASSWORD_RESET_REDIRECT_URL =
   Platform.OS === 'web' && typeof window !== 'undefined'
     ? `${window.location.origin}/reset-password`
-    : 'https://saveitgolf.com/reset-password';
+    : PASSWORD_RESET_DEEP_LINK;
 
 export default function LogInScreen({ navigation }) {
   const [email, setEmail] = useState('');

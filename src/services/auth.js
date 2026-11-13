@@ -17,13 +17,11 @@ export async function signOut() {
   if (error) throw error;
 }
 
-// Emails a recovery link (Fix 9). `redirectTo` must point somewhere that can
-// finish the flow — this app only parses the recovery token on the web build
-// (see supabase.js's detectSessionInUrl comment), so it should always be a
-// saveitgolf.com URL even when this is called from the native app; tapping
-// the emailed link just opens that in the device browser. The link's domain
-// also has to be allow-listed in the Supabase dashboard under Authentication
-// > URL Configuration > Redirect URLs, which isn't something this repo controls.
+// Emails a recovery link (Fix 9). `redirectTo` is
+// com.saveitgolf.app://reset-password on native (handled by AuthContext's
+// deep-link listener) and the site's /reset-password on web (handled by
+// detectSessionInUrl). It has to be allow-listed in the Supabase dashboard
+// under Authentication > URL Configuration > Redirect URLs.
 export async function requestPasswordReset(email, redirectTo) {
   const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
   if (error) throw error;
