@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  AppState,
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -49,6 +50,7 @@ import {
   getSotwNominees,
   getSotwVote,
   castSotwVote,
+  isSotwVotingOpen,
   isSotwVotingOpenFor,
 } from '../services/shotOfWeek';
 import { saveMediaToDevice, saveLocalUriToLibrary, showPhotoPermissionAlert } from '../utils/saveMedia';
@@ -610,7 +612,7 @@ export default function FeedScreen({ navigation, route }) {
   // finalist badge on feed posts (a finalist that has won gets no badge).
   const [sotwNomineeIds, setSotwNomineeIds] = useState(new Set());
   const [sotwWinnerIds, setSotwWinnerIds] = useState(new Set());
-  // The main feed's voting banner, shown Friday 9am – Sunday midnight while
+  // The main feed's voting banner, shown Friday 12am – Sunday 11:59pm while
   // there are finalists to vote on: null (hidden) or { count, voted }.
   const [sotwVoteBanner, setSotwVoteBanner] = useState(null);
   // While voting is open: this week's finalists (pinned to the top of the
@@ -620,6 +622,11 @@ export default function FeedScreen({ navigation, route }) {
   const [sotwVotedPostId, setSotwVotedPostId] = useState(null);
   const [sotwChangingVote, setSotwChangingVote] = useState(false);
   const [sotwVotingPostId, setSotwVotingPostId] = useState(null);
+  // Whether it's voting week on the main feed (Friday 12am – Sunday 11:59pm,
+  // or a test week). Kept separate from sotwFinalists so the previous winner
+  // stays unpinned during voting even if the finalists are empty or failed
+  // to load.
+  const [sotwVotingActive, setSotwVotingActive] = useState(() => isSotwVotingOpen());
   const [followingOffset, setFollowingOffset] = useState(0);
   const [followingHasMore, setFollowingHasMore] = useState(true);
   // Reposts page separately from original posts (their own offset).
@@ -766,6 +773,7 @@ export default function FeedScreen({ navigation, route }) {
     };
     if (filter || profileFeedPosts) {
       clearVoting();
+      setSotwVotingActive(false);
       return;
     }
     try {
@@ -774,7 +782,9 @@ export default function FeedScreen({ navigation, route }) {
       // window the nominee fetch is usually one query: getSotwNominees stops
       // once it sees the newest real week is already final.
       const nominees = await getSotwNominees();
-      if (!isSotwVotingOpenFor(nominees)) {
+      const votingOpen = isSotwVotingOpenFor(nominees);
+      setSotwVotingActive(votingOpen);
+      if (!votingOpen) {
         clearVoting();
         return;
       }
@@ -798,6 +808,8 @@ export default function FeedScreen({ navigation, route }) {
       console.error('Failed to load Shot of the Week voting state:', err);
       setSotwVoteBanner(null);
       setSotwFinalists([]);
+      // Still keep the previous winner off the top during voting hours.
+      setSotwVotingActive(isSotwVotingOpen());
     }
   }, [filter, profileFeedPosts, user?.id]);
 
@@ -805,14 +817,28 @@ export default function FeedScreen({ navigation, route }) {
     async (postId) => {
       if (!user?.id || sotwVotingPostId) return;
       const previous = sotwVotedPostId;
+      // A first vote unpins the finalists (see displayedPosts), so the list
+      // reflows under the user. Keep the post they just voted on on screen if
+      // it's in their normal feed, otherwise go to the top of the feed.
+      const jumpTo = (list) => {
+        const index = Math.max(0, list.findIndex((p) => String(p.id) === String(postId)));
+        setActivePostId(list[index]?.id ?? null);
+        requestAnimationFrame(() => {
+          if (index > 0) postsListRef.current?.scrollToIndex({ index, animated: false });
+          else postsListRef.current?.scrollToOffset({ offset: 0, animated: false });
+        });
+      };
       setSotwVotingPostId(String(postId));
       setSotwVotedPostId(String(postId));
       setSotwChangingVote(false);
+      if (!previous) jumpTo(posts);
       try {
         await castSotwVote(user.id, postId);
         setSotwVoteBanner((prev) => (prev ? { ...prev, voted: true } : prev));
       } catch (err) {
         setSotwVotedPostId(previous);
+        // The finalists are pinned again — go back to the one they tapped.
+        if (!previous) jumpTo(sotwFinalists);
         if (err?.code === 'SOTW_VOTING_CLOSED') {
           showToast(err.message);
         } else {
@@ -824,7 +850,7 @@ export default function FeedScreen({ navigation, route }) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user?.id, sotwVotingPostId, sotwVotedPostId]
+    [user?.id, sotwVotingPostId, sotwVotedPostId, posts, sotwFinalists]
   );
 
   useEffect(() => {
@@ -855,9 +881,9 @@ export default function FeedScreen({ navigation, route }) {
 
   const onRefreshFollowingFeed = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([loadFeed(true), refreshCounts()]);
+    await Promise.all([loadFeed(true), refreshCounts(), loadSotwVoteBanner()]);
     setRefreshing(false);
-  }, [loadFeed, refreshCounts]);
+  }, [loadFeed, refreshCounts, loadSotwVoteBanner]);
 
   const loadMoreFollowingPosts = useCallback(async () => {
     if (filter || profileFeedPosts || (!followingHasMore && !repostsHasMore) || loadingMoreFollowing || !user?.id)
@@ -928,6 +954,35 @@ export default function FeedScreen({ navigation, route }) {
       loadSotwVoteBanner();
     }, [loadFeed, loadSotwVoteBanner, filter, profileFeedPosts])
   );
+
+  // Also re-check voting when the app returns to the foreground, so an app
+  // left open since before Friday 12am (or Monday 12am) switches between the
+  // pinned finalists and the pinned winner without needing a tab switch.
+  useEffect(() => {
+    if (filter || profileFeedPosts) return undefined;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') loadSotwVoteBanner();
+    });
+    return () => sub.remove();
+  }, [loadSotwVoteBanner, filter, profileFeedPosts]);
+
+  // And at every local midnight while the app is open, so the voting banner
+  // and pinned finalists appear at Friday 12am and disappear at Monday 12am
+  // (the end of Sunday 11:59pm) without any user action.
+  useEffect(() => {
+    if (filter || profileFeedPosts) return undefined;
+    let timer;
+    const scheduleNext = () => {
+      const nextMidnight = new Date();
+      nextMidnight.setHours(24, 0, 1, 0);
+      timer = setTimeout(() => {
+        loadSotwVoteBanner();
+        scheduleNext();
+      }, nextMidnight.getTime() - Date.now());
+    };
+    scheduleNext();
+    return () => clearTimeout(timer);
+  }, [loadSotwVoteBanner, filter, profileFeedPosts]);
 
   useEffect(() => {
     if (filter || profileFeedPosts) return; // main feed tab only
@@ -1092,7 +1147,7 @@ export default function FeedScreen({ navigation, route }) {
       prev != null &&
       (prev === shotOfWeek?.id || sotwFinalists.some((p) => p.id === prev) || posts.some((p) => p.id === prev))
         ? prev
-        : sotwFinalists[0]?.id ?? posts[startIndex]?.id ?? posts[0]?.id ?? null
+        : (!sotwVotedPostId && sotwFinalists[0]?.id) || posts[startIndex]?.id || posts[0]?.id || null
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts, sotwFinalists]);
@@ -1347,13 +1402,17 @@ export default function FeedScreen({ navigation, route }) {
   // Filtered/profile-feed modes never set shotOfWeek, so this is a no-op
   // pass-through there.
   //
-  // During Shot of the Week voting the finalists take that spot instead (and
-  // the previous winner isn't pinned at all): the five finalists first,
-  // most-liked first, then the normal feed with those posts removed. A
-  // finalist that's also in `posts` keeps its fresher in-feed copy (live
-  // counts, repost label).
+  // During Shot of the Week voting (Friday 12am – Sunday 11:59pm) the
+  // previous winner is never pinned. Until the user votes, the five
+  // finalists take that spot instead: most-liked first, then the normal feed
+  // with those posts removed. Once they've voted (or if the finalists haven't
+  // loaded) it's just the normal feed, where finalists sit in their usual
+  // place and the voting banner scrolls to them. A finalist that's also in
+  // `posts` keeps its fresher in-feed copy (live counts, repost label). The
+  // winner is pinned again from Monday.
   const displayedPosts = useMemo(() => {
-    if (sotwFinalists.length) {
+    if (sotwVotingActive || sotwFinalists.length) {
+      if (sotwVotedPostId || !sotwFinalists.length) return posts;
       const finalistIds = new Set(sotwFinalists.map((p) => p.id));
       const inFeed = new Map(posts.filter((p) => finalistIds.has(p.id)).map((p) => [p.id, p]));
       return [
@@ -1363,7 +1422,7 @@ export default function FeedScreen({ navigation, route }) {
     }
     if (!shotOfWeek) return posts;
     return [{ ...shotOfWeek, isShotOfWeek: true }, ...posts.filter((p) => p.id !== shotOfWeek.id)];
-  }, [posts, shotOfWeek, sotwFinalists]);
+  }, [posts, shotOfWeek, sotwFinalists, sotwVotingActive, sotwVotedPostId]);
 
   const sotwFinalistIdSet = useMemo(() => new Set(sotwFinalists.map((p) => String(p.id))), [sotwFinalists]);
 
@@ -1381,6 +1440,22 @@ export default function FeedScreen({ navigation, route }) {
   };
 
   const handleSotwChangeVote = useCallback(() => setSotwChangingVote((prev) => !prev), []);
+
+  // The voting banner: scrolls to the first finalist in the feed. If the
+  // user has already voted, it also re-shows the Vote buttons (same as
+  // tapping Change Vote) so they can pick a different one from there. If no
+  // finalist is in their feed (none from people they follow, after voting
+  // unpinned them), it opens the voting screen instead.
+  const handleSotwBannerPress = () => {
+    if (sotwVotedPostId) setSotwChangingVote(true);
+    const index = displayedPosts.findIndex((p) => sotwFinalistIdSet.has(String(p.id)));
+    if (index < 0) {
+      navigation.navigate('SotwVoting');
+      return;
+    }
+    setActivePostId(displayedPosts[index].id);
+    postsListRef.current?.scrollToIndex({ index, animated: true });
+  };
 
   // Which on-screen posts the user has already reposted — checked once per
   // post id as posts arrive, in every feed mode. Demo posts (no userId)
@@ -1524,23 +1599,12 @@ export default function FeedScreen({ navigation, route }) {
       )}
 
       {sotwVoteBanner && (
-        <TouchableOpacity
-          style={styles.sotwVoteBanner}
-          onPress={() => navigation.navigate('SotwVoting')}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.sotwVoteBannerText} numberOfLines={2}>
-            {sotwVoteBanner.voted
-              ? '✓ You voted — see results'
-              : `🏆 ${sotwVoteBanner.count} finalists are up — Vote for Shot of the Week`}
+        <TouchableOpacity style={styles.sotwVoteBanner} onPress={handleSotwBannerPress} activeOpacity={0.8}>
+          <Text style={styles.sotwVoteBannerText} numberOfLines={1}>
+            {sotwVotedPostId
+              ? '🏆 Shot of the Week voting is open — change your vote'
+              : '🏆 Voting is open — pick your Shot of the Week'}
           </Text>
-          {sotwVoteBanner.voted ? (
-            <Ionicons name="chevron-forward" size={20} color={colors.gold} />
-          ) : (
-            <View style={styles.sotwVoteBannerButton}>
-              <Text style={styles.sotwVoteBannerButtonText}>Vote Now</Text>
-            </View>
-          )}
         </TouchableOpacity>
       )}
 
@@ -1869,32 +1933,17 @@ const styles = StyleSheet.create({
   sotwVotedButtonText: {
     color: '#d4af37',
   },
+  // Thin gold strip above the feed during voting.
   sotwVoteBanner: {
-    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    backgroundColor: colors.gold,
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: colors.navyCard,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gold,
   },
   sotwVoteBannerText: {
-    flex: 1,
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: '700',
-    marginRight: 10,
-  },
-  sotwVoteBannerButton: {
-    backgroundColor: colors.red,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-  },
-  sotwVoteBannerButtonText: {
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: '800',
+    color: colors.navy,
+    fontSize: 12,
+    fontWeight: '600',
   },
   emptyState: {
     alignItems: 'center',

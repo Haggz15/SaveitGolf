@@ -19,11 +19,10 @@ export function isSotwWeekFinal(weekStart, now = Date.now()) {
   return now >= weekStartMs(weekStart) + 10 * DAY_MS + 9 * HOUR_MS;
 }
 
-// Voting runs Friday 9am through Sunday midnight, in the viewer's local time.
+// Voting runs all of Friday through Sunday 11:59pm, in the viewer's local time.
 export function isSotwVotingOpen(now = new Date()) {
   const day = now.getDay();
-  if (day === 5) return now.getHours() >= 9;
-  return day === 6 || day === 0;
+  return day === 5 || day === 6 || day === 0;
 }
 
 // The end of the current voting window: the coming Sunday at midnight
@@ -72,7 +71,7 @@ async function getCurrentSotwWeekStart() {
 }
 
 // Whether voting is open for a list of nominees from getSotwNominees():
-// the normal Friday 9am – Sunday window, or any time for a test week.
+// the normal Friday 12am – Sunday 11:59pm window, or any time for a test week.
 export function isSotwVotingOpenFor(nominees, now = new Date()) {
   if (nominees?.some((n) => n.sotwIsTest)) return true;
   return isSotwVotingOpen(now);
